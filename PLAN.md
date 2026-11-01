@@ -379,7 +379,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] jest-expo configurado.
 - [x] `expo-dev-client`; `app.json`: nombre "Entreno", package `com.fabgs.entreno`, scheme `entreno`, permisos de §6.5, plugin `expo-notifications` con `sounds`.
 - [x] Sonido `assets/sounds/rest_end.wav` (generado).
-- [x] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`).
+- [ ] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`). **Bloqueado en Windows**: el `ninja` 1.10.2 que trae el CMake 3.22.1 del SDK no admite rutas largas y falla al compilar el C++ de `react-native-screens` (ver AGENTS.md → Compilar y probar).
 - [ ] Instalada en un Android real.
 - [ ] (Opcional) `eas.json` si algún día se usa EAS Build.
 
@@ -491,4 +491,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Plan inicial y `data/seed/seed.json` generados a partir del Excel. Ninguna fase empezada.
 - 2026-11-01 — El peso se define en el slot de la rutina (`routine_slot.weight_kg`); en el entreno solo se introducen reps. Seed con `weightKg` por slot.
 - 2026-11-01 — Las recomendaciones de peso **nunca se aplican solas**: quedan pendientes (`weight_change.status = 'pending'`) hasta que pulse Aplicar o Ignorar (resumen, Hoy o primera serie del ejercicio).
-- 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle.
+- 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle (bloqueado por rutas largas en Windows, pendiente de decidir solución).

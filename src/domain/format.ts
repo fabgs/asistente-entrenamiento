@@ -58,3 +58,38 @@ export function formatLongDate(date: Date): string {
   const text = format(date, "EEEE d 'de' MMMM", { locale: es });
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+/** Number typed by the user, with comma or dot as decimal separator; null while incomplete. */
+export function parseDecimal(text: string): number | null {
+  const normalized = text.trim().replace(',', '.');
+  if (!/^(\d+(\.\d*)?|\.\d+)$/.test(normalized)) return null;
+  return Number(normalized);
+}
+
+/** Seconds from "2:30" (minutes:seconds) or a plain number of seconds. */
+export function parseDuration(text: string): number | null {
+  const match = text.trim().match(/^(\d+):([0-5]?\d)$/);
+  if (match) return Number(match[1]) * 60 + Number(match[2]);
+  return parseDecimal(text);
+}
+
+/** ISO 'YYYY-MM-DD' from "25-06-1995", "25/06/1995", "25.06.1995" or "1995-06-25"; null if invalid. */
+export function parseDate(text: string): string | null {
+  const t = text.trim();
+  const dmy = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  const ymd = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  const [y, m, d] = dmy
+    ? [Number(dmy[3]), Number(dmy[2]), Number(dmy[1])]
+    : ymd
+      ? [Number(ymd[1]), Number(ymd[2]), Number(ymd[3])]
+      : [0, 0, 0];
+  const date = new Date(y, m - 1, d);
+  if (!y || date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
+  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+}
+
+/** "25-06-1995" from ISO 'YYYY-MM-DD'. */
+export function formatDateDMY(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  return `${d}-${m}-${y}`;
+}

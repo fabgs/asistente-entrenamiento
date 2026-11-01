@@ -71,7 +71,7 @@ function WeightEditor({ slot, increment }: { slot: Slot; increment: number }) {
     <Card>
       <AppText variant="heading">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
       <AppText variant="small">Actual: {formatLoad(slot.weightKg, bodyweight)}</AppText>
-      <Stepper big value={weight} onChange={setWeight} step={increment} format={formatKg} />
+      <Stepper big decimal value={weight} onChange={setWeight} step={increment} format={formatKg} />
       <Button big title="Guardar peso" onPress={save} disabled={unchanged} />
     </Card>
   );

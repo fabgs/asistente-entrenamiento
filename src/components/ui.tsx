@@ -1,15 +1,17 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type StyleProp,
   type TextProps,
   type ViewStyle,
 } from 'react-native';
+import { formatNumber, parseDecimal } from '@/domain/format';
 import { colors, radius, spacing } from '@/theme';
 
 type TextVariant = 'title' | 'heading' | 'body' | 'muted' | 'small' | 'huge';
@@ -90,7 +92,10 @@ export function Chip({
   );
 }
 
-/** Big − value + control, usable with sweaty hands. */
+/**
+ * Big − value + control, usable with sweaty hands. Tapping the value opens the keyboard to type it;
+ * every valid keystroke is applied at once, so a button pressed with the keyboard open sees it.
+ */
 export function Stepper({
   value,
   onChange,
@@ -98,6 +103,9 @@ export function Stepper({
   min = 0,
   format = String,
   big = false,
+  decimal = false,
+  parse = parseDecimal,
+  toText = (v: number) => formatNumber(v),
 }: {
   value: number;
   onChange: (value: number) => void;
@@ -105,20 +113,54 @@ export function Stepper({
   min?: number;
   format?: (value: number) => string;
   big?: boolean;
+  decimal?: boolean;
+  parse?: (text: string) => number | null;
+  toText?: (value: number) => string;
 }) {
-  const change = (delta: number) => onChange(Math.max(min, Math.round((value + delta) * 100) / 100));
+  const [typed, setTyped] = useState<string | null>(null);
+  const set = (next: number) => onChange(Math.max(min, Math.round(next * 100) / 100));
+  const change = (delta: number) => {
+    setTyped(null);
+    set(value + delta);
+  };
+  const type = (text: string) => {
+    setTyped(text);
+    const parsed = parse(text);
+    if (parsed !== null) set(parsed);
+  };
+
   return (
     <View style={styles.stepper}>
       <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(-step)}>
         <Text style={styles.stepperSign}>−</Text>
       </Pressable>
-      <Text
-        style={[styles.stepperValue, big && textStyles.huge]}
-        numberOfLines={1}
-        adjustsFontSizeToFit
-        minimumFontScale={0.4}>
-        {format(value)}
-      </Text>
+      {typed !== null ? (
+        <TextInput
+          autoFocus
+          selectTextOnFocus
+          value={typed}
+          onChangeText={type}
+          onBlur={() => setTyped(null)}
+          onSubmitEditing={() => setTyped(null)}
+          keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
+          returnKeyType="done"
+          style={[styles.stepperValue, styles.stepperInput, big && textStyles.huge]}
+        />
+      ) : (
+        <Pressable
+          style={styles.stepperValueBox}
+          onPress={() => setTyped(toText(value))}
+          accessibilityRole="button"
+          accessibilityHint="Toca para escribir el valor">
+          <Text
+            style={[styles.stepperValue, big && textStyles.huge]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.4}>
+            {format(value)}
+          </Text>
+        </Pressable>
+      )}
       <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(step)}>
         <Text style={styles.stepperSign}>+</Text>
       </Pressable>
@@ -205,6 +247,13 @@ const styles = StyleSheet.create({
   },
   stepperButtonBig: { width: 80, height: 80, borderRadius: radius.lg },
   stepperSign: { color: colors.text, fontSize: 32, fontWeight: '600' },
-  stepperValue: { flex: 1, color: colors.text, fontSize: 28, fontWeight: '700', textAlign: 'center' },
+  stepperValueBox: { flex: 1, alignSelf: 'stretch', justifyContent: 'center' },
+  stepperValue: { color: colors.text, fontSize: 28, fontWeight: '700', textAlign: 'center' },
+  stepperInput: {
+    flex: 1,
+    padding: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+  },
   divider: { height: 1, backgroundColor: colors.border },
 });

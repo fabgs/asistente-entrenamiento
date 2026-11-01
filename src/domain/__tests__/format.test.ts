@@ -1,4 +1,15 @@
-import { formatCountdown, formatKg, formatLoad, formatLongDate, formatNumber, formatTarget } from '../format';
+import {
+  formatCountdown,
+  formatDateDMY,
+  formatKg,
+  formatLoad,
+  formatLongDate,
+  formatNumber,
+  formatTarget,
+  parseDate,
+  parseDecimal,
+  parseDuration,
+} from '../format';
 
 describe('format', () => {
   it('uses a decimal comma', () => {
@@ -22,6 +33,34 @@ describe('format', () => {
 
   it('formats long dates in Spanish with only the first letter capitalized', () => {
     expect(formatLongDate(new Date(2026, 10, 1))).toBe('Domingo 1 de noviembre');
+  });
+
+  it('parses typed numbers with comma or dot', () => {
+    expect(parseDecimal('12,5')).toBe(12.5);
+    expect(parseDecimal('12.5')).toBe(12.5);
+    expect(parseDecimal(' 15 ')).toBe(15);
+    expect(parseDecimal('12,')).toBe(12);
+    expect(parseDecimal('')).toBeNull();
+    expect(parseDecimal('abc')).toBeNull();
+    expect(parseDecimal('-3')).toBeNull();
+  });
+
+  it('parses typed durations', () => {
+    expect(parseDuration('2:30')).toBe(150);
+    expect(parseDuration('0:45')).toBe(45);
+    expect(parseDuration('90')).toBe(90);
+    expect(parseDuration('2:')).toBeNull();
+    expect(parseDuration('2:75')).toBeNull();
+  });
+
+  it('parses birth dates in Spanish or ISO order', () => {
+    expect(parseDate('25-06-1995')).toBe('1995-06-25');
+    expect(parseDate('25/6/1995')).toBe('1995-06-25');
+    expect(parseDate('1995-06-25')).toBe('1995-06-25');
+    expect(parseDate('31-02-1995')).toBeNull();
+    expect(parseDate('25-06-95')).toBeNull();
+    expect(parseDate('')).toBeNull();
+    expect(formatDateDMY('1995-06-25')).toBe('25-06-1995');
   });
 
   it('formats targets', () => {

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Switch } from 'react-native';
 import { AppText, Button, Card, Divider, Loading, Row, Screen, Stepper } from '@/components/ui';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
-import { formatCountdown } from '@/domain/format';
+import { formatCountdown, parseDuration } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
 import { rescheduleDailyReminders, sendTestReminder } from '@/services/dailyReminder';
 import {
@@ -67,8 +67,16 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
   return (
     <Card>
       <AppText variant="heading">Entrenamiento</AppText>
-      <AppText variant="small">Descanso entre series</AppText>
-      <Stepper value={rest} onChange={setRest} step={15} min={15} format={(s) => formatCountdown(s * 1000)} />
+      <AppText variant="small">Descanso entre series (toca el tiempo para escribirlo en segundos)</AppText>
+      <Stepper
+        value={rest}
+        onChange={setRest}
+        step={15}
+        min={15}
+        format={(s) => formatCountdown(s * 1000)}
+        parse={parseDuration}
+        toText={String}
+      />
       <Row style={{ justifyContent: 'space-between' }}>
         <AppText>Pantalla siempre encendida</AppText>
         <Switch value={keepAwake} onValueChange={setKeepAwake} trackColor={{ true: colors.primary }} />

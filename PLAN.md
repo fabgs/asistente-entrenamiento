@@ -447,10 +447,10 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] Progreso de cada ejercicio con récords, gráficas, tabla de sesiones y cambios de peso.
 - [x] Historial de cardio.
 
-### Fase 6 — Perfil y peso
+### Fase 6 — Perfil y peso ✅
 - [x] Aviso en Hoy si falta la fecha de nacimiento; formulario de perfil (la fecha se elige con el calendario nativo de Android, `@react-native-community/datetimepicker`).
 - [x] Perfil con cálculos (§4) y registro de peso (lista).
-- [ ] Gráfica de evolución del peso corporal (reutilizar `LineChart`).
+- [x] Gráfica de evolución del peso corporal (reutiliza `LineChart`); mantener pulsado un pesaje lo borra (nunca el último).
 
 ### Fase 7 — Dieta ✅
 - [x] Catálogo de alimentos: crear, editar, archivar, buscar.
@@ -465,7 +465,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 
 ### Fase 9 — Pulido
 - [x] Tema oscuro, hápticos, pantalla encendida durante el entreno.
-- [ ] Icono y splash propios (ahora son los de la plantilla de Expo).
+- [x] Icono, splash e icono de notificación propios (mancuerna), generados con `scripts/generate_icons.py`.
 - [x] Cuenta atrás del descanso en la pantalla de bloqueo (Live Update en Android 16) y burbuja flotante sobre otras apps (`modules/rest-timer`).
 - [ ] Revisión de accesibilidad (tamaños de fuente, contraste).
 
@@ -520,3 +520,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fase 8: exportar/importar copia, copia automática en GitHub y modo pruebas (borra los datos al instalar un APK nuevo, activado por defecto mientras la app está en pruebas).
 - 2026-11-01 — Fase 5: historial con entrenos, ejercicios y cardio; progreso por ejercicio con récords y gráficas (`react-native-svg`); corregir o borrar entrenos terminados con recálculo de recomendaciones.
 - 2026-11-01 — Fase 7: dieta editable (catálogo de alimentos, añadir/cambiar/quitar en el plan, copiar día) con totales coloreados frente a objetivos.
+- 2026-11-01 — Fase 6: gráfica del peso corporal en Perfil. Fase 9: icono propio (mancuerna) para lanzador, icono adaptativo/monocromo, splash y barra de notificaciones.

@@ -34,6 +34,8 @@ npx expo run:android                         # build de desarrollo + Metro, con 
 
 Necesitas `ANDROID_HOME` apuntando al SDK de Android (en este equipo: `%LOCALAPPDATA%\Android\Sdk`) y JDK 17. Tras cambiar `app.json` o añadir un módulo nativo, vuelve a ejecutar `prebuild`. Ningún proceso debe tener como directorio de trabajo una carpeta dentro de `android/` al hacer `prebuild`: en Windows falla con `EBUSY` a mitad de borrar `android/`. El culpable típico es el **servidor de adb**, que hereda la carpeta desde la que se lanzó el primer comando `adb`: ejecuta `adb` siempre desde la raíz del proyecto y, si pasa, `adb kill-server` y repite `npx expo prebuild --platform android --clean`.
 
+**Iconos**: los PNG de `assets/images/` (lanzador, adaptativo, monocromo, splash, favicon y `notification-icon.png`) salen de `python scripts/generate_icons.py` (sin dependencias). Para cambiarlos, edita el script, regenéralos y haz `prebuild --clean`.
+
 **Rutas largas en Windows**: aunque `LongPathsEnabled = 1`, el `ninja.exe` 1.10.2 del CMake 3.22.1 del SDK no es *long-path aware* y la compilación C++ falla con `ninja: error: mkdir(CMakeFiles/rnscreens.dir/C_/Users/...): No such file or directory`. Un `subst` no sirve (el autolinking de Expo resuelve la ruta real). Soluciones: sustituir `%LOCALAPPDATA%\Android\Sdk\cmake\3.22.1\bin\ninja.exe` por ninja ≥ 1.12 (oficial, guardando copia del original), o compilar en la nube con EAS Build. **En este equipo ya está sustituido por ninja 1.12.1** (el original quedó como `ninja-1.10.2.exe.bak` junto a él). Tras un fallo así, borra las carpetas `.cxx` de `node_modules/*/android/` antes de reintentar.
 
 ## Antes de dar algo por terminado

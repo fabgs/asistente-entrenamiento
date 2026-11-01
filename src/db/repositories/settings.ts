@@ -189,3 +189,12 @@ export async function logWeight(db: Db, date: string, weightKg: number): Promise
     weightKg,
   );
 }
+
+/** Deletes a weigh-in, but never the last one: the daily targets need a weight. */
+export async function deleteWeight(db: Db, date: string): Promise<boolean> {
+  const r = await db.runAsync(
+    'DELETE FROM weight_log WHERE date = ? AND (SELECT COUNT(*) FROM weight_log) > 1',
+    date,
+  );
+  return r.changes > 0;
+}

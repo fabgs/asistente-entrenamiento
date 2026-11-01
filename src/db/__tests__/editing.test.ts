@@ -22,6 +22,7 @@ import {
   updateSlotPrescription,
 } from '../repositories/routines';
 import { listSets, logSet, startSession } from '../repositories/sessions';
+import { deleteWeight, latestWeight, listWeights, logWeight } from '../repositories/settings';
 import { listOpenChanges } from '../repositories/weightChanges';
 import { importSeed } from '../seed';
 import type { SeedData } from '../seedTypes';
@@ -161,5 +162,20 @@ describe('weekly cardio editing', () => {
 
     await archiveCardio(db, id);
     expect((await cardioForWeekday(db, 7)).map((c) => c.name)).toEqual(['Descanso / Caminar']);
+  });
+});
+
+describe('body weight log', () => {
+  it('deletes weigh-ins but keeps the last one', async () => {
+    const db = await seededDb();
+    await logWeight(db, '2026-11-09', 83.5);
+    expect(await latestWeight(db)).toBe(83.5);
+
+    expect(await deleteWeight(db, '2026-11-09')).toBe(true);
+    expect(await latestWeight(db)).toBe(84);
+
+    const [only] = await listWeights(db);
+    expect(await deleteWeight(db, only.date)).toBe(false);
+    expect(await listWeights(db)).toHaveLength(1);
   });
 });

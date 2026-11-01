@@ -1,8 +1,10 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
+import { Alert, Pressable, View } from 'react-native';
+import { LineChart } from '@/components/LineChart';
 import { AppText, Button, Card, Chip, DateField, Loading, Row, Screen, TextField } from '@/components/ui';
 import {
+  deleteWeight,
   getProfile,
   latestWeight,
   listWeights,
@@ -10,8 +12,9 @@ import {
   logWeight,
   updateProfile,
   type Profile,
+  type WeightEntry,
 } from '@/db/repositories/settings';
-import { formatNumber } from '@/domain/format';
+import { formatDateWithYear, formatNumber, formatShortDate } from '@/domain/format';
 import { ageOn } from '@/domain/nutrition';
 import { localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -58,14 +61,7 @@ export default function ProfileScreen() {
         )}
       </Card>
 
-      {data.weights.length > 0 ? (
-        <Card>
-          <AppText variant="heading">Registro de peso</AppText>
-          {data.weights.slice(0, 10).map((w) => (
-            <Line key={w.date} label={w.date} value={`${formatNumber(w.weightKg)} kg`} />
-          ))}
-        </Card>
-      ) : null}
+      {data.weights.length > 0 ? <WeightCard weights={data.weights} onChanged={reload} /> : null}
 
       <Button kind="secondary" title="Ajustes y notificaciones" onPress={() => router.push('/ajustes')} />
     </Screen>
@@ -119,6 +115,64 @@ function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: n
       </Row>
       {error ? <AppText style={{ color: colors.danger }}>{error}</AppText> : null}
       <Button title="Guardar" onPress={save} />
+    </Card>
+  );
+}
+
+const RECENT_WEIGHTS = 10;
+
+/** `weights` comes newest first. */
+function WeightCard({ weights, onChanged }: { weights: WeightEntry[]; onChanged: () => void }) {
+  const db = useDb();
+  const [showAll, setShowAll] = useState(false);
+  const oldest = weights[weights.length - 1];
+  const change = weights[0].weightKg - oldest.weightKg;
+  const visible = showAll ? weights : weights.slice(0, RECENT_WEIGHTS);
+
+  const remove = (w: WeightEntry) =>
+    Alert.alert('Borrar pesaje', `${formatNumber(w.weightKg)} kg del ${formatDateWithYear(w.date)}`, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Borrar',
+        style: 'destructive',
+        onPress: async () => {
+          await deleteWeight(db, w.date);
+          onChanged();
+        },
+      },
+    ]);
+
+  return (
+    <Card>
+      <AppText variant="heading">Peso corporal</AppText>
+      {weights.length > 1 ? (
+        <>
+          <LineChart
+            title="Evolución"
+            points={[...weights].reverse().map((w) => ({ label: formatShortDate(w.date), value: w.weightKg }))}
+            format={(v) => `${formatNumber(v)} kg`}
+          />
+          <AppText variant="muted">
+            {change > 0 ? '+' : ''}
+            {formatNumber(change)} kg desde el {formatDateWithYear(oldest.date)}
+          </AppText>
+        </>
+      ) : null}
+      {visible.map((w) =>
+        weights.length > 1 ? (
+          <Pressable key={w.date} onLongPress={() => remove(w)} accessibilityHint="Mantén pulsado para borrarlo">
+            <Line label={formatDateWithYear(w.date)} value={`${formatNumber(w.weightKg)} kg`} />
+          </Pressable>
+        ) : (
+          <Line key={w.date} label={formatDateWithYear(w.date)} value={`${formatNumber(w.weightKg)} kg`} />
+        ),
+      )}
+      {weights.length > RECENT_WEIGHTS ? (
+        <Button kind="ghost" title={showAll ? 'Ver menos' : `Ver los ${weights.length}`} onPress={() => setShowAll(!showAll)} />
+      ) : null}
+      <AppText variant="small">
+        Se registra al guardar «Peso hoy».{weights.length > 1 ? ' Mantén pulsado un pesaje para borrarlo.' : ''}
+      </AppText>
     </Card>
   );
 }

@@ -68,7 +68,11 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="workout/[sessionId]" options={{ title: 'Entrenando' }} />
           <Stack.Screen name="workout/resumen/[sessionId]" options={{ title: 'Resumen' }} />
-          <Stack.Screen name="slot/[id]" options={{ title: 'Peso del ejercicio' }} />
+          <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />
+          <Stack.Screen name="rutina/[id]" options={{ title: 'Editar rutina' }} />
+          <Stack.Screen name="ejercicios" options={{ title: 'Ejercicios' }} />
+          <Stack.Screen name="ejercicio/[id]" options={{ title: 'Ejercicio' }} />
+          <Stack.Screen name="cardio" options={{ title: 'Cardio semanal' }} />
           <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
         </Stack>
       </SQLiteProvider>

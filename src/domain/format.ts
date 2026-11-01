@@ -1,6 +1,25 @@
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import type { RepTarget, RepUnit } from './types';
+import type { ExerciseType, RepTarget, RepUnit } from './types';
+
+export const EXERCISE_TYPE_LABEL: Record<ExerciseType, string> = {
+  external: 'Carga externa',
+  bodyweight: 'Peso corporal (+ lastre)',
+};
+
+// Codes used by the Excel import; anything else is shown as the user typed it.
+const EQUIPMENT_LABEL: Record<string, string> = {
+  peso_corporal: '',
+  barra: 'Barra',
+  barra_z: 'Barra Z',
+  mancuerna: 'Mancuerna',
+  mancuernas: 'Mancuernas',
+};
+
+export function formatEquipment(equipment: string | null): string | null {
+  if (!equipment) return null;
+  return (EQUIPMENT_LABEL[equipment] ?? equipment) || null;
+}
 
 /** Spanish number formatting without relying on Intl support in the JS engine. */
 export function formatNumber(value: number, maxDecimals = 2): string {

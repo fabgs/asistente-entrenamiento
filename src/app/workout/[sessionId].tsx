@@ -303,6 +303,13 @@ function ExerciseList({
           </Pressable>
         );
       })}
+      {session.routineId !== null ? (
+        <Button
+          kind="ghost"
+          title="+ Añadir ejercicio a la rutina"
+          onPress={() => router.push({ pathname: '/ejercicios', params: { pickFor: String(session.routineId) } })}
+        />
+      ) : null}
       <Button big kind={allDone ? 'primary' : 'secondary'} title="Terminar entrenamiento" onPress={onFinish} />
       <Button kind="danger" title="Descartar entrenamiento" onPress={onDiscard} />
     </Screen>

@@ -1,16 +1,17 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText, Card, Loading, Row, Screen } from '@/components/ui';
+import { AppText, Button, Card, Loading, Row, Screen } from '@/components/ui';
 import { listCardio } from '@/db/repositories/cardio';
-import { isBodyweight, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
+import { createRoutine, isBodyweight, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
 import { SuggestionLine } from '@/components/Recommendation';
 import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { formatLoad, formatTarget } from '@/domain/format';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
-import { useLoader } from '@/hooks/data';
+import { useDb, useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
 export default function RoutinesScreen() {
+  const db = useDb();
   const { data, reload } = useLoader(async (db) => {
     const routines = await listRoutines(db);
     const slots = new Map<number, Slot[]>();
@@ -19,6 +20,11 @@ export default function RoutinesScreen() {
   });
 
   if (!data) return <Loading />;
+
+  const newRoutine = async () => {
+    const id = await createRoutine(db, 'Nueva rutina');
+    router.push(`/rutina/${id}`);
+  };
 
   return (
     <Screen>
@@ -43,8 +49,15 @@ export default function RoutinesScreen() {
 
       {data.routines.map((routine) => (
         <Card key={routine.id}>
-          <AppText variant="heading">{routine.name}</AppText>
-          <AppText variant="small">{routine.weekdays.map((d) => WEEKDAY_NAMES[d]).join(', ')}</AppText>
+          <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+            <AppText variant="heading" style={{ flex: 1 }}>
+              {routine.name}
+            </AppText>
+            <Button kind="ghost" title="Editar" onPress={() => router.push(`/rutina/${routine.id}`)} />
+          </Row>
+          <AppText variant="small">
+            {routine.weekdays.map((d) => WEEKDAY_NAMES[d]).join(', ') || 'Sin día asignado'}
+          </AppText>
           {(data.slots.get(routine.id) ?? []).map((slot) => (
             <Pressable key={slot.id} onPress={() => router.push(`/slot/${slot.id}`)} style={styles.slotRow}>
               <Row style={{ justifyContent: 'space-between' }}>
@@ -66,9 +79,9 @@ export default function RoutinesScreen() {
         </Card>
       ))}
 
-      <AppText variant="small" style={{ textAlign: 'center' }}>
-        Toca un ejercicio para cambiar su peso. El editor completo de rutinas llegará en la fase 4.
-      </AppText>
+      <Button title="Nueva rutina" onPress={newRoutine} />
+      <Button kind="secondary" title="Catálogo de ejercicios" onPress={() => router.push('/ejercicios')} />
+      <Button kind="secondary" title="Cardio semanal" onPress={() => router.push('/cardio')} />
     </Screen>
   );
 }

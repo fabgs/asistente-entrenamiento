@@ -45,3 +45,43 @@ export async function setCardioDone(
     int(done),
   );
 }
+
+export interface CardioFields {
+  name: string;
+  target: string | null;
+  intensity: string | null;
+  notes: string | null;
+}
+
+export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioFields): Promise<number> {
+  const row = await db.getFirstAsync<{ next: number }>(
+    'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM cardio_activity WHERE weekday = ?',
+    weekday,
+  );
+  const result = await db.runAsync(
+    'INSERT INTO cardio_activity (weekday, name, target, intensity, notes, position) VALUES (?, ?, ?, ?, ?, ?)',
+    weekday,
+    fields.name,
+    fields.target,
+    fields.intensity,
+    fields.notes,
+    row?.next ?? 0,
+  );
+  return result.lastInsertRowId;
+}
+
+export async function updateCardio(db: Db, id: number, fields: CardioFields): Promise<void> {
+  await db.runAsync(
+    'UPDATE cardio_activity SET name = ?, target = ?, intensity = ?, notes = ? WHERE id = ?',
+    fields.name,
+    fields.target,
+    fields.intensity,
+    fields.notes,
+    id,
+  );
+}
+
+/** Hides the activity; days already marked as done keep their log. */
+export async function archiveCardio(db: Db, id: number): Promise<void> {
+  await db.runAsync('UPDATE cardio_activity SET archived = 1 WHERE id = ?', id);
+}

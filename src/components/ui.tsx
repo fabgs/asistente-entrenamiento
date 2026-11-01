@@ -4,6 +4,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   View,
@@ -12,6 +13,8 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { formatNumber, parseDecimal } from '@/domain/format';
+import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
+import type { IsoWeekday } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
 
 type TextVariant = 'title' | 'heading' | 'body' | 'muted' | 'small' | 'huge';
@@ -168,6 +171,69 @@ export function Stepper({
   );
 }
 
+const KEYBOARDS = { text: 'default', decimal: 'decimal-pad', date: 'numbers-and-punctuation' } as const;
+
+export function TextField({
+  label,
+  value,
+  onChangeText,
+  keyboard = 'text',
+  placeholder,
+  multiline = false,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (text: string) => void;
+  keyboard?: keyof typeof KEYBOARDS;
+  placeholder?: string;
+  multiline?: boolean;
+}) {
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <AppText variant="small">{label}</AppText>
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        keyboardType={KEYBOARDS[keyboard]}
+        placeholder={placeholder}
+        placeholderTextColor={colors.muted}
+        multiline={multiline}
+        style={[styles.input, multiline && styles.inputMultiline]}
+      />
+    </View>
+  );
+}
+
+export function SwitchRow({
+  label,
+  value,
+  onValueChange,
+}: {
+  label: string;
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+}) {
+  return (
+    <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+      <AppText style={{ flex: 1 }}>{label}</AppText>
+      <Switch value={value} onValueChange={onValueChange} trackColor={{ true: colors.primary }} />
+    </Row>
+  );
+}
+
+/** Multi-select Monday…Sunday chips. */
+export function WeekdayPicker({ value, onChange }: { value: IsoWeekday[]; onChange: (days: IsoWeekday[]) => void }) {
+  const toggle = (day: IsoWeekday) =>
+    onChange(value.includes(day) ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b));
+  return (
+    <Row>
+      {ISO_WEEKDAYS.map((day) => (
+        <Chip key={day} label={WEEKDAY_NAMES[day].slice(0, 3)} selected={value.includes(day)} onPress={() => toggle(day)} />
+      ))}
+    </Row>
+  );
+}
+
 export function Loading() {
   return (
     <View style={[styles.screen, { flex: 1, justifyContent: 'center' }]}>
@@ -256,4 +322,15 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.primary,
   },
   divider: { height: 1, backgroundColor: colors.border },
+  input: {
+    backgroundColor: colors.cardAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    color: colors.text,
+    fontSize: 16,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
 });

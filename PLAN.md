@@ -341,18 +341,22 @@ src/
     _layout.tsx                     # SQLiteProvider (migraciones + seed), canales y permisos, deep links, Stack raíz
     (tabs)/_layout.tsx              # Hoy · Rutinas · Historial · Dieta · Perfil
     (tabs)/index.tsx                # Hoy
-    (tabs)/rutinas.tsx              # semana + rutinas con pesos (editor completo: fase 4)
+    (tabs)/rutinas.tsx              # semana, rutinas con pesos y sugerencias, accesos a los editores
     (tabs)/historial.tsx            # sesiones terminadas
     (tabs)/dieta.tsx                # plan semanal y totales (edición: fase 7)
     (tabs)/perfil.tsx               # datos, objetivos calculados, registro de peso
     workout/[sessionId].tsx         # modo entrenamiento (lista · serie · descanso)
     workout/resumen/[sessionId].tsx # resumen + recomendaciones
-    slot/[id].tsx                   # peso de un ejercicio de rutina + recomendación pendiente
+    slot/[id].tsx                   # ejercicio de una rutina: peso, prescripción, recomendación, quitar
+    rutina/[id].tsx                 # editor de rutina: nombre, días, orden, añadir/archivar
+    ejercicios.tsx                  # catálogo de ejercicios / selector para añadir a una rutina
+    ejercicio/[id].tsx              # crear (id = nuevo) o editar un ejercicio del catálogo
+    cardio.tsx                      # cardio semanal editable
     ajustes.tsx                     # descanso, recordatorio, pantalla encendida, diagnóstico de avisos
   db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedTypes.ts · repositories/*.ts · __tests__/
   domain/     progression.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
   services/   notifications.ts · restTimer.ts · dailyReminder.ts
-  components/ ui.tsx (Screen, Card, Button, Stepper…) · Recommendation.tsx
+  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, SwitchRow, WeekdayPicker…) · Recommendation.tsx
   hooks/      data.ts (useDb, useLoader, useNow)
   theme.ts
 modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
@@ -405,7 +409,8 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] Descanso con notificación programada (§6.5, `alarmClock`), −30/+30/Saltar, deep link.
 - [x] Permiso de notificaciones al arrancar; alarmas exactas y batería desde Ajustes → Diagnóstico.
 - [x] Corregir reps/borrar serie, serie extra, saltar ejercicio, acceso rápido a editar el peso del slot.
-- [ ] Añadir un ejercicio puntual (fuera de la rutina) durante la sesión.
+- [x] Añadir un ejercicio a la rutina desde el propio entreno ("+ Añadir ejercicio a la rutina").
+- [ ] (Opcional) Ejercicio puntual solo para esa sesión, sin tocar la rutina.
 - [x] Al terminar: crear recomendaciones pendientes; resumen con Aplicar / Ignorar / Aplicar todas; pendientes visibles en Hoy y en la primera serie del ejercicio.
 - [x] Recuperación tras cerrar la app (estado en `workout_session`).
 - [ ] **Verificación en móvil real** (checklist de §14).
@@ -421,9 +426,12 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 **Aceptación**: en modo avión y con la app cerrada, la notificación llega a la hora configurada con el texto correcto del día; sigue llegando tras reiniciar el móvil.
 
 ### Fase 4 — Editor de rutinas
-- [ ] Catálogo de ejercicios (§6.7).
-- [ ] Editor de rutina y slots, reordenar, asignar días (hoy solo se puede cambiar el peso de un slot).
-- [ ] Cardio semanal editable (la vista calendario ya existe en la pestaña Rutinas).
+- [x] Catálogo de ejercicios (`ejercicios.tsx`, `ejercicio/[id].tsx`): buscar, crear, editar, archivar; también sirve de selector al añadir a una rutina.
+- [x] Editor de rutina (`rutina/[id].tsx`): crear, renombrar, días, reordenar (↑ ↓), añadir, archivar.
+- [x] Editor del ejercicio de la rutina (`slot/[id].tsx`): peso, series, objetivo (rango/fijo/fallo), por lado, unidad, progresión, permitir bajar, incremento y descanso propios, nota, quitar.
+- [x] Cardio semanal editable (`cardio.tsx`); la vista calendario está en la pestaña Rutinas.
+- [x] Todo cambio de rutinas, días o cardio reprograma el recordatorio diario.
+- [ ] Verificación en móvil real.
 
 **Aceptación**: añadir un ejercicio a una rutina, cambiarle el día y la hora → Hoy y la notificación diaria lo reflejan.
 
@@ -499,3 +507,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle (en Windows con ninja ≥ 1.12).
 - 2026-11-01 — Las recomendaciones ignoradas siguen como sugerencia aplicable en el ejercicio. Nuevo módulo nativo `modules/rest-timer`: cuenta atrás del descanso en la pantalla de bloqueo y burbuja flotante. Build local desbloqueado sustituyendo el `ninja` del SDK por 1.12.1.
 - 2026-11-01 — Probado en emulador Android 16 (API 36.0): importación del seed, entreno con series/descanso/siguiente ejercicio, sugerencia ignorada aplicable, alarma de fin de descanso con `setAlarmClock` (dumpsys: flags 0x3, exacta), cuenta atrás fija pública, burbuja flotante, apertura desde la notificación, recuperación tras un cierre forzado y resumen con nueva recomendación. Encontrado y corregido: `setRequestPromotedOngoing` no existe en Android 16.0 (llega en una versión menor posterior). Falta probar en un móvil real (Doze, capa del fabricante, sonido en silencio).
+- 2026-11-01 — Fase 4 implementada: catálogo de ejercicios, editor de rutinas y de cada ejercicio de la rutina, cardio semanal editable y "añadir ejercicio a la rutina" desde el entreno. Los Stepper permiten escribir el valor a mano. La fecha de nacimiento se escribe en DD-MM-AAAA. Historial de git limpiado de datos personales.

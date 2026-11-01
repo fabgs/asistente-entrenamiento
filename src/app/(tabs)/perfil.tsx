@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, TextInput, View } from 'react-native';
-import { AppText, Button, Card, Chip, Loading, Row, Screen } from '@/components/ui';
+import { View } from 'react-native';
+import { AppText, Button, Card, Chip, Loading, Row, Screen, TextField } from '@/components/ui';
 import {
   getProfile,
   latestWeight,
@@ -15,7 +15,7 @@ import { formatDateDMY, formatNumber, parseDate } from '@/domain/format';
 import { ageOn } from '@/domain/nutrition';
 import { localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
-import { colors, radius, spacing } from '@/theme';
+import { colors } from '@/theme';
 
 const ACTIVITY_FACTORS = [1.2, 1.375, 1.5, 1.55, 1.725];
 const parseNumber = (text: string) => Number(text.replace(',', '.'));
@@ -98,16 +98,16 @@ function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: n
   return (
     <Card>
       <AppText variant="heading">Mis datos</AppText>
-      <Field label="Fecha de nacimiento (DD-MM-AAAA)" value={birthDate} onChangeText={setBirthDate} placeholder="25-06-1995" />
+      <TextField keyboard="date" label="Fecha de nacimiento (DD-MM-AAAA)" value={birthDate} onChangeText={setBirthDate} placeholder="25-06-1995" />
       <Row>
         <View style={{ flex: 1 }}>
-          <Field label="Altura (cm)" value={height} onChangeText={setHeight} numeric />
+          <TextField keyboard="decimal" label="Altura (cm)" value={height} onChangeText={setHeight} />
         </View>
         <View style={{ flex: 1 }}>
-          <Field label="Peso hoy (kg)" value={weightText} onChangeText={setWeightText} numeric />
+          <TextField keyboard="decimal" label="Peso hoy (kg)" value={weightText} onChangeText={setWeightText} />
         </View>
       </Row>
-      <Field label="Déficit (kcal, negativo = superávit)" value={deficit} onChangeText={setDeficit} numeric />
+      <TextField keyboard="decimal" label="Déficit (kcal, negativo = superávit)" value={deficit} onChangeText={setDeficit} />
       <AppText variant="small">Sexo</AppText>
       <Row>
         <Chip label="Hombre" selected={sex === 'male'} onPress={() => setSex('male')} />
@@ -125,34 +125,6 @@ function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: n
   );
 }
 
-function Field({
-  label,
-  value,
-  onChangeText,
-  numeric = false,
-  placeholder,
-}: {
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  numeric?: boolean;
-  placeholder?: string;
-}) {
-  return (
-    <View style={{ gap: spacing.xs }}>
-      <AppText variant="small">{label}</AppText>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={numeric ? 'decimal-pad' : 'numbers-and-punctuation'}
-        placeholder={placeholder}
-        placeholderTextColor={colors.muted}
-        style={styles.input}
-      />
-    </View>
-  );
-}
-
 function Line({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <Row style={{ justifyContent: 'space-between' }}>
@@ -161,16 +133,3 @@ function Line({ label, value, strong = false }: { label: string; value: string; 
     </Row>
   );
 }
-
-const styles = StyleSheet.create({
-  input: {
-    backgroundColor: colors.cardAlt,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    color: colors.text,
-    fontSize: 16,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-  },
-});

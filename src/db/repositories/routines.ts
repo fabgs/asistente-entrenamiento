@@ -6,7 +6,8 @@ import type {
   RepUnit,
   SlotRule,
 } from '@/domain/types';
-import { bool, type Db } from '../db';
+import { bool, int, type Db } from '../db';
+import { expireOpenChanges } from './weightChanges';
 
 export interface Routine {
   id: number;
@@ -161,4 +162,110 @@ export async function listSlots(db: Db, routineId: number): Promise<Slot[]> {
 export async function getSlot(db: Db, slotId: number): Promise<Slot | null> {
   const row = await db.getFirstAsync<SlotRow>(`${SLOT_SELECT} WHERE s.id = ?`, slotId);
   return row ? toSlot(row) : null;
+}
+
+export async function createRoutine(db: Db, name: string): Promise<number> {
+  const row = await db.getFirstAsync<{ next: number }>(
+    'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM routine',
+  );
+  const result = await db.runAsync('INSERT INTO routine (name, position) VALUES (?, ?)', name, row?.next ?? 0);
+  return result.lastInsertRowId;
+}
+
+export async function renameRoutine(db: Db, routineId: number, name: string): Promise<void> {
+  await db.runAsync('UPDATE routine SET name = ? WHERE id = ?', name, routineId);
+}
+
+export async function setRoutineWeekdays(db: Db, routineId: number, weekdays: IsoWeekday[]): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('DELETE FROM routine_weekday WHERE routine_id = ?', routineId);
+    for (const weekday of new Set(weekdays)) {
+      await db.runAsync('INSERT INTO routine_weekday (routine_id, weekday) VALUES (?, ?)', routineId, weekday);
+    }
+  });
+}
+
+/** Hides the routine; its sessions and history stay. */
+export async function archiveRoutine(db: Db, routineId: number): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE routine SET archived = 1 WHERE id = ?', routineId);
+    await db.runAsync('DELETE FROM routine_weekday WHERE routine_id = ?', routineId);
+  });
+}
+
+/** Adds an exercise at the end of a routine with a sensible default prescription. */
+export async function addSlot(
+  db: Db,
+  routineId: number,
+  exercise: { id: number; type: ExerciseType },
+): Promise<number> {
+  const row = await db.getFirstAsync<{ next: number }>(
+    'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM routine_slot WHERE routine_id = ? AND archived = 0',
+    routineId,
+  );
+  const result = await db.runAsync(
+    `INSERT INTO routine_slot (routine_id, exercise_id, position, weight_kg, sets, target_kind, rep_min, rep_max)
+     VALUES (?, ?, ?, ?, 3, 'range', 8, 12)`,
+    routineId,
+    exercise.id,
+    row?.next ?? 0,
+    exercise.type === 'bodyweight' ? null : 0,
+  );
+  return result.lastInsertRowId;
+}
+
+export interface SlotPrescription {
+  sets: number;
+  target: RepTarget;
+  perSide: boolean;
+  unit: RepUnit;
+  progression: ProgressionKind;
+  allowDecrease: boolean;
+  incrementKg: number | null;
+  restSeconds: number | null;
+  note: string | null;
+}
+
+/** Everything about a slot except its weight, which changes through weightChanges. */
+export async function updateSlotPrescription(db: Db, slotId: number, p: SlotPrescription): Promise<void> {
+  await db.runAsync(
+    `UPDATE routine_slot
+     SET sets = ?, target_kind = ?, rep_min = ?, rep_max = ?, fixed_reps = ?, failure_minus = ?, per_side = ?,
+         unit = ?, progression = ?, allow_decrease = ?, increment_kg = ?, rest_seconds = ?, note = ?
+     WHERE id = ?`,
+    p.sets,
+    ...targetColumns(p.target),
+    int(p.perSide),
+    p.unit,
+    p.progression,
+    int(p.allowDecrease),
+    p.incrementKg,
+    p.restSeconds,
+    p.note,
+    slotId,
+  );
+}
+
+/** Removes the exercise from its routine but keeps the history of its sets. */
+export async function archiveSlot(db: Db, slotId: number, now = Date.now()): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE routine_slot SET archived = 1 WHERE id = ?', slotId);
+    await expireOpenChanges(db, slotId, now);
+  });
+}
+
+/** Moves a slot one place up (-1) or down (+1) within its routine. */
+export async function moveSlot(db: Db, slotId: number, delta: -1 | 1): Promise<void> {
+  const slot = await getSlot(db, slotId);
+  if (!slot) return;
+  const ids = (await listSlots(db, slot.routineId)).map((s) => s.id);
+  const from = ids.indexOf(slotId);
+  const to = from + delta;
+  if (from < 0 || to < 0 || to >= ids.length) return;
+  [ids[from], ids[to]] = [ids[to], ids[from]];
+  await db.withTransactionAsync(async () => {
+    for (const [position, id] of ids.entries()) {
+      await db.runAsync('UPDATE routine_slot SET position = ? WHERE id = ?', position, id);
+    }
+  });
 }

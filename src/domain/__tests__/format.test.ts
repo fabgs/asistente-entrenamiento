@@ -1,6 +1,7 @@
 import {
   formatCountdown,
   formatDateDMY,
+  formatEquipment,
   formatKg,
   formatLoad,
   formatLongDate,
@@ -61,6 +62,13 @@ describe('format', () => {
     expect(parseDate('25-06-95')).toBeNull();
     expect(parseDate('')).toBeNull();
     expect(formatDateDMY('1995-06-25')).toBe('25-06-1995');
+  });
+
+  it('labels equipment codes from the Excel', () => {
+    expect(formatEquipment('barra_z')).toBe('Barra Z');
+    expect(formatEquipment('peso_corporal')).toBeNull();
+    expect(formatEquipment('polea')).toBe('polea');
+    expect(formatEquipment(null)).toBeNull();
   });
 
   it('formats targets', () => {

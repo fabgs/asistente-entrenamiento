@@ -263,13 +263,21 @@ export function SwitchRow({
   );
 }
 
-/** Multi-select Monday…Sunday chips. */
-export function WeekdayPicker({ value, onChange }: { value: IsoWeekday[]; onChange: (days: IsoWeekday[]) => void }) {
+/** Multi-select Monday…Sunday chips; days in `hide` are not offered. */
+export function WeekdayPicker({
+  value,
+  onChange,
+  hide = [],
+}: {
+  value: IsoWeekday[];
+  onChange: (days: IsoWeekday[]) => void;
+  hide?: IsoWeekday[];
+}) {
   const toggle = (day: IsoWeekday) =>
     onChange(value.includes(day) ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b));
   return (
     <Row>
-      {ISO_WEEKDAYS.map((day) => (
+      {ISO_WEEKDAYS.filter((day) => !hide.includes(day)).map((day) => (
         <Chip key={day} label={WEEKDAY_NAMES[day].slice(0, 3)} selected={value.includes(day)} onPress={() => toggle(day)} />
       ))}
     </Row>

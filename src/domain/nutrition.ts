@@ -88,3 +88,20 @@ export function sumMacros(items: Macros[]): Macros {
     { fat: 0, carbs: 0, protein: 0, kcal: 0 },
   );
 }
+
+export type Deviation = 'ok' | 'near' | 'off';
+
+/** How far a planned amount is from its target: within 5 %, within 10 %, or further. */
+export function deviation(value: number, target: number): Deviation {
+  if (target <= 0) return 'ok';
+  const off = Math.abs(value - target) / target;
+  if (off <= 0.05) return 'ok';
+  if (off <= 0.1) return 'near';
+  return 'off';
+}
+
+export function averageMacros(days: Macros[]): Macros {
+  const total = sumMacros(days);
+  const n = Math.max(1, days.length);
+  return { fat: total.fat / n, carbs: total.carbs / n, protein: total.protein / n, kcal: total.kcal / n };
+}

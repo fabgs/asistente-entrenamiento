@@ -1,20 +1,40 @@
+import { router } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
-import { AppText, Card, Chip, Loading, Row, Screen } from '@/components/ui';
-import { listDietItems, MEALS, type DietItem } from '@/db/repositories/diet';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper, WeekdayPicker } from '@/components/ui';
+import {
+  copyDietDay,
+  deleteDietItem,
+  listDietItems,
+  MEALS,
+  updateDietItemGrams,
+  type DietItem,
+} from '@/db/repositories/diet';
 import { loadNutritionTargets } from '@/db/repositories/settings';
 import { formatNumber } from '@/domain/format';
-import { macrosFor, sumMacros, type Macros, type NutritionTargets } from '@/domain/nutrition';
+import {
+  averageMacros,
+  deviation,
+  macrosFor,
+  sumMacros,
+  type Deviation,
+  type Macros,
+  type NutritionTargets,
+} from '@/domain/nutrition';
 import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
-import { useLoader } from '@/hooks/data';
-import { colors } from '@/theme';
+import { useDb, useLoader } from '@/hooks/data';
+import { colors, spacing } from '@/theme';
 
 const itemMacros = (i: DietItem) => macrosFor(i, i.grams);
+const DEVIATION_COLOR: Record<Deviation, string> = { ok: colors.primary, near: colors.warning, off: colors.danger };
 
 export default function DietScreen() {
+  const db = useDb();
   const [day, setDay] = useState<IsoWeekday>(isoWeekdayOf(new Date()));
-  const { data } = useLoader(async (db) => ({
+  const [editingItem, setEditingItem] = useState<number | null>(null);
+  const [copying, setCopying] = useState(false);
+  const { data, reload } = useLoader(async (db) => ({
     items: await listDietItems(db),
     targets: await loadNutritionTargets(db, localDateString(new Date())),
   }));
@@ -23,19 +43,26 @@ export default function DietScreen() {
 
   const dayItems = data.items.filter((i) => i.weekday === day);
   const dayTotals = sumMacros(dayItems.map(itemMacros));
-  const weekTotals = ISO_WEEKDAYS.map((d) => sumMacros(data.items.filter((i) => i.weekday === d).map(itemMacros)));
-  const weekAverage: Macros = {
-    fat: weekTotals.reduce((s, m) => s + m.fat, 0) / 7,
-    carbs: weekTotals.reduce((s, m) => s + m.carbs, 0) / 7,
-    protein: weekTotals.reduce((s, m) => s + m.protein, 0) / 7,
-    kcal: weekTotals.reduce((s, m) => s + m.kcal, 0) / 7,
+  const weekAverage = averageMacros(
+    ISO_WEEKDAYS.map((d) => sumMacros(data.items.filter((i) => i.weekday === d).map(itemMacros))),
+  );
+
+  const changeDay = (d: IsoWeekday) => {
+    setDay(d);
+    setEditingItem(null);
+    setCopying(false);
+  };
+
+  const changed = async () => {
+    setEditingItem(null);
+    await reload();
   };
 
   return (
     <Screen>
       <Row>
         {ISO_WEEKDAYS.map((d) => (
-          <Chip key={d} label={WEEKDAY_NAMES[d].slice(0, 3)} selected={d === day} onPress={() => setDay(d)} />
+          <Chip key={d} label={WEEKDAY_NAMES[d].slice(0, 3)} selected={d === day} onPress={() => changeDay(d)} />
         ))}
       </Row>
 
@@ -43,39 +70,116 @@ export default function DietScreen() {
 
       {MEALS.map((meal) => {
         const items = dayItems.filter((i) => i.meal === meal.key);
-        if (items.length === 0) return null;
         const mealKcal = sumMacros(items.map(itemMacros)).kcal;
         return (
           <Card key={meal.key}>
             <Row style={{ justifyContent: 'space-between' }}>
               <AppText variant="heading">{meal.label}</AppText>
-              <AppText variant="muted">{formatNumber(mealKcal, 0)} kcal</AppText>
+              {items.length > 0 ? <AppText variant="muted">{formatNumber(mealKcal, 0)} kcal</AppText> : null}
             </Row>
-            {items.map((i) => (
-              <Row key={i.id} style={{ justifyContent: 'space-between' }}>
-                <AppText style={{ flex: 1 }}>{i.foodName}</AppText>
-                <AppText variant="muted">
-                  {formatNumber(i.grams)} g · {formatNumber(itemMacros(i).kcal, 0)} kcal
-                </AppText>
-              </Row>
-            ))}
+            {items.map((item) =>
+              editingItem === item.id ? (
+                <ItemEditor key={item.id} item={item} onDone={changed} />
+              ) : (
+                <Pressable key={item.id} style={styles.itemRow} onPress={() => setEditingItem(item.id)}>
+                  <AppText style={{ flex: 1 }}>{item.foodName}</AppText>
+                  <AppText variant="muted">
+                    {formatNumber(item.grams)} g · {formatNumber(itemMacros(item).kcal, 0)} kcal
+                  </AppText>
+                </Pressable>
+              ),
+            )}
+            <Button
+              kind="ghost"
+              title="+ Añadir alimento"
+              onPress={() => router.push({ pathname: '/alimentos', params: { pickDay: String(day), pickMeal: meal.key } })}
+            />
           </Card>
         );
       })}
 
+      {copying ? (
+        <CopyDayCard
+          from={day}
+          onCancel={() => setCopying(false)}
+          onCopy={async (to) => {
+            await copyDietDay(db, day, to);
+            setCopying(false);
+            await reload();
+          }}
+        />
+      ) : (
+        <Button kind="secondary" title={`Copiar el ${WEEKDAY_NAMES[day].toLowerCase()} a otros días`} onPress={() => setCopying(true)} />
+      )}
+
       <TotalsCard title="Media semanal" totals={weekAverage} targets={data.targets} />
-      <AppText variant="small" style={{ textAlign: 'center' }}>
-        La edición del plan de dieta llegará en la fase 7.
-      </AppText>
+      <Button kind="secondary" title="Catálogo de alimentos" onPress={() => router.push('/alimentos')} />
     </Screen>
   );
 }
 
-function deviationColor(value: number, target: number): string {
-  const deviation = Math.abs(value - target) / target;
-  if (deviation <= 0.05) return colors.primary;
-  if (deviation <= 0.1) return colors.warning;
-  return colors.danger;
+function ItemEditor({ item, onDone }: { item: DietItem; onDone: () => void }) {
+  const db = useDb();
+  const [grams, setGrams] = useState(item.grams);
+  const m = macrosFor(item, grams);
+
+  const save = async () => {
+    await updateDietItemGrams(db, item.id, grams);
+    onDone();
+  };
+  const remove = async () => {
+    await deleteDietItem(db, item.id);
+    onDone();
+  };
+
+  return (
+    <View style={styles.editor}>
+      <AppText>{item.foodName}</AppText>
+      <Stepper decimal value={grams} onChange={setGrams} step={10} min={0} format={(g) => `${formatNumber(g)} g`} />
+      <AppText variant="small">
+        {formatNumber(m.kcal, 0)} kcal · P {formatNumber(m.protein, 1)} g · G {formatNumber(m.fat, 1)} g · C{' '}
+        {formatNumber(m.carbs, 1)} g
+      </AppText>
+      <Row>
+        <Button title="Guardar" onPress={save} disabled={grams <= 0} />
+        <Button kind="danger" title="Quitar" onPress={remove} />
+        <Button kind="ghost" title="Cancelar" onPress={onDone} />
+      </Row>
+    </View>
+  );
+}
+
+function CopyDayCard({
+  from,
+  onCancel,
+  onCopy,
+}: {
+  from: IsoWeekday;
+  onCancel: () => void;
+  onCopy: (to: IsoWeekday[]) => void;
+}) {
+  const [chosen, setTargets] = useState<IsoWeekday[]>([]);
+
+  const confirm = () =>
+    Alert.alert(
+      'Copiar día',
+      `El plan de ${chosen.map((d) => WEEKDAY_NAMES[d].toLowerCase()).join(', ')} se reemplazará por el del ${WEEKDAY_NAMES[from].toLowerCase()}.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Copiar', onPress: () => onCopy(chosen) },
+      ],
+    );
+
+  return (
+    <Card>
+      <AppText variant="heading">Copiar el {WEEKDAY_NAMES[from].toLowerCase()} a…</AppText>
+      <WeekdayPicker value={chosen} onChange={setTargets} hide={[from]} />
+      <Row>
+        <Button title="Copiar" onPress={confirm} disabled={chosen.length === 0} />
+        <Button kind="ghost" title="Cancelar" onPress={onCancel} />
+      </Row>
+    </Card>
+  );
 }
 
 function TotalsCard({ title, totals, targets }: { title: string; totals: Macros; targets: NutritionTargets | null }) {
@@ -92,7 +196,7 @@ function TotalsCard({ title, totals, targets }: { title: string; totals: Macros;
         <Row key={label} style={{ justifyContent: 'space-between' }}>
           <AppText variant="muted">{label}</AppText>
           <View style={{ flexDirection: 'row' }}>
-            <AppText style={target ? { color: deviationColor(value, target), fontWeight: '700' } : undefined}>
+            <AppText style={target ? { color: DEVIATION_COLOR[deviation(value, target)], fontWeight: '700' } : undefined}>
               {formatNumber(value, 0)}
               {unit}
             </AppText>
@@ -106,7 +210,22 @@ function TotalsCard({ title, totals, targets }: { title: string; totals: Macros;
           </View>
         </Row>
       ))}
-      {!targets ? <AppText variant="small">Completa tu perfil para comparar con tus objetivos.</AppText> : null}
+      {targets ? (
+        <AppText variant="small">Verde: a menos del 5 % del objetivo · ámbar: menos del 10 % · rojo: más.</AppText>
+      ) : (
+        <AppText variant="small">Completa tu perfil para comparar con tus objetivos.</AppText>
+      )}
     </Card>
   );
 }
+
+const styles = StyleSheet.create({
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
+  editor: {
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: colors.border,
+  },
+});

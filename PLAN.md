@@ -105,9 +105,9 @@ Pantalla Perfil: formulario + tarjetas con los resultados + "Registrar peso" (fe
 
 ## 5. Dieta
 
-- **Alimentos**: CRUD con macros por 100 g (kcal calculadas). Suplementos (creatina, colágeno, omega 3) tienen macros 0 y se muestran igual.
-- **Plan semanal**: para cada día (L–D) y comida (desayuno, comida, merienda, cena) una lista de `alimento + gramos`. Añadir/quitar/editar gramos/reordenar, y **"Copiar día a…"**.
-- **Totales**: por comida, por día y media semanal, frente a los objetivos del perfil (grasa, carbos, proteína, kcal) con indicador de desviación (verde ±5 %, ámbar ±10 %, rojo fuera).
+- **Alimentos** (`src/app/alimentos.tsx`, `src/app/alimento/[id].tsx`): catálogo con búsqueda sin tildes; crear, editar y archivar (archivar no lo quita de los días del plan que lo usan; crear uno con el nombre de uno archivado lo recupera). Macros por 100 g; las kcal se calculan (9/4/4) y los macros no pueden sumar más de 100 g. Suplementos (creatina, colágeno, omega 3) tienen macros 0 y se muestran igual.
+- **Plan semanal** (pestaña Dieta): para cada día (L–D) las cuatro comidas (desayuno, comida, merienda, cena). "+ Añadir alimento" abre el catálogo en modo selector: se elige el alimento y los gramos. Tocar un alimento del plan permite cambiar los gramos (escribiéndolos o con ±10 g) o quitarlo. **"Copiar el <día> a otros días"** reemplaza el plan de los días elegidos por el del día actual (con confirmación).
+- **Totales**: por comida, por día y media semanal, frente a los objetivos del perfil (grasa, carbos, proteína, kcal) con color según la desviación (`deviation()` en `src/domain/nutrition.ts`): verde ±5 %, ámbar ±10 %, rojo fuera.
 - **Casos de test con el seed**: Lunes = G 94,66 · C 247,39 · P 157,71 · **2472,34 kcal**. Media semanal = G 77,53 · C 236,40 · P 166,28 · **2308,45 kcal** (idéntico al Excel).
 
 ---
@@ -347,7 +347,9 @@ src/
     (tabs)/rutinas.tsx              # semana, rutinas con pesos y sugerencias, accesos a los editores
     (tabs)/historial.tsx            # entrenos · ejercicios · cardio
     progreso/[id].tsx               # progreso de un ejercicio: récords, gráficas, sesiones
-    (tabs)/dieta.tsx                # plan semanal y totales (edición: fase 7)
+    (tabs)/dieta.tsx                # plan semanal editable y totales frente a objetivos
+    alimentos.tsx                   # catálogo de alimentos / selector al añadir a una comida
+    alimento/[id].tsx               # crear (id = nuevo) o editar un alimento
     (tabs)/perfil.tsx               # datos, objetivos calculados, registro de peso
     workout/[sessionId].tsx         # modo entrenamiento (lista · serie · descanso)
     workout/resumen/[sessionId].tsx # resumen + recomendaciones
@@ -450,10 +452,10 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] Perfil con cálculos (§4) y registro de peso (lista).
 - [ ] Gráfica de evolución del peso corporal (reutilizar `LineChart`).
 
-### Fase 7 — Dieta
-- [ ] CRUD de alimentos.
-- [ ] Plan semanal editable con "Copiar día a…".
-- [x] Totales por comida/día/semana frente a objetivos (§5), en vista de solo lectura.
+### Fase 7 — Dieta ✅
+- [x] Catálogo de alimentos: crear, editar, archivar, buscar.
+- [x] Plan semanal editable: añadir alimento con gramos, cambiar gramos, quitar, "Copiar día a…".
+- [x] Totales por comida/día/semana frente a objetivos (§5) con color por desviación.
 
 ### Fase 8 — Backup ✅
 - [x] Exportar/Importar JSON (restauración atómica, compatible con copias antiguas).
@@ -517,3 +519,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fecha de nacimiento con el selector de fecha nativo (`DateField`).
 - 2026-11-01 — Fase 8: exportar/importar copia, copia automática en GitHub y modo pruebas (borra los datos al instalar un APK nuevo, activado por defecto mientras la app está en pruebas).
 - 2026-11-01 — Fase 5: historial con entrenos, ejercicios y cardio; progreso por ejercicio con récords y gráficas (`react-native-svg`); corregir o borrar entrenos terminados con recálculo de recomendaciones.
+- 2026-11-01 — Fase 7: dieta editable (catálogo de alimentos, añadir/cambiar/quitar en el plan, copiar día) con totales coloreados frente a objetivos.

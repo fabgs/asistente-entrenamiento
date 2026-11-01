@@ -1,6 +1,6 @@
 import seedJson from '../../../data/seed/seed.json';
 import type { SeedData } from '@/db/seedTypes';
-import { ageOn, computeTargets, macrosFor, sumMacros } from '../nutrition';
+import { ageOn, averageMacros, computeTargets, deviation, macrosFor, sumMacros } from '../nutrition';
 
 const seed = seedJson as SeedData;
 
@@ -77,5 +77,25 @@ describe('diet totals with the seed (PLAN.md §5)', () => {
     expect(avg('carbs')).toBeCloseTo(236.4, 2);
     expect(avg('protein')).toBeCloseTo(166.28, 2);
     expect(avg('kcal')).toBeCloseTo(2308.45, 2);
+  });
+});
+
+describe('deviation', () => {
+  it('classifies how far the plan is from the target', () => {
+    expect(deviation(2400, 2412.5)).toBe('ok');
+    expect(deviation(2250, 2412.5)).toBe('near');
+    expect(deviation(2700, 2412.5)).toBe('off');
+    expect(deviation(100, 0)).toBe('ok');
+  });
+});
+
+describe('averageMacros', () => {
+  it('averages day totals', () => {
+    expect(
+      averageMacros([
+        { fat: 10, carbs: 20, protein: 30, kcal: 290 },
+        { fat: 20, carbs: 40, protein: 50, kcal: 540 },
+      ]),
+    ).toEqual({ fat: 15, carbs: 30, protein: 40, kcal: 415 });
   });
 });

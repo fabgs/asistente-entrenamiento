@@ -9,6 +9,7 @@ import {
   formatShortDate,
   formatNumber,
   formatTarget,
+  normalizeForSearch,
   parseDecimal,
   parseDuration,
 } from '../format';
@@ -75,6 +76,11 @@ describe('format', () => {
   it('formats short dates', () => {
     expect(formatShortDate('2026-10-12')).toBe('12 oct');
     expect(formatShortDate('2026-01-05')).toBe('5 ene');
+  });
+
+  it('normalizes text for accent-insensitive search', () => {
+    expect(normalizeForSearch('Plátano')).toBe('platano');
+    expect(normalizeForSearch('Arándanos')).toContain('arandanos');
   });
 
   it('formats targets', () => {

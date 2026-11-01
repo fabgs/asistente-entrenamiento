@@ -108,3 +108,11 @@ export function formatShortDate(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return format(new Date(y, m - 1, d), 'd MMM', { locale: es }).replace('.', '');
 }
+
+/** Lower case without accents, to search "platano" and find "Plátano". */
+export function normalizeForSearch(text: string): string {
+  return text
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase();
+}

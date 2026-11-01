@@ -4,16 +4,10 @@ import { Pressable, StyleSheet } from 'react-native';
 import { AppText, Button, Loading, Screen, TextField } from '@/components/ui';
 import { listExercises, type Exercise } from '@/db/repositories/exercises';
 import { addSlot } from '@/db/repositories/routines';
-import { EXERCISE_TYPE_LABEL, formatEquipment } from '@/domain/format';
+import { EXERCISE_TYPE_LABEL, formatEquipment, normalizeForSearch } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import { colors, spacing } from '@/theme';
-
-const normalize = (text: string) =>
-  text
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase();
 
 /** Exercise catalog. With `pickFor` (a routine id), tapping an exercise adds it to that routine. */
 export default function ExercisesScreen() {
@@ -25,7 +19,7 @@ export default function ExercisesScreen() {
 
   if (!data) return <Loading />;
 
-  const visible = data.filter((e) => normalize(e.name).includes(normalize(query.trim())));
+  const visible = data.filter((e) => normalizeForSearch(e.name).includes(normalizeForSearch(query.trim())));
 
   const choose = async (exercise: Exercise) => {
     if (routineId === null) {

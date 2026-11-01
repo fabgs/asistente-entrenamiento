@@ -34,8 +34,7 @@ npx expo run:android                         # build de desarrollo + Metro, con 
 
 Necesitas `ANDROID_HOME` apuntando al SDK de Android (en este equipo: `%LOCALAPPDATA%\Android\Sdk`) y JDK 17. Tras cambiar `app.json` o añadir un módulo nativo, vuelve a ejecutar `prebuild`.
 
-**Rutas largas en Windows**: aunque `LongPathsEnabled = 1`, el `ninja.exe` 1.10.2 del CMake 3.22.1 del SDK no es *long-path aware* y la compilación C++ falla con `ninja: error: mkdir(CMakeFiles/rnscreens.dir/C_/Users/...): No such file or directory`. Un `subst` no sirve (el autolinking de Expo resuelve la ruta real). Soluciones: sustituir `%LOCALAPPDATA%\Android\Sdk\cmake.22.1in
-inja.exe` por ninja ≥ 1.12 (oficial, guardando copia del original), o compilar en la nube con EAS Build. Tras un fallo así, borra las carpetas `.cxx` de `node_modules/*/android/` antes de reintentar.
+**Rutas largas en Windows**: aunque `LongPathsEnabled = 1`, el `ninja.exe` 1.10.2 del CMake 3.22.1 del SDK no es *long-path aware* y la compilación C++ falla con `ninja: error: mkdir(CMakeFiles/rnscreens.dir/C_/Users/...): No such file or directory`. Un `subst` no sirve (el autolinking de Expo resuelve la ruta real). Soluciones: sustituir `%LOCALAPPDATA%\Android\Sdk\cmake\3.22.1\bin\ninja.exe` por ninja ≥ 1.12 (oficial, guardando copia del original), o compilar en la nube con EAS Build. Tras un fallo así, borra las carpetas `.cxx` de `node_modules/*/android/` antes de reintentar.
 
 ## Antes de dar algo por terminado
 

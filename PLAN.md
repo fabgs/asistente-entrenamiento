@@ -13,7 +13,7 @@ App móvil **personal** (un solo usuario) para gestionar entrenamiento de fuerza
 Objetivos:
 
 1. **Entrenar dentro de la app**: "Empezar rutina" carga la rutina del día; elijo ejercicio, hago la serie, **meto solo las reps** (el peso ya está definido en el ejercicio de la rutina), arranca un **descanso de 2:30 que suena aunque el móvil esté bloqueado y la app en segundo plano**, y después me propone *siguiente serie* o *siguiente ejercicio*.
-2. **Progresión automática de cargas**: según mis reglas (rango de reps por ejercicio), al terminar la sesión se calcula el nuevo peso y **se actualiza en el ejercicio de la rutina**, **siempre en saltos de 2,5 kg**.
+2. **Progresión automática de cargas**: según mis reglas (rango de reps por ejercicio), al terminar la sesión se calcula el nuevo peso y **me lo propone; solo se cambia en el ejercicio de la rutina si yo lo acepto**, **siempre en saltos de 2,5 kg**.
 3. **Historial** de todas las series (peso × reps) y del cardio.
 4. **Editar rutinas**: añadir/quitar/reordenar ejercicios, cambiar series, rangos, descansos y qué rutina toca cada día.
 5. **Notificación diaria** a una hora configurable con lo que toca hoy (p. ej. "Caminar 5 km + bici 30 min + Día 1: Torso"), **funcionando sin internet y con la app cerrada**.
@@ -71,7 +71,7 @@ Calendario semanal resultante:
 | Sábado | — | Sprints + Bouncing 15 min (HIIT, mañana) |
 | Domingo | — | Descanso / Caminar (opcional) |
 
-**Importación en el primer arranque** (BD vacía): crear todo lo anterior; registrar el peso inicial en `weight_log` con la fecha de hoy; convertir cada `history` en sesiones `imported = 1`: las entradas "anterior" con fecha del día de la semana de esa rutina de hace 2 semanas y las "hoy" de hace 1 semana, para que el motor de progresión tenga datos desde el primer día. Después se **aplica el motor de progresión una vez a cada slot** (igual que al terminar una sesión, §6.2), registrando los cambios en `slot_weight_change` con `source = 'import'`; así la primera sesión ya usa los pesos de la tabla de §6.2 y cada cambio se puede deshacer. La importación es idempotente (solo si la BD está vacía) y va en una transacción.
+**Importación en el primer arranque** (BD vacía): crear todo lo anterior; registrar el peso inicial en `weight_log` con la fecha de hoy; convertir cada `history` en sesiones `imported = 1`: las entradas "anterior" con fecha del día de la semana de esa rutina de hace 2 semanas y las "hoy" de hace 1 semana, para que el motor de progresión tenga datos desde el primer día. Después se ejecuta el motor de progresión una vez por slot y se crean las **recomendaciones pendientes** (`weight_change` con `source = 'import'`, `status = 'pending'`, §6.2). **Los pesos de los slots no cambian**: se quedan como en el Excel hasta que yo acepte cada recomendación. La importación es idempotente (solo si la BD está vacía) y va en una transacción.
 
 ---
 
@@ -157,7 +157,12 @@ Reglas:
    - Motivo de esperar 2 sesiones: en el Excel, tras una sesión floja se mantenía el peso (hip thrust, laterales).
 9. Por debajo sin `allowDecrease` → `keep`. En rango → `keep`.
 
-**Aplicación**: al terminar una sesión, para cada slot hecho se llama a `recommend()` y, si es `increase` o `decrease`, se **actualiza `routine_slot.weight_kg`** y se registra en `slot_weight_change` (`from_kg`, `to_kg`, `reason`, `session_id`, `source = 'progression'`). En el resumen cada cambio tiene **"Deshacer"** (restaura `from_kg` y marca el cambio como revertido). Si cambio el peso a mano en el editor de rutinas, también se registra (`source = 'manual'`). Un slot nunca cambia de peso más de una vez por sesión.
+**Aplicación: nunca automática.** Al terminar una sesión, para cada slot hecho se llama a `recommend()` y, si es `increase` o `decrease`, se crea una **recomendación pendiente** en `weight_change` (`from_kg`, `to_kg`, `reason`, `session_id`, `source = 'progression'`, `status = 'pending'`). `routine_slot.weight_kg` **solo cambia cuando pulso "Aplicar"** (`status = 'applied'`); "Ignorar" la descarta (`status = 'dismissed'`). Justo después de aplicar hay "Deshacer" (restaura `from_kg` y vuelve a `pending`).
+
+- Una recomendación pendiente se muestra en el resumen, en la pantalla Hoy y en el entreno al llegar a ese ejercicio (§6.3, §6.4) hasta que decida.
+- Si termino otra sesión de ese slot sin haber decidido, la pendiente anterior pasa a `expired` y se crea la nueva (calculada con el peso que realmente usé).
+- Si cambio el peso a mano en el editor de rutinas, se registra como `source = 'manual'`, `status = 'applied'`, y expira cualquier pendiente de ese slot.
+- Como mucho una recomendación pendiente por slot, y de un solo incremento.
 
 **Casos de test obligatorios** (con el seed, `average`, inc 2,5, 2 sesiones para bajar):
 
@@ -181,13 +186,13 @@ Reglas:
 | D4 | Hip Thrust a 1 pierna | 10–12 | 20 kg · 9,9 (antes 9,9) | **decrease 17,5** |
 | D4 | Toes to bar | 10–12 | 0 kg · 7 (1 de 2 series) | keep 0 (incompleta) |
 
-La columna "Resultado" es también el **peso con el que queda cada slot tras la importación del seed** (§3).
+Las filas `increase`/`decrease` de la columna "Resultado" son también las **recomendaciones pendientes que aparecen tras importar el seed** (§3).
 
-Añadir además tests de: `strict`, incremento personalizado, bajada que llegaría a negativo, que nunca se salta más de un incremento, aplicar + deshacer un cambio, y que el historial conserva el peso antiguo tras una subida.
+Añadir además tests de: `strict`, incremento personalizado, bajada que llegaría a negativo, que nunca se salta más de un incremento, aplicar / ignorar / deshacer una recomendación, que una pendiente expira al terminar otra sesión del slot, que sin aceptar el peso del slot no cambia, y que el historial conserva el peso antiguo tras una subida.
 
 ### 6.3 Pantalla "Hoy" (tab inicial)
 
-- Fecha y día. Rutina de hoy (según `routine_weekday`) con la lista de ejercicios, series × objetivo y **peso del slot**, con flecha ↑ ↓ si cambió en la última sesión.
+- Fecha y día. Rutina de hoy (según `routine_weekday`) con la lista de ejercicios, series × objetivo y **peso del slot**. Si hay recomendación pendiente: "35 kg → **37,5 kg** recomendado" con su motivo y botones **Aplicar / Ignorar** (y "Aplicar todas" si hay varias).
 - Cardio de hoy como checklist (marcar hecho, opcional: valor real "5,3 km", "32 min").
 - Botón **"Empezar rutina"** (o **"Continuar entrenamiento"** si hay una sesión `in_progress`).
 - "Entrenar otra rutina" (selector) por si cambio el día. En días sin rutina: mensaje de descanso + cardio.
@@ -206,11 +211,11 @@ Máquina de estados (`src/domain/workoutMachine.ts`, pura y testeada):
 ```
 
 - **EXERCISE_LIST**: ejercicios de la rutina en orden con progreso ("2/3 series"), el siguiente pendiente destacado. Se puede elegir **cualquiera** (orden libre). Acciones: añadir ejercicio puntual (del catálogo, con opción "añadir también a la rutina"), saltar ejercicio, terminar.
-- **SET_INPUT**: nombre, "Serie 2 de 3", **peso del slot (solo lectura**, "37,5 kg", "Lastre 15 kg" o "Peso corporal"), objetivo ("10–12 reps", "por pierna"), nota/regla y reps de esta serie la última vez. **Único input: reps**, grande, con stepper ±1, precargado con las reps de esa serie la última vez (o el mínimo del rango). Botón **"Serie hecha"** → guarda `set_log` (reps + copia del peso del slot) **inmediatamente** en la BD. Si hace falta cambiar el peso (p. ej. no está libre la mancuerna), un icono "editar" abre el editor del slot; el cambio afecta a esta sesión y a las siguientes.
+- **SET_INPUT**: nombre, "Serie 2 de 3", **peso del slot (solo lectura**, "37,5 kg", "Lastre 15 kg" o "Peso corporal"), objetivo ("10–12 reps", "por pierna"), nota/regla y reps de esta serie la última vez. **Único input: reps**, grande, con stepper ±1, precargado con las reps de esa serie la última vez (o el mínimo del rango). Botón **"Serie hecha"** → guarda `set_log` (reps + copia del peso del slot) **inmediatamente** en la BD. Si el slot tiene una recomendación pendiente, al llegar a su **primera serie** aparece un aviso "Recomendado 37,5 kg (media 14,7 > 12) — **Aplicar / Ignorar / Ahora no**"; si aplico, las series de hoy ya usan el nuevo peso. Si hace falta cambiar el peso por otro motivo (p. ej. no está libre la mancuerna), un icono "editar" abre el editor del slot; el cambio afecta a esta sesión y a las siguientes.
 - **RESTING**: cuenta atrás grande (2:30 por defecto; `slot.restSeconds ?? settings.restSecondsDefault`), botones **−30 s / +30 s / Saltar**, y debajo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg" o "Siguiente ejercicio: …". Al llegar a 0: sonido + vibración y botón **"Siguiente serie"** / **"Siguiente ejercicio"** / "Elegir otro". Tras la **última serie del último ejercicio** no hay descanso: se ofrece terminar.
 - Desde cualquier estado: ver/corregir las reps o borrar series ya hechas y añadir **serie extra**.
-- **"Terminar entrenamiento"**: marca la sesión como `finished` y **aplica los cambios de peso** (§6.2) en la misma transacción.
-- **SUMMARY** (`app/workout/resumen/[sessionId].tsx`): duración, series totales, volumen (Σ peso × reps de ejercicios con carga), récords (más reps a un peso o primer día con un peso nuevo) y **cambios de peso aplicados** por slot ("Remo con barra: 35 → 37,5 kg · media 14,7 > 12") con botón **Deshacer**; los slots sin cambio muestran "=" y su motivo.
+- **"Terminar entrenamiento"**: marca la sesión como `finished` y **crea las recomendaciones pendientes** (§6.2) en la misma transacción. No cambia ningún peso.
+- **SUMMARY** (`app/workout/resumen/[sessionId].tsx`): duración, series totales, volumen (Σ peso × reps de ejercicios con carga), récords (más reps a un peso o primer día con un peso nuevo) y **recomendaciones** por slot ("Remo con barra: 35 → 37,5 kg · media 14,7 > 12") con botones **Aplicar / Ignorar** y "Aplicar todas"; nada viene marcado por defecto y lo que no decida queda pendiente. Los slots sin cambio muestran "=" y su motivo.
 - **Pantalla siempre encendida** durante el entreno (expo-keep-awake, configurable). Hápticos en "Serie hecha" y fin de descanso.
 - **Resistente a cierres**: la sesión, sus series y el estado del descanso (`rest_ends_at`) están en la BD. Al reabrir, se reconstruye el estado y la cuenta atrás continúa correctamente.
 
@@ -239,7 +244,7 @@ Android:
 ### 6.6 Historial y progreso
 
 - Tab **Historial**: lista de sesiones (fecha, rutina, duración, nº series) → detalle con todas las series (editables) y cardio del día.
-- **Detalle de ejercicio** (`app/ejercicio/[id].tsx`): tabla por sesión (peso × reps por serie), gráfica de peso de trabajo y de reps totales por sesión, récords y lista de cambios de peso (`slot_weight_change`). Las sesiones importadas del Excel se marcan como tales.
+- **Detalle de ejercicio** (`app/ejercicio/[id].tsx`): tabla por sesión (peso × reps por serie), gráfica de peso de trabajo y de reps totales por sesión, récords y lista de recomendaciones y cambios de peso (`weight_change`: aplicadas, ignoradas, manuales). Las sesiones importadas del Excel se marcan como tales.
 - Historial de cardio: lista de días con actividades hechas.
 
 ### 6.7 Editor de rutinas y ejercicios
@@ -314,13 +319,13 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 | `cardio_log` | `id`, `date`, `activity_id` (nullable), `name`, `done`, `value`, `notes` |
 | `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'/'abandoned'), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id` |
 | `set_log` | `id`, `session_id`, `slot_id` (nullable: ejercicio puntual), `exercise_id`, `set_index`, `weight_kg` (copia del peso del slot al registrar; nullable), `reps`, `is_extra`, `completed_at` |
-| `slot_weight_change` | `id`, `slot_id`, `session_id` (nullable), `from_kg`, `to_kg`, `reason`, `source` ('progression'/'manual'/'import'), `reverted`, `changed_at` |
+| `weight_change` | `id`, `slot_id`, `session_id` (nullable), `from_kg`, `to_kg`, `reason`, `source` ('progression'/'manual'/'import'), `status` ('pending'/'applied'/'dismissed'/'expired'), `created_at`, `decided_at` |
 | `food` | `id`, `name` (único), `fat_per_100g`, `carbs_per_100g`, `protein_per_100g`, `archived` |
 | `diet_item` | `id`, `weekday`, `meal` ('desayuno'/'comida'/'merienda'/'cena'), `food_id`, `grams`, `position` |
 
 Índices: `set_log(session_id)`, `set_log(slot_id, completed_at)`, `set_log(exercise_id, completed_at)`, `workout_session(status)`, `workout_session(date)`, `diet_item(weekday)`, `cardio_log(date)`.
 
-`recommend()` se calcula al vuelo; lo que se persiste es su efecto: el nuevo `routine_slot.weight_kg` y la fila en `slot_weight_change`.
+`recommend()` se calcula al terminar cada sesión y su resultado se guarda como fila `pending` en `weight_change`; `routine_slot.weight_kg` solo cambia al aplicar. Índice adicional: `weight_change(slot_id, status)`.
 
 ---
 
@@ -383,7 +388,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 
 ### Fase 1 — Datos y dominio
 - [ ] Esquema Drizzle (§10) + migraciones + cliente.
-- [ ] Importación del seed en el primer arranque (§3), incluida la aplicación inicial del motor, con test.
+- [ ] Importación del seed en el primer arranque (§3), incluidas las recomendaciones pendientes iniciales, con test.
 - [ ] Repositorios (rutinas, slots, sesiones, series, perfil, ajustes, peso, cardio, alimentos, dieta).
 - [ ] `nutrition.ts` + tests (§4).
 - [ ] `progression.ts` + tests (tabla de §6.2 y casos extra).
@@ -398,10 +403,10 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [ ] Descanso con notificación programada (§6.5), −30/+30/Saltar, deep link.
 - [ ] Onboarding mínimo: pedir permiso de notificaciones y alarmas exactas.
 - [ ] Corregir reps/borrar serie, serie extra, ejercicio puntual, saltar ejercicio, acceso rápido a editar el peso del slot.
-- [ ] Al terminar: aplicar cambios de peso a los slots; resumen con cambios y "Deshacer".
+- [ ] Al terminar: crear recomendaciones pendientes; resumen con Aplicar / Ignorar / Aplicar todas; pendientes visibles en Hoy y en la primera serie del ejercicio.
 - [ ] Recuperación tras cerrar la app.
 
-**Aceptación (móvil real)**: completar el Día 1 de principio a fin; con el móvil bloqueado el descanso suena a los 2:30 (≤ 3 s de retraso, 10/10); matar la app a mitad de descanso y reabrir → la cuenta atrás sigue bien y la notificación suena; al terminar, los pesos de los slots cambian según `recommend()` y "Deshacer" los restaura.
+**Aceptación (móvil real)**: completar el Día 1 de principio a fin; con el móvil bloqueado el descanso suena a los 2:30 (≤ 3 s de retraso, 10/10); matar la app a mitad de descanso y reabrir → la cuenta atrás sigue bien y la notificación suena; al terminar se proponen los pesos de `recommend()` y el peso del slot **solo cambia al pulsar Aplicar**.
 
 ### Fase 3 — Recordatorio diario
 - [ ] `dailyReminder.ts` + ajustes de hora/activación.
@@ -479,4 +484,5 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 ## 17. Registro de cambios
 
 - 2026-11-01 — Plan inicial y `data/seed/seed.json` generados a partir del Excel. Ninguna fase empezada.
-- 2026-11-01 — El peso se define en el slot de la rutina (`routine_slot.weight_kg`); en el entreno solo se introducen reps. Las recomendaciones se aplican al slot al terminar la sesión (con historial en `slot_weight_change` y "Deshacer"). Seed con `weightKg` por slot.
+- 2026-11-01 — El peso se define en el slot de la rutina (`routine_slot.weight_kg`); en el entreno solo se introducen reps. Seed con `weightKg` por slot.
+- 2026-11-01 — Las recomendaciones de peso **nunca se aplican solas**: quedan pendientes (`weight_change.status = 'pending'`) hasta que pulse Aplicar o Ignorar (resumen, Hoy o primera serie del ejercicio).

@@ -102,3 +102,9 @@ export function formatDateWithYear(iso: string): string {
 export function formatAgo(timestamp: number, now = Date.now()): string {
   return formatDistance(timestamp, now, { addSuffix: true, locale: es });
 }
+
+/** "12 oct" from ISO 'YYYY-MM-DD'. */
+export function formatShortDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return format(new Date(y, m - 1, d), 'd MMM', { locale: es }).replace('.', '');
+}

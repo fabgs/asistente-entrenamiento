@@ -75,6 +75,7 @@ export default function RootLayout() {
           <Stack.Screen name="ejercicios" options={{ title: 'Ejercicios' }} />
           <Stack.Screen name="ejercicio/[id]" options={{ title: 'Ejercicio' }} />
           <Stack.Screen name="cardio" options={{ title: 'Cardio semanal' }} />
+          <Stack.Screen name="progreso/[id]" options={{ title: 'Progreso' }} />
           <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
         </Stack>
       </SQLiteProvider>

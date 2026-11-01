@@ -106,6 +106,7 @@ export default function SlotEditorScreen() {
           ))}
         </Card>
       ) : null}
+      <Button kind="secondary" title="Ver progreso" onPress={() => router.push(`/progreso/${slot.exerciseId}`)} />
       <Button kind="danger" title="Quitar de la rutina" onPress={remove} />
     </Screen>
   );

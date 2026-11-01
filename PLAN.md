@@ -245,9 +245,9 @@ Android:
 
 ### 6.6 Historial y progreso
 
-- Tab **Historial**: lista de sesiones (fecha, rutina, duración, nº series) → detalle con todas las series (editables) y cardio del día.
-- **Detalle de ejercicio** (`app/ejercicio/[id].tsx`): tabla por sesión (peso × reps por serie), gráfica de peso de trabajo y de reps totales por sesión, récords y lista de recomendaciones y cambios de peso (`weight_change`: aplicadas, ignoradas, manuales). Las sesiones importadas del Excel se marcan como tales.
-- Historial de cardio: lista de días con actividades hechas.
+- Pestaña **Historial** con tres vistas: **Entrenos** (sesiones terminadas → resumen), **Ejercicios** (los que tienen historial, con nº de sesiones, última fecha y peso máximo → progreso) y **Cardio** (días con actividades marcadas como hechas).
+- **Progreso de un ejercicio** (`src/app/progreso/[id].tsx`, de todas las rutinas): récords (peso máximo, más repeticiones en una serie, mayor volumen en una sesión; `src/domain/progress.ts`), gráficas de **peso de trabajo** y de **repeticiones totales por sesión** (una serie por gráfica, nunca doble eje; `src/components/LineChart.tsx` con `react-native-svg`, color `colors.chart` validado con el script de *dataviz*; tocar/arrastrar muestra cada sesión), tabla de sesiones (→ resumen) y cambios de peso decididos. Se llega desde Historial, el resumen, el editor del ejercicio de la rutina y el del catálogo.
+- **Corregir un entreno terminado** (resumen → "Corregir series"): cambiar reps y peso de cada serie, borrar series o el entreno entero. Después se recalcula la recomendación de esa sesión (`refreshRecommendations`) solo si sigue siendo la sesión más reciente de ese ejercicio y su recomendación no se aplicó ya; si se borran todas las series de un ejercicio, su recomendación caduca. El resumen agrupa las series por ejercicio a partir de las propias series, así que un ejercicio quitado de la rutina sigue apareciendo en sus entrenos pasados.
 
 ### 6.7 Editor de rutinas y ejercicios
 
@@ -345,7 +345,8 @@ src/
     (tabs)/_layout.tsx              # Hoy · Rutinas · Historial · Dieta · Perfil
     (tabs)/index.tsx                # Hoy
     (tabs)/rutinas.tsx              # semana, rutinas con pesos y sugerencias, accesos a los editores
-    (tabs)/historial.tsx            # sesiones terminadas
+    (tabs)/historial.tsx            # entrenos · ejercicios · cardio
+    progreso/[id].tsx               # progreso de un ejercicio: récords, gráficas, sesiones
     (tabs)/dieta.tsx                # plan semanal y totales (edición: fase 7)
     (tabs)/perfil.tsx               # datos, objetivos calculados, registro de peso
     workout/[sessionId].tsx         # modo entrenamiento (lista · serie · descanso)
@@ -357,9 +358,9 @@ src/
     cardio.tsx                      # cardio semanal editable
     ajustes.tsx                     # descanso, recordatorio, pantalla encendida, diagnóstico de avisos
   db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedData.ts · seedTypes.ts · maintenance.ts (backup/borrado) · repositories/*.ts · __tests__/
-  domain/     progression.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
+  domain/     progression.ts · progress.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
   services/   notifications.ts · restTimer.ts · dailyReminder.ts · backup.ts · githubBackup.ts · __tests__/
-  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, DateField, SwitchRow, WeekdayPicker…) · Recommendation.tsx · DataSettings.tsx
+  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, DateField, SwitchRow, WeekdayPicker…) · Recommendation.tsx · DataSettings.tsx · LineChart.tsx
   hooks/      data.ts (useDb, useLoader, useNow)
   theme.ts
 modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
@@ -438,16 +439,16 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 
 **Aceptación**: añadir un ejercicio a una rutina, cambiarle el día y la hora → Hoy y la notificación diaria lo reflejan.
 
-### Fase 5 — Historial y progreso
-- [x] Lista de sesiones y resumen de cada una (solo lectura).
-- [ ] Editar series de una sesión ya terminada.
-- [ ] Detalle de ejercicio con tabla, gráficas y récords.
-- [ ] Historial de cardio.
+### Fase 5 — Historial y progreso ✅
+- [x] Lista de sesiones y resumen de cada una.
+- [x] Corregir series (reps y peso), borrar series o el entreno entero, con recálculo de la recomendación.
+- [x] Progreso de cada ejercicio con récords, gráficas, tabla de sesiones y cambios de peso.
+- [x] Historial de cardio.
 
 ### Fase 6 — Perfil y peso
 - [x] Aviso en Hoy si falta la fecha de nacimiento; formulario de perfil (la fecha se elige con el calendario nativo de Android, `@react-native-community/datetimepicker`).
 - [x] Perfil con cálculos (§4) y registro de peso (lista).
-- [ ] Gráfica de evolución del peso.
+- [ ] Gráfica de evolución del peso corporal (reutilizar `LineChart`).
 
 ### Fase 7 — Dieta
 - [ ] CRUD de alimentos.
@@ -515,3 +516,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fase 4 implementada: catálogo de ejercicios, editor de rutinas y de cada ejercicio de la rutina, cardio semanal editable y "añadir ejercicio a la rutina" desde el entreno. Los Stepper permiten escribir el valor a mano. La fecha de nacimiento se escribe en DD-MM-AAAA. Historial de git limpiado de datos personales.
 - 2026-11-01 — Fecha de nacimiento con el selector de fecha nativo (`DateField`).
 - 2026-11-01 — Fase 8: exportar/importar copia, copia automática en GitHub y modo pruebas (borra los datos al instalar un APK nuevo, activado por defecto mientras la app está en pruebas).
+- 2026-11-01 — Fase 5: historial con entrenos, ejercicios y cardio; progreso por ejercicio con récords y gráficas (`react-native-svg`); corregir o borrar entrenos terminados con recálculo de recomendaciones.

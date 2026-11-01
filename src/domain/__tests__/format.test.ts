@@ -6,6 +6,7 @@ import {
   formatKg,
   formatLoad,
   formatLongDate,
+  formatShortDate,
   formatNumber,
   formatTarget,
   parseDecimal,
@@ -69,6 +70,11 @@ describe('format', () => {
     const now = new Date(2026, 10, 1, 12, 0).getTime();
     expect(formatAgo(now - 2 * 60 * 60 * 1000, now)).toBe('hace alrededor de 2 horas');
     expect(formatAgo(now - 3 * 24 * 60 * 60 * 1000, now)).toBe('hace 3 días');
+  });
+
+  it('formats short dates', () => {
+    expect(formatShortDate('2026-10-12')).toBe('12 oct');
+    expect(formatShortDate('2026-01-05')).toBe('5 ene');
   });
 
   it('formats targets', () => {

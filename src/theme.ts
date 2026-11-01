@@ -14,6 +14,8 @@ export const colors = {
   danger: '#F87171',
   up: '#4ADE80',
   down: '#F87171',
+  /** Series colour for charts: validated for lightness band and contrast on `card` (dataviz). */
+  chart: '#16A34A',
 } as const;
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;

@@ -141,6 +141,9 @@ function ExerciseForm({
         {error ? <AppText style={{ color: colors.danger }}>{error}</AppText> : null}
         <Button title={isNew && pickFor !== null ? 'Crear y añadir a la rutina' : 'Guardar'} onPress={save} />
       </Card>
+      {!isNew ? (
+        <Button kind="secondary" title="Ver progreso" onPress={() => router.push(`/progreso/${exercise.id}`)} />
+      ) : null}
       {!isNew ? <Button kind="danger" title="Archivar ejercicio" onPress={archive} /> : null}
     </>
   );

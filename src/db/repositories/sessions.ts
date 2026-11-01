@@ -227,6 +227,36 @@ export async function lastReps(db: Db, slotId: number): Promise<number[]> {
  * Closes the session and stores one pending recommendation per trained slot.
  * Slot weights are never changed here (PLAN.md §6.2).
  */
+/** Proposes the next load for a slot from its history; never changes the slot weight. */
+async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: ProgressionSettings, now: number) {
+  const history = await slotHistory(db, slot.id);
+  const rec = recommend(slotRule(slot), slot.exerciseIncrementKg, history, settings);
+  if (rec.action === 'increase' || rec.action === 'decrease') {
+    await createRecommendation(db, {
+      slotId: slot.id,
+      sessionId,
+      fromKg: slot.weightKg,
+      toKg: rec.toKg,
+      reason: rec.reason,
+      source: 'progression',
+      now,
+    });
+  } else {
+    await expireOpenChanges(db, slot.id, now);
+  }
+}
+
+/** Active routine slots that have sets in the session. */
+async function trainedSlots(db: Db, session: Session): Promise<Slot[]> {
+  if (!session.routineId) return [];
+  const sets = await listSets(db, session.id);
+  return (await listSlots(db, session.routineId)).filter((slot) => sets.some((s) => s.slotId === slot.id));
+}
+
+/**
+ * Closes the session and stores one pending recommendation per trained slot.
+ * Slot weights are never changed here (PLAN.md §6.2).
+ */
 export async function finishSession(
   db: Db,
   sessionId: number,
@@ -235,8 +265,7 @@ export async function finishSession(
 ): Promise<void> {
   const session = await getSession(db, sessionId);
   if (!session || session.status !== 'in_progress') return;
-  const sets = await listSets(db, sessionId);
-  const slots = session.routineId ? await listSlots(db, session.routineId) : [];
+  const slots = await trainedSlots(db, session);
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(
@@ -246,25 +275,60 @@ export async function finishSession(
       now,
       sessionId,
     );
-    for (const slot of slots) {
-      if (!sets.some((s) => s.slotId === slot.id)) continue;
-      const history = await slotHistory(db, slot.id);
-      const rec = recommend(slotRule(slot), slot.exerciseIncrementKg, history, settings);
-      if (rec.action === 'increase' || rec.action === 'decrease') {
-        await createRecommendation(db, {
-          slotId: slot.id,
-          sessionId,
-          fromKg: slot.weightKg,
-          toKg: rec.toKg,
-          reason: rec.reason,
-          source: 'progression',
-          now,
-        });
-      } else {
-        await expireOpenChanges(db, slot.id, now);
-      }
-    }
+    for (const slot of slots) await proposeForSlot(db, slot, sessionId, settings, now);
   });
+}
+
+/**
+ * After correcting a finished session, redoes its recommendations. Only for slots where it is still
+ * the latest session and whose recommendation from it was not already applied.
+ */
+export async function refreshRecommendations(
+  db: Db,
+  sessionId: number,
+  settings: ProgressionSettings,
+  now = Date.now(),
+): Promise<void> {
+  const session = await getSession(db, sessionId);
+  if (!session || session.status !== 'finished') return;
+  // Exercises whose sets were all deleted no longer back a recommendation.
+  await db.runAsync(
+    `UPDATE weight_change SET status = 'expired', decided_at = ?
+     WHERE session_id = ? AND status IN ('pending', 'dismissed')
+       AND slot_id NOT IN (SELECT slot_id FROM set_log WHERE session_id = ? AND slot_id IS NOT NULL)`,
+    now,
+    sessionId,
+    sessionId,
+  );
+  for (const slot of await trainedSlots(db, session)) {
+    const latest = (await slotHistory(db, slot.id, 1))[0];
+    if (latest?.sessionId !== sessionId) continue;
+    const applied = await db.getFirstAsync<{ id: number }>(
+      `SELECT id FROM weight_change WHERE slot_id = ? AND session_id = ? AND status = 'applied'`,
+      slot.id,
+      sessionId,
+    );
+    if (applied) continue;
+    await db.withTransactionAsync(() => proposeForSlot(db, slot, sessionId, settings, now));
+  }
+}
+
+/** Deletes a finished session; recommendations that came from it are dropped. */
+export async function deleteFinishedSession(db: Db, sessionId: number, now = Date.now()): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE weight_change SET status = 'expired', decided_at = ?
+       WHERE session_id = ? AND status IN ('pending', 'dismissed')`,
+      now,
+      sessionId,
+    );
+    await db.runAsync('DELETE FROM set_log WHERE session_id = ?', sessionId);
+    await db.runAsync('DELETE FROM workout_session WHERE id = ?', sessionId);
+  });
+}
+
+export async function updateSetWeight(db: Db, setId: number, weightKg: number | null): Promise<void> {
+  await db.runAsync('UPDATE set_log SET weight_kg = ? WHERE id = ?', weightKg, setId);
 }
 
 export async function discardSession(db: Db, sessionId: number): Promise<void> {

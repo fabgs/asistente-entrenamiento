@@ -112,7 +112,13 @@ export function Stepper({
       <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(-step)}>
         <Text style={styles.stepperSign}>−</Text>
       </Pressable>
-      <Text style={[styles.stepperValue, big && textStyles.huge]}>{format(value)}</Text>
+      <Text
+        style={[styles.stepperValue, big && textStyles.huge]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        minimumFontScale={0.4}>
+        {format(value)}
+      </Text>
       <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(step)}>
         <Text style={styles.stepperSign}>+</Text>
       </Pressable>
@@ -199,6 +205,6 @@ const styles = StyleSheet.create({
   },
   stepperButtonBig: { width: 80, height: 80, borderRadius: radius.lg },
   stepperSign: { color: colors.text, fontSize: 32, fontWeight: '600' },
-  stepperValue: { color: colors.text, fontSize: 28, fontWeight: '700', minWidth: 80, textAlign: 'center' },
+  stepperValue: { flex: 1, color: colors.text, fontSize: 28, fontWeight: '700', textAlign: 'center' },
   divider: { height: 1, backgroundColor: colors.border },
 });

@@ -2,6 +2,8 @@ import * as Notifications from 'expo-notifications';
 import { startRestCountdown, stopRestCountdown } from '../../modules/rest-timer';
 import { REST_CHANNEL_ID, REST_SOUND } from './notifications';
 
+export { canDrawOverlays } from '../../modules/rest-timer';
+
 const restId = (sessionId: number) => `rest-${sessionId}`;
 
 /**

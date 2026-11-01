@@ -19,13 +19,14 @@ import {
   type Session,
   type SetLog,
 } from '@/db/repositories/sessions';
-import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
+import { getSettings, toProgressionSettings, updateSettings } from '@/db/repositories/settings';
 import { listOpenChanges, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatCountdown, formatLoad, formatTarget } from '@/domain/format';
 import type { RepTarget } from '@/domain/types';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
 import { useDb, useLoader, useNow } from '@/hooks/data';
-import { cancelRestEnd, restDeadline, scheduleRestEnd, shiftDeadline } from '@/services/restTimer';
+import { openOverlaySettings } from '@/services/notifications';
+import { canDrawOverlays, cancelRestEnd, restDeadline, scheduleRestEnd, shiftDeadline } from '@/services/restTimer';
 import { colors, radius, spacing } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'workout';
@@ -63,6 +64,7 @@ export default function WorkoutScreen() {
       lastBySlot,
       sets: await listSets(db, id),
       settings: await getSettings(db),
+      overlayAllowed: canDrawOverlays(),
       openChanges: await listOpenChanges(db),
     };
   });
@@ -189,6 +191,12 @@ export default function WorkoutScreen() {
             else endRest(null).then(confirmFinish);
           }}
           onChoose={() => endRest(null)}
+          askOverlay={settings.restOverlay && !data.overlayAllowed}
+          onGrantOverlay={openOverlaySettings}
+          onDeclineOverlay={async () => {
+            await updateSettings(db, { restOverlay: false });
+            reload();
+          }}
         />
       </>
     );
@@ -438,6 +446,9 @@ function RestView({
   onAdjust,
   onContinue,
   onChoose,
+  askOverlay,
+  onGrantOverlay,
+  onDeclineOverlay,
 }: {
   endsAt: number;
   next: NextStep;
@@ -445,6 +456,9 @@ function RestView({
   onAdjust: (deltaSeconds: number) => void;
   onContinue: () => void;
   onChoose: () => void;
+  askOverlay: boolean;
+  onGrantOverlay: () => void;
+  onDeclineOverlay: () => void;
 }) {
   const now = useNow(250);
   const remaining = endsAt - now;
@@ -481,6 +495,20 @@ function RestView({
 
       <Button big kind={over ? 'primary' : 'secondary'} title={over ? continueLabel : `Saltar descanso · ${continueLabel}`} onPress={onContinue} />
       <Button kind="ghost" title="Elegir otro ejercicio" onPress={onChoose} />
+
+      {askOverlay ? (
+        <Card style={{ borderColor: colors.accent }}>
+          <AppText variant="heading">Burbuja flotante</AppText>
+          <AppText variant="muted">
+            Para ver el descanso en una burbuja cuando sales de la app, Android necesita el permiso «Mostrar sobre
+            otras apps».
+          </AppText>
+          <Row>
+            <Button title="Dar permiso" onPress={onGrantOverlay} />
+            <Button kind="ghost" title="No, gracias" onPress={onDeclineOverlay} />
+          </Row>
+        </Card>
+      ) : null}
     </Screen>
   );
 }

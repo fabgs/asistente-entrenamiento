@@ -1,6 +1,7 @@
 import { useFocusEffect } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState } from 'react-native';
 import type { Db } from '@/db/db';
 
 export function useDb(): Db {
@@ -8,7 +9,8 @@ export function useDb(): Db {
 }
 
 /**
- * Loads data every time the screen gains focus. `reload` refreshes it after a write and resolves
+ * Loads data every time the screen gains focus or the app returns to the foreground (e.g. after
+ * granting a permission in Android settings). `reload` refreshes it after a write and resolves
  * once the new data is in state. Screens with route params are separate instances per param.
  */
 export function useLoader<T>(load: (db: Db) => Promise<T>) {
@@ -26,6 +28,10 @@ export function useLoader<T>(load: (db: Db) => Promise<T>) {
   useFocusEffect(
     useCallback(() => {
       reload();
+      const sub = AppState.addEventListener('change', (state) => {
+        if (state === 'active') reload();
+      });
+      return () => sub.remove();
     }, [reload]),
   );
   return { data, reload };

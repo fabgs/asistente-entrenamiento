@@ -43,3 +43,7 @@ expo-env.d.ts
 *.key
 *.pem
 *.mobileprovision
+
+# Artefactos de compilación de módulos nativos locales
+modules/*/android/build/
+modules/*/android/.cxx/

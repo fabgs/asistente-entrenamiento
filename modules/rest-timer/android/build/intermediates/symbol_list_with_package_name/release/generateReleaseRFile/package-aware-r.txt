@@ -1,2 +1,0 @@
-expo.modules.resttimer
-drawable ic_rest_timer

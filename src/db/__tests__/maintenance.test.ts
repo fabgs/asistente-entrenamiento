@@ -47,6 +47,14 @@ describe('backup and restore', () => {
     expect((await getSettings(target)).backupRepo).toBe('backups');
   });
 
+  it('turns developer mode off when restoring a backup made with it on', async () => {
+    const source = await seededDb();
+    await updateSettings(source, { devMode: true });
+    const target = await createTestDb();
+    await restoreBackup(target, await exportBackup(source, NOW));
+    expect((await getSettings(target)).devMode).toBe(false);
+  });
+
   it('replaces existing data instead of merging', async () => {
     const db = await seededDb();
     const backup = await exportBackup(db, NOW);
@@ -93,7 +101,7 @@ describe('wipe and metadata', () => {
     expect(await count(db, 'routine')).toBe(4);
   });
 
-  it('starts in developer mode', async () => {
-    expect((await getSettings(await seededDb())).devMode).toBe(true);
+  it('starts with developer mode off', async () => {
+    expect((await getSettings(await seededDb())).devMode).toBe(false);
   });
 });

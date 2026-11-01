@@ -77,7 +77,7 @@ export async function wipeAllData(db: Db): Promise<void> {
 
 /**
  * Replaces all data with the backup in a single transaction, so a failure leaves the current data
- * untouched. Older backups work: missing columns take their defaults.
+ * untouched. Older backups work: missing columns take their defaults. Developer mode always ends off.
  */
 export async function restoreBackup(db: Db, backup: Backup): Promise<void> {
   if (backup.schemaVersion > (await schemaVersion(db))) {
@@ -102,6 +102,8 @@ export async function restoreBackup(db: Db, backup: Backup): Promise<void> {
         );
       }
     }
+    // Restored data is real data: developer mode must not wipe it on the next install.
+    await db.runAsync('UPDATE settings SET dev_mode = 0 WHERE id = 1');
   });
 }
 

@@ -290,7 +290,7 @@ Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se p
 
 Descanso por defecto (s), pantalla encendida durante el entreno, burbuja flotante, recordatorio diario (on/off + hora), diagnóstico (§7.3), copia de seguridad (§9) y **modo pruebas**.
 
-**Modo pruebas** (`settings.dev_mode`, activado por defecto mientras la app está en pruebas): en el primer arranque tras instalar un APK nuevo se borran todos los datos y se vuelve a cargar el seed. Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para apagarlo y un botón "Reiniciar datos ahora". **Cuando el usuario empiece a usar la app de verdad**: apagarlo en Ajustes y cambiar el valor por defecto para instalaciones nuevas (pendiente de que el usuario lo pida).
+**Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y se vuelve a cargar el seed. Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora".
 
 ---
 
@@ -386,14 +386,14 @@ Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % 
 
 Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y un build probado en el móvil.
 
-### Fase 0 — Bootstrap
+### Fase 0 — Bootstrap ✅
 - [x] Proyecto Expo SDK 58 con TypeScript y expo-router en la raíz.
 - [x] `tsconfig` estricto, alias `@/` → `src/`, ESLint (`eslint-config-expo`), scripts `test`, `lint`, `typecheck`.
 - [x] jest-expo configurado.
 - [x] `expo-dev-client`; `app.json`: nombre "Entreno", package `com.fabgs.entreno`, scheme `entreno`, permisos de §6.5, plugin `expo-notifications` con `sounds`.
 - [x] Sonido `assets/sounds/rest_end.wav` (generado).
 - [x] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`). En Windows requiere sustituir el `ninja` 1.10.2 del SDK por ≥ 1.12 (ver AGENTS.md → Compilar y probar).
-- [ ] Instalada en un Android real.
+- [x] Instalada en un Android real (OnePlus 7 Pro, Android 12).
 - [ ] (Opcional) `eas.json` si algún día se usa EAS Build.
 
 **Aceptación**: la app abre en el móvil con las 5 pestañas.
@@ -409,7 +409,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 
 **Aceptación**: tests verdes (70); en el primer arranque hay 4 rutinas, 22 ejercicios, 34 alimentos, 145 elementos de dieta y 9 actividades de cardio.
 
-### Fase 2 — Entrenar (MVP) ⭐
+### Fase 2 — Entrenar (MVP) ⭐ ✅
 - [x] Pantalla Hoy (§6.3) con pesos de cada slot, recomendaciones pendientes y cardio.
 - [x] Iniciar/continuar sesión; modo entrenamiento completo (§6.4) con input solo de reps.
 - [x] Descanso con notificación programada (§6.5, `alarmClock`), −30/+30/Saltar, deep link.
@@ -419,7 +419,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [ ] (Opcional) Ejercicio puntual solo para esa sesión, sin tocar la rutina.
 - [x] Al terminar: crear recomendaciones pendientes; resumen con Aplicar / Ignorar / Aplicar todas; pendientes visibles en Hoy y en la primera serie del ejercicio.
 - [x] Recuperación tras cerrar la app (estado en `workout_session`).
-- [ ] **Verificación en móvil real** (checklist de §14).
+- [x] **Verificación en móvil real** (checklist de §14).
 
 **Aceptación (móvil real)**: completar el Día 1 de principio a fin; con el móvil bloqueado el descanso suena a los 2:30 (≤ 3 s de retraso, 10/10); matar la app a mitad de descanso y reabrir → la cuenta atrás sigue bien y la notificación suena; al terminar se proponen los pesos de `recommend()` y el peso del slot **solo cambia al pulsar Aplicar**.
 
@@ -427,17 +427,17 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] `dailyReminder.ts` + ajustes de hora/activación.
 - [x] Reprogramación al arrancar y al guardar ajustes (falta engancharla al editor de rutinas de la fase 4).
 - [x] Pantalla de diagnóstico (§7.3) con exclusión de optimización de batería y botones de prueba.
-- [ ] **Verificación en móvil real** (checklist de §14).
+- [ ] **Verificación en móvil real** (checklist de §14): falta reiniciar el móvil y modo avión. Ya probado: llega con la pantalla apagada y cambiar la hora no duplica.
 
 **Aceptación**: en modo avión y con la app cerrada, la notificación llega a la hora configurada con el texto correcto del día; sigue llegando tras reiniciar el móvil.
 
-### Fase 4 — Editor de rutinas
+### Fase 4 — Editor de rutinas ✅
 - [x] Catálogo de ejercicios (`ejercicios.tsx`, `ejercicio/[id].tsx`): buscar, crear, editar, archivar; también sirve de selector al añadir a una rutina.
 - [x] Editor de rutina (`rutina/[id].tsx`): crear, renombrar, días, reordenar (↑ ↓), añadir, archivar.
 - [x] Editor del ejercicio de la rutina (`slot/[id].tsx`): peso, series, objetivo (rango/fijo/fallo), por lado, unidad, progresión, permitir bajar, incremento y descanso propios, nota, quitar.
 - [x] Cardio semanal editable (`cardio.tsx`); la vista calendario está en la pestaña Rutinas.
 - [x] Todo cambio de rutinas, días o cardio reprograma el recordatorio diario.
-- [ ] Verificación en móvil real.
+- [x] Verificación en móvil real: añadir un ejercicio al Día 2 y ponerle el domingo → Hoy lo muestra y el recordatorio dice «Domingo · Día 2: Pierna y Core».
 
 **Aceptación**: añadir un ejercicio a una rutina, cambiarle el día y la hora → Hoy y la notificación diaria lo reflejan.
 
@@ -479,10 +479,10 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
   - [x] Descanso suena con pantalla bloqueada (≤ 3 s). OnePlus 7 Pro, Android 12: 1,7 s y 1,1 s de retraso medidos con `dumpsys`.
   - [x] Descanso suena con la app cerrada desde multitarea (el servicio de la cuenta atrás mantiene vivo el proceso; la alarma es de `AlarmManager`).
   - [x] −30/+30/Saltar reprograman o cancelan bien (no suena una notificación antigua).
-  - [ ] Matar la app durante el descanso y reabrir: estado correcto.
+  - [x] Matar la app durante el descanso y reabrir: estado correcto. Con `am crash` la alarma sigue, suena (1,9 s de retraso) y al reabrir sale «¡Descanso terminado!». La cuenta atrás y la burbuja mueren con el proceso.
   - [ ] Recordatorio diario en modo avión y tras reiniciar.
   - [x] Cambiar la hora del recordatorio no deja notificaciones duplicadas (siempre 7 alarmas).
-  - [ ] Modo silencio / No molestar: comportamiento documentado.
+  - [x] Modo silencio / No molestar: el fin del descanso suena con No molestar activo (canal con uso de alarma). Probado en el OnePlus.
   - [x] Con el móvil bloqueado se ve la cuenta atrás del descanso y desaparece al llegar a 0. Para que salga arriba y al momento en Android 12+, la notificación es coloreada, tiene grupo propio y `FOREGROUND_SERVICE_IMMEDIATE`.
   - [x] Al salir de la app durante el descanso aparece la burbuja; se puede arrastrar; tocarla vuelve al entreno; desaparece al volver a la app. En OnePlus el permiso abre la lista general de apps (la app lo indica).
 
@@ -523,3 +523,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fase 7: dieta editable (catálogo de alimentos, añadir/cambiar/quitar en el plan, copiar día) con totales coloreados frente a objetivos.
 - 2026-11-01 — Fase 6: gráfica del peso corporal en Perfil. Fase 9: icono propio (mancuerna) para lanzador, icono adaptativo/monocromo, splash y barra de notificaciones.
 - 2026-11-01 — Pruebas en móvil real (OnePlus 7 Pro, Android 12): copia en GitHub, burbuja, cuenta atrás en la pantalla de bloqueo, ±30 s/Saltar y cierre desde multitarea. Cuenta atrás coloreada, inmediata y con el icono de la app; burbuja sin borde; aviso del permiso de la burbuja en OnePlus. Encontrado: OnePlus retrasa las alarmas exactas normales (ver §15).
+- 2026-11-01 — **Versión 1.0.0.** Modo pruebas desactivado por defecto (y siempre apagado tras restaurar una copia): el usuario empieza a usar la app con sus datos reales. El recordatorio diario se queda sin `alarmClock` de momento (el usuario prefiere ver si llega a su hora).

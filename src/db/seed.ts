@@ -39,8 +39,9 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
     );
     const s = seed.settings;
     await db.runAsync(
-      `INSERT INTO settings (id, rest_seconds_default, default_increment_kg, progression_mode, sessions_below_to_decrease, daily_reminder_enabled, daily_reminder_time)
-       VALUES (1, ?, ?, ?, ?, ?, ?)`,
+      // dev_mode is written explicitly: its column default (1) dates from the testing phase.
+      `INSERT INTO settings (id, rest_seconds_default, default_increment_kg, progression_mode, sessions_below_to_decrease, daily_reminder_enabled, daily_reminder_time, dev_mode)
+       VALUES (1, ?, ?, ?, ?, ?, ?, 0)`,
       s.restSecondsDefault,
       s.defaultIncrementKg,
       s.progressionMode,

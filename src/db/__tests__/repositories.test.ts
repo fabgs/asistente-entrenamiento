@@ -16,7 +16,7 @@ import {
   applyChange,
   dismissChange,
   listChangesForSession,
-  listPendingChanges,
+  listOpenChanges,
   setSlotWeightManually,
   undoChange,
 } from '../repositories/weightChanges';
@@ -74,7 +74,7 @@ describe('importSeed', () => {
     const db = await seededDb();
     const remo = await slotNamed(db, 0, 'Remo con barra (90º)');
     expect(remo.weightKg).toBe(35);
-    const pending = await listPendingChanges(db);
+    const pending = await listOpenChanges(db);
     expect(pending.find((p) => p.slotId === remo.id)).toMatchObject({ fromKg: 35, toKg: 37.5, source: 'import' });
     expect(pending.map((p) => p.toKg).sort((a, b) => a! - b!)).toEqual([
       2.5, 2.5, 10, 12.5, 12.5, 17.5, 17.5, 17.5, 37.5, 37.5,
@@ -95,26 +95,53 @@ describe('weight recommendations are never applied automatically', () => {
   it('applies, undoes and dismisses on demand', async () => {
     const db = await seededDb();
     const remo = await slotNamed(db, 0, 'Remo con barra (90º)');
-    const change = (await listPendingChanges(db)).find((p) => p.slotId === remo.id)!;
+    const change = (await listOpenChanges(db)).find((p) => p.slotId === remo.id)!;
 
     await applyChange(db, change.id, 1);
     expect((await slotNamed(db, 0, 'Remo con barra (90º)')).weightKg).toBe(37.5);
 
     await undoChange(db, change.id);
     expect((await slotNamed(db, 0, 'Remo con barra (90º)')).weightKg).toBe(35);
-    expect((await listPendingChanges(db)).some((p) => p.id === change.id)).toBe(true);
+    expect((await listOpenChanges(db)).some((p) => p.id === change.id)).toBe(true);
 
     await dismissChange(db, change.id, 2);
     expect((await slotNamed(db, 0, 'Remo con barra (90º)')).weightKg).toBe(35);
-    expect((await listPendingChanges(db)).some((p) => p.id === change.id)).toBe(false);
   });
 
-  it('expires pending recommendations on a manual change', async () => {
+  it('keeps an ignored recommendation as a suggestion that can still be applied', async () => {
     const db = await seededDb();
     const remo = await slotNamed(db, 0, 'Remo con barra (90º)');
+    const change = (await listOpenChanges(db)).find((p) => p.slotId === remo.id)!;
+
+    await dismissChange(db, change.id, 2);
+    expect((await listOpenChanges(db)).find((p) => p.id === change.id)?.status).toBe('dismissed');
+
+    await applyChange(db, change.id, 3);
+    expect((await slotNamed(db, 0, 'Remo con barra (90º)')).weightKg).toBe(37.5);
+    expect((await listOpenChanges(db)).some((p) => p.id === change.id)).toBe(false);
+  });
+
+  it('drops an ignored suggestion once newer data replaces it', async () => {
+    const db = await seededDb();
+    const routine = (await listRoutines(db))[0];
+    const remo = await slotNamed(db, 0, 'Remo con barra (90º)');
+    const change = (await listOpenChanges(db)).find((p) => p.slotId === remo.id)!;
+    await dismissChange(db, change.id, 2);
+
+    const sessionId = await startSession(db, routine.id, NOW);
+    for (const reps of [11, 11, 11]) await logSet(db, sessionId, remo, reps, reps);
+    await finishSession(db, sessionId, toProgressionSettings(await getSettings(db)), 1000);
+    expect((await listOpenChanges(db)).some((p) => p.slotId === remo.id)).toBe(false);
+  });
+
+  it('expires open recommendations on a manual change', async () => {
+    const db = await seededDb();
+    const remo = await slotNamed(db, 0, 'Remo con barra (90º)');
+    const change = (await listOpenChanges(db)).find((p) => p.slotId === remo.id)!;
+    await dismissChange(db, change.id, 1);
     await setSlotWeightManually(db, remo.id, 40, 1);
     expect((await slotNamed(db, 0, 'Remo con barra (90º)')).weightKg).toBe(40);
-    expect((await listPendingChanges(db)).some((p) => p.slotId === remo.id)).toBe(false);
+    expect((await listOpenChanges(db)).some((p) => p.slotId === remo.id)).toBe(false);
   });
 });
 
@@ -126,7 +153,7 @@ describe('a workout session', () => {
     expect((await getActiveSession(db))?.id).toBe(sessionId);
 
     const floor = await slotNamed(db, 0, 'Floor Press con barra');
-    const pendingBefore = (await listPendingChanges(db)).find((p) => p.slotId === floor.id)!;
+    const pendingBefore = (await listOpenChanges(db)).find((p) => p.slotId === floor.id)!;
     await applyChange(db, pendingBefore.id, 1);
     const floorNow = await slotNamed(db, 0, 'Floor Press con barra');
 
@@ -156,6 +183,6 @@ describe('a workout session', () => {
     const sessionId = await startSession(db, routine.id, NOW);
     for (const reps of [11, 11, 11]) await logSet(db, sessionId, remo, reps, reps);
     await finishSession(db, sessionId, toProgressionSettings(await getSettings(db)), 1000);
-    expect((await listPendingChanges(db)).some((p) => p.slotId === remo.id)).toBe(false);
+    expect((await listOpenChanges(db)).some((p) => p.slotId === remo.id)).toBe(false);
   });
 });

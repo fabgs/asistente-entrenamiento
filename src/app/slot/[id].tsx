@@ -5,7 +5,7 @@ import { AppText, Button, Card, Loading, Screen, Stepper } from '@/components/ui
 import { getRoutine, getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { slotHistory } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { listPendingChanges, setSlotWeightManually } from '@/db/repositories/weightChanges';
+import { listOpenChanges, setSlotWeightManually } from '@/db/repositories/weightChanges';
 import { formatKg, formatLoad, formatTarget } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
 
@@ -20,7 +20,7 @@ export default function SlotWeightScreen() {
       slot,
       routine: await getRoutine(db, slot.routineId),
       increment: slot.incrementKg ?? slot.exerciseIncrementKg ?? (await getSettings(db)).defaultIncrementKg,
-      change: (await listPendingChanges(db)).find((c) => c.slotId === slotId),
+      change: (await listOpenChanges(db)).find((c) => c.slotId === slotId),
       history: await slotHistory(db, slotId, 5),
     };
   });
@@ -40,7 +40,7 @@ export default function SlotWeightScreen() {
       <AppText variant="muted">
         {data.routine?.name} · {data.slot.sets} × {formatTarget(data.slot.target, data.slot.unit, data.slot.perSide)}
       </AppText>
-      {data.change ? <RecommendationBox title="Recomendación pendiente" change={data.change} onChanged={reload} /> : null}
+      {data.change ? <RecommendationBox title="Recomendación de peso" change={data.change} onChanged={reload} /> : null}
       <WeightEditor key={`${data.slot.weightKg}`} slot={data.slot} increment={data.increment} />
       {data.history.length > 0 ? (
         <Card>

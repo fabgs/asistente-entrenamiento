@@ -3,18 +3,19 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Card, Loading, Row, Screen } from '@/components/ui';
 import { listCardio } from '@/db/repositories/cardio';
 import { isBodyweight, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
-import { listPendingChanges } from '@/db/repositories/weightChanges';
+import { SuggestionLine } from '@/components/Recommendation';
+import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { formatLoad, formatTarget } from '@/domain/format';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
 import { useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
 export default function RoutinesScreen() {
-  const { data } = useLoader(async (db) => {
+  const { data, reload } = useLoader(async (db) => {
     const routines = await listRoutines(db);
     const slots = new Map<number, Slot[]>();
     for (const r of routines) slots.set(r.id, await listSlots(db, r.id));
-    return { routines, slots, cardio: await listCardio(db), pending: await listPendingChanges(db) };
+    return { routines, slots, cardio: await listCardio(db), openChanges: await listOpenChanges(db) };
   });
 
   if (!data) return <Loading />;
@@ -54,8 +55,12 @@ export default function RoutinesScreen() {
               </Row>
               <AppText variant="small">
                 {slot.sets} × {formatTarget(slot.target, slot.unit, slot.perSide)}
-                {data.pending.some((p) => p.slotId === slot.id) ? '  ·  recomendación pendiente' : ''}
               </AppText>
+              {data.openChanges
+                .filter((c) => c.slotId === slot.id)
+                .map((c) => (
+                  <SuggestionLine key={c.id} change={c} onChanged={reload} />
+                ))}
             </Pressable>
           ))}
         </Card>

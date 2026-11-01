@@ -10,6 +10,7 @@ export interface Settings {
   dailyReminderEnabled: boolean;
   dailyReminderTime: string;
   keepAwake: boolean;
+  restOverlay: boolean;
 }
 
 interface SettingsRow {
@@ -20,6 +21,7 @@ interface SettingsRow {
   daily_reminder_enabled: number;
   daily_reminder_time: string;
   keep_awake: number;
+  rest_overlay: number;
 }
 
 export async function getSettings(db: Db): Promise<Settings> {
@@ -33,6 +35,7 @@ export async function getSettings(db: Db): Promise<Settings> {
     dailyReminderEnabled: bool(row.daily_reminder_enabled),
     dailyReminderTime: row.daily_reminder_time,
     keepAwake: bool(row.keep_awake),
+    restOverlay: bool(row.rest_overlay),
   };
 }
 
@@ -45,6 +48,7 @@ export async function updateSettings(db: Db, patch: Partial<Settings>): Promise<
     dailyReminderEnabled: 'daily_reminder_enabled',
     dailyReminderTime: 'daily_reminder_time',
     keepAwake: 'keep_awake',
+    restOverlay: 'rest_overlay',
   };
   for (const [key, value] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     const sqlValue = typeof value === 'boolean' ? int(value) : value;

@@ -3,7 +3,7 @@ import { localDateString } from '@/domain/schedule';
 import type { ProgressionSettings, SessionPerformance } from '@/domain/types';
 import { bool, type Db } from '../db';
 import { listSlots, slotRule, type Slot } from './routines';
-import { createRecommendation } from './weightChanges';
+import { createRecommendation, expireOpenChanges } from './weightChanges';
 
 export type SessionStatus = 'in_progress' | 'finished' | 'abandoned';
 
@@ -261,11 +261,7 @@ export async function finishSession(
           now,
         });
       } else {
-        await db.runAsync(
-          `UPDATE weight_change SET status = 'expired', decided_at = ? WHERE slot_id = ? AND status = 'pending'`,
-          now,
-          slot.id,
-        );
+        await expireOpenChanges(db, slot.id, now);
       }
     }
   });

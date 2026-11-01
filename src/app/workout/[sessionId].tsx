@@ -3,7 +3,7 @@ import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Redirect, router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { RecommendationBox } from '@/components/Recommendation';
+import { RecommendationBox, SuggestionLine } from '@/components/Recommendation';
 import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper } from '@/components/ui';
 import { isBodyweight, listSlots, type Slot } from '@/db/repositories/routines';
 import {
@@ -20,7 +20,7 @@ import {
   type SetLog,
 } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
-import { listPendingChanges, type WeightChange } from '@/db/repositories/weightChanges';
+import { listOpenChanges, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatCountdown, formatLoad, formatTarget } from '@/domain/format';
 import type { RepTarget } from '@/domain/types';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
@@ -63,7 +63,7 @@ export default function WorkoutScreen() {
       lastBySlot,
       sets: await listSets(db, id),
       settings: await getSettings(db),
-      pending: await listPendingChanges(db),
+      openChanges: await listOpenChanges(db),
     };
   });
 
@@ -147,7 +147,7 @@ export default function WorkoutScreen() {
     const endsAt = restDeadline(slot.restSeconds ?? settings.restSecondsDefault);
     let notificationId: string | null = null;
     try {
-      notificationId = await scheduleRestEnd(id, endsAt, describeNext(next, slots));
+      notificationId = await scheduleRestEnd(id, endsAt, describeNext(next, slots), settings.restOverlay);
     } catch (e) {
       console.warn('Could not schedule rest alarm', e);
     }
@@ -158,7 +158,7 @@ export default function WorkoutScreen() {
     if (!session.restEndsAt) return;
     const endsAt = shiftDeadline(session.restEndsAt, deltaSeconds);
     const next = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
-    await scheduleRestEnd(id, endsAt, describeNext(next, slots)).catch(() => null);
+    await scheduleRestEnd(id, endsAt, describeNext(next, slots), settings.restOverlay).catch(() => null);
     await update({ restEndsAt: endsAt });
   };
 
@@ -195,7 +195,7 @@ export default function WorkoutScreen() {
   }
 
   if (current) {
-    const change = data.pending.find((p) => p.slotId === current.id);
+    const change = data.openChanges.find((c) => c.slotId === current.id);
     const slotSets = sets.filter((s) => s.slotId === current.id);
     return (
       <>
@@ -205,7 +205,8 @@ export default function WorkoutScreen() {
           slot={current}
           slotSets={slotSets}
           last={data.lastBySlot.get(current.id) ?? []}
-          change={change && slotSets.length === 0 && !later.includes(current.id) ? change : undefined}
+          change={change}
+          askNow={change?.status === 'pending' && slotSets.length === 0 && !later.includes(current.id)}
           onLater={() => setLater([...later, current.id])}
           onChanged={reload}
           onComplete={(reps) => completeSet(current, reps)}
@@ -231,7 +232,7 @@ export default function WorkoutScreen() {
         session={session}
         slots={slots}
         sets={sets}
-        pending={data.pending}
+        openChanges={data.openChanges}
         onChoose={chooseSlot}
         onFinish={confirmFinish}
         onDiscard={discard}
@@ -244,7 +245,7 @@ function ExerciseList({
   session,
   slots,
   sets,
-  pending,
+  openChanges,
   onChoose,
   onFinish,
   onDiscard,
@@ -252,7 +253,7 @@ function ExerciseList({
   session: Session;
   slots: Slot[];
   sets: SetLog[];
-  pending: WeightChange[];
+  openChanges: WeightChange[];
   onChoose: (slotId: number) => void;
   onFinish: () => void;
   onDiscard: () => void;
@@ -285,9 +286,9 @@ function ExerciseList({
               <AppText variant="muted">
                 {formatLoad(slot.weightKg, isBodyweight(slot))} · {formatTarget(slot.target, slot.unit, slot.perSide)}
               </AppText>
-              {pending.some((p) => p.slotId === slot.id) && done === 0 ? (
+              {openChanges.some((c) => c.slotId === slot.id) && done === 0 ? (
                 <AppText variant="small" style={{ color: colors.warning }}>
-                  Tiene un cambio de peso recomendado
+                  Tiene una sugerencia de peso
                 </AppText>
               ) : null}
             </Card>
@@ -305,6 +306,7 @@ function SetView({
   slotSets,
   last,
   change,
+  askNow,
   onLater,
   onChanged,
   onComplete,
@@ -317,6 +319,7 @@ function SetView({
   slotSets: SetLog[];
   last: number[];
   change?: WeightChange;
+  askNow: boolean;
   onLater: () => void;
   onChanged: () => void;
   onComplete: (reps: number) => void;
@@ -363,8 +366,10 @@ function SetView({
         {last.length > 0 ? <AppText variant="small">Última vez: {last.join(' · ')}</AppText> : null}
       </Card>
 
-      {change ? (
+      {change && askNow ? (
         <RecommendationBox title="Recomendación para hoy" change={change} onChanged={onChanged} onLater={onLater} />
+      ) : change ? (
+        <SuggestionLine change={change} onChanged={onChanged} />
       ) : null}
 
       {editing ? (

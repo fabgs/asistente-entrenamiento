@@ -3,13 +3,13 @@ import { es } from 'date-fns/locale';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
-import { RecommendationBox } from '@/components/Recommendation';
+import { OpenChange } from '@/components/Recommendation';
 import { AppText, Button, Card, Chip, Loading, Row, Screen } from '@/components/ui';
 import { cardioDoneOn, cardioForWeekday, setCardioDone, type CardioActivity } from '@/db/repositories/cardio';
 import { isBodyweight, listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import { discardSession, finishSession, getActiveSession, startSession } from '@/db/repositories/sessions';
 import { getProfile, getSettings, toProgressionSettings } from '@/db/repositories/settings';
-import { applyChange, listPendingChanges, type WeightChange } from '@/db/repositories/weightChanges';
+import { applyChange, listOpenChanges, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatLoad, formatTarget } from '@/domain/format';
 import { isoWeekdayOf, localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -33,7 +33,7 @@ export default function TodayScreen() {
       today: routines.filter((r) => r.weekdays.includes(weekday)),
       others: routines.filter((r) => !r.weekdays.includes(weekday)),
       slotsByRoutine,
-      pending: await listPendingChanges(db),
+      openChanges: await listOpenChanges(db),
       cardio: await cardioForWeekday(db, weekday),
       cardioDone: await cardioDoneOn(db, localDateString(now)),
       active: await getActiveSession(db),
@@ -120,7 +120,7 @@ export default function TodayScreen() {
             key={routine.id}
             routine={routine}
             slots={data.slotsByRoutine.get(routine.id) ?? []}
-            pending={data.pending}
+            openChanges={data.openChanges}
             onStart={() => start(routine)}
             startLabel={data.active ? 'Continuar entrenamiento' : 'Empezar rutina'}
             onChanged={reload}
@@ -172,20 +172,21 @@ export default function TodayScreen() {
 function RoutineCard({
   routine,
   slots,
-  pending,
+  openChanges,
   onStart,
   startLabel,
   onChanged,
 }: {
   routine: Routine;
   slots: Slot[];
-  pending: WeightChange[];
+  openChanges: WeightChange[];
   onStart: () => void;
   startLabel: string;
   onChanged: () => void;
 }) {
   const db = useDb();
-  const pendingHere = pending.filter((p) => slots.some((s) => s.id === p.slotId));
+  const openHere = openChanges.filter((c) => slots.some((s) => s.id === c.slotId));
+  const pendingHere = openHere.filter((c) => c.status === 'pending');
 
   const applyAll = async () => {
     for (const change of pendingHere) await applyChange(db, change.id);
@@ -196,7 +197,7 @@ function RoutineCard({
     <Card>
       <AppText variant="heading">{routine.name}</AppText>
       {slots.map((slot) => {
-        const change = pendingHere.find((p) => p.slotId === slot.id);
+        const change = openHere.find((c) => c.slotId === slot.id);
         return (
           <View key={slot.id} style={styles.slotRow}>
             <Row style={{ justifyContent: 'space-between' }}>
@@ -206,7 +207,7 @@ function RoutineCard({
             <AppText variant="small">
               {slot.sets} × {formatTarget(slot.target, slot.unit, slot.perSide)}
             </AppText>
-            {change ? <RecommendationBox change={change} onChanged={onChanged} /> : null}
+            {change ? <OpenChange change={change} onChanged={onChanged} /> : null}
           </View>
         );
       })}

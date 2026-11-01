@@ -157,12 +157,12 @@ Reglas:
    - Motivo de esperar 2 sesiones: en el Excel, tras una sesión floja se mantenía el peso (hip thrust, laterales).
 9. Por debajo sin `allowDecrease` → `keep`. En rango → `keep`.
 
-**Aplicación: nunca automática.** Al terminar una sesión, para cada slot hecho se llama a `recommend()` y, si es `increase` o `decrease`, se crea una **recomendación pendiente** en `weight_change` (`from_kg`, `to_kg`, `reason`, `session_id`, `source = 'progression'`, `status = 'pending'`). `routine_slot.weight_kg` **solo cambia cuando pulso "Aplicar"** (`status = 'applied'`); "Ignorar" la descarta (`status = 'dismissed'`). Justo después de aplicar hay "Deshacer" (restaura `from_kg` y vuelve a `pending`).
+**Aplicación: nunca automática.** Al terminar una sesión, para cada slot hecho se llama a `recommend()` y, si es `increase` o `decrease`, se crea una **recomendación pendiente** en `weight_change` (`from_kg`, `to_kg`, `reason`, `session_id`, `source = 'progression'`, `status = 'pending'`). `routine_slot.weight_kg` **solo cambia cuando pulso "Aplicar"** (`status = 'applied'`); "Ignorar" la pasa a `status = 'dismissed'`, **pero no desaparece**: se queda en el propio ejercicio como **sugerencia discreta** ("Sugerencia: ↑ 37,5 kg · Aplicar") que se puede aplicar en cualquier momento. Justo después de aplicar hay "Deshacer" (restaura `from_kg` y vuelve a `pending`). Las recomendaciones "abiertas" son las `pending` y las `dismissed` (`listOpenChanges`).
 
-- Una recomendación pendiente se muestra en el resumen, en la pantalla Hoy y en el entreno al llegar a ese ejercicio (§6.3, §6.4) hasta que decida.
-- Si termino otra sesión de ese slot sin haber decidido, la pendiente anterior pasa a `expired` y se crea la nueva (calculada con el peso que realmente usé).
-- Si cambio el peso a mano en el editor de rutinas, se registra como `source = 'manual'`, `status = 'applied'`, y expira cualquier pendiente de ese slot.
-- Como mucho una recomendación pendiente por slot, y de un solo incremento.
+- Una recomendación `pending` se muestra como caja destacada (Aplicar / Ignorar) en el resumen, en Hoy y en la primera serie de ese ejercicio en el entreno (§6.3, §6.4). Una `dismissed` (o una pospuesta con "Ahora no") se muestra como sugerencia discreta en Hoy, en Rutinas, en el entreno y en el editor del ejercicio.
+- Si termino otra sesión de ese slot, la recomendación abierta anterior (pendiente o ignorada) pasa a `expired` y, si toca, se crea la nueva (calculada con el peso que realmente usé).
+- Si cambio el peso a mano en el editor de rutinas, se registra como `source = 'manual'`, `status = 'applied'`, y expira cualquier recomendación abierta de ese slot.
+- Como mucho una recomendación abierta por slot, y de un solo incremento.
 
 **Casos de test obligatorios** (con el seed, `average`, inc 2,5, 2 sesiones para bajar):
 
@@ -236,10 +236,12 @@ Android:
 
 - Canal `rest-timer` con importancia **MAX**, sonido propio `assets/sounds/rest_end.wav` (declarado en el plugin de `expo-notifications`, `sounds`), patrón de vibración, visible en pantalla de bloqueo y `audioAttributes.usage = ALARM` para que suene con volumen de alarma (verificar en modo silencio).
 - **Los canales de Android son inmutables** una vez creados: si se cambia el sonido o la importancia, crear un canal nuevo (`rest-timer-v2`) y borrar el viejo.
-- Permisos en `app.json`: `POST_NOTIFICATIONS` (Android 13+, pedirlo en el onboarding), `USE_EXACT_ALARM` (válido porque la app no va a Play Store), `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+- Permisos en `app.json`: `POST_NOTIFICATIONS` (Android 13+, pedirlo en el onboarding), `USE_EXACT_ALARM` (válido porque la app no va a Play Store), `SCHEDULE_EXACT_ALARM`, `RECEIVE_BOOT_COMPLETED`, `VIBRATE`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`; el módulo `rest-timer` añade `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE`, `SYSTEM_ALERT_WINDOW` y `POST_PROMOTED_NOTIFICATIONS`.
 - Guiar al usuario para **excluir la app de la optimización de batería** (botón en Ajustes → abre el ajuste del sistema con `expo-intent-launcher`). Algunas capas de fabricante (Xiaomi, Samsung, Huawei…) retrasan o matan alarmas si no.
 - **Criterio de aceptación**: en un móvil real, con pantalla bloqueada y app en segundo plano o cerrada, un descanso de 2:30 suena con **≤ 3 s de retraso** en 10 de 10 pruebas. Si `expo-notifications` no lo cumple → ver Plan B (§7.4).
-- Opcional (fase de pulido): notificación persistente durante el descanso con cronómetro en cuenta atrás nativo (`setUsesChronometer` + `setChronometerCountDown`), que requiere el módulo nativo del Plan B o una librería que lo exponga.
+- **Cuenta atrás visible "como el reloj"** (módulo nativo local `modules/rest-timer`, Kotlin): durante el descanso corre un *foreground service* (`specialUse`) con una notificación fija cuya cuenta atrás dibuja el sistema (`setUsesChronometer` + `setChronometerCountDown` + `setWhen(endsAt)`), pública en la **pantalla de bloqueo**, sin sonido (canal `rest-countdown-v1`) y que en **Android 16** se pide como *Live Update* (`setRequestPromotedOngoing`). Se cierra sola al llegar a 0 (y `setTimeoutAfter` de respaldo); el sonido lo pone la alarma de `expo-notifications`.
+- **Burbuja flotante**: si el ajuste "Burbuja flotante" está activo y hay permiso *Mostrar sobre otras apps* (`SYSTEM_ALERT_WINDOW`, se concede en Ajustes → Diagnóstico), el mismo servicio muestra una burbuja arrastrable con la cuenta atrás **solo mientras la app está en segundo plano** (el módulo escucha `OnActivityEntersBackground/Foreground`). Tocarla vuelve a la app; recuerda la posición.
+- API JS (`modules/rest-timer/index.ts`): `startRestCountdown(endsAt, title, body, overlay)`, `stopRestCountdown()`, `canDrawOverlays()`; `restTimer.ts` la llama junto con la alarma.
 
 ### 6.6 Historial y progreso
 
@@ -353,6 +355,7 @@ src/
   components/ ui.tsx (Screen, Card, Button, Stepper…) · Recommendation.tsx
   hooks/      data.ts (useDb, useLoader, useNow)
   theme.ts
+modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
 assets/sounds/rest_end.wav          # generado (sin derechos)
 data/seed/seed.json
 ```
@@ -379,7 +382,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] jest-expo configurado.
 - [x] `expo-dev-client`; `app.json`: nombre "Entreno", package `com.fabgs.entreno`, scheme `entreno`, permisos de §6.5, plugin `expo-notifications` con `sounds`.
 - [x] Sonido `assets/sounds/rest_end.wav` (generado).
-- [ ] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`). **Bloqueado en Windows**: el `ninja` 1.10.2 que trae el CMake 3.22.1 del SDK no admite rutas largas y falla al compilar el C++ de `react-native-screens` (ver AGENTS.md → Compilar y probar).
+- [x] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`). En Windows requiere sustituir el `ninja` 1.10.2 del SDK por ≥ 1.12 (ver AGENTS.md → Compilar y probar).
 - [ ] Instalada en un Android real.
 - [ ] (Opcional) `eas.json` si algún día se usa EAS Build.
 
@@ -447,7 +450,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 ### Fase 9 — Pulido
 - [x] Tema oscuro, hápticos, pantalla encendida durante el entreno.
 - [ ] Icono y splash propios (ahora son los de la plantilla de Expo).
-- [ ] Notificación persistente con cronómetro durante el descanso (opcional).
+- [x] Cuenta atrás del descanso en la pantalla de bloqueo (Live Update en Android 16) y burbuja flotante sobre otras apps (`modules/rest-timer`).
 - [ ] Revisión de accesibilidad (tamaños de fuente, contraste).
 
 ---
@@ -464,6 +467,8 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
   - [ ] Recordatorio diario en modo avión y tras reiniciar.
   - [ ] Cambiar la hora del recordatorio no deja notificaciones duplicadas.
   - [ ] Modo silencio / No molestar: comportamiento documentado.
+  - [ ] Con el móvil bloqueado se ve la cuenta atrás del descanso y desaparece al llegar a 0.
+  - [ ] Al salir de la app durante el descanso aparece la burbuja; se puede arrastrar; tocarla vuelve al entreno; desaparece al volver a la app.
 
 ---
 
@@ -491,4 +496,5 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Plan inicial y `data/seed/seed.json` generados a partir del Excel. Ninguna fase empezada.
 - 2026-11-01 — El peso se define en el slot de la rutina (`routine_slot.weight_kg`); en el entreno solo se introducen reps. Seed con `weightKg` por slot.
 - 2026-11-01 — Las recomendaciones de peso **nunca se aplican solas**: quedan pendientes (`weight_change.status = 'pending'`) hasta que pulse Aplicar o Ignorar (resumen, Hoy o primera serie del ejercicio).
-- 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle (bloqueado por rutas largas en Windows, pendiente de decidir solución).
+- 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle (en Windows con ninja ≥ 1.12).
+- 2026-11-01 — Las recomendaciones ignoradas siguen como sugerencia aplicable en el ejercicio. Nuevo módulo nativo `modules/rest-timer`: cuenta atrás del descanso en la pantalla de bloqueo y burbuja flotante. Build local desbloqueado sustituyendo el `ninja` del SDK por 1.12.1.

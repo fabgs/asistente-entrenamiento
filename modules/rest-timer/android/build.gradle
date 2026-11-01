@@ -1,0 +1,15 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.fabgs.entreno'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.resttimer"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}

@@ -160,6 +160,7 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_diet_item_weekday ON diet_item(weekday);
   CREATE INDEX idx_cardio_log_date ON cardio_log(date);
   `,
+  `ALTER TABLE settings ADD COLUMN rest_overlay INTEGER NOT NULL DEFAULT 1;`,
 ];
 
 export async function migrate(db: Db): Promise<void> {

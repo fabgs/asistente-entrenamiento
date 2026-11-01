@@ -2,6 +2,7 @@ import Constants from 'expo-constants';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
+import { canDrawOverlays } from '../../modules/rest-timer';
 
 // Android channels are immutable once created: bump the suffix when changing sound or importance.
 export const REST_CHANNEL_ID = 'rest-timer-v1';
@@ -46,13 +47,14 @@ export async function ensureChannels(): Promise<void> {
 export interface PermissionState {
   notifications: boolean;
   exactAlarms: boolean;
+  overlay: boolean;
 }
 
 export async function getPermissionState(): Promise<PermissionState> {
   const notifications = (await Notifications.getPermissionsAsync()).granted;
   const exactAlarms =
     Platform.OS === 'android' ? (await Notifications.getExactAlarmPermissionsAsync()).granted : true;
-  return { notifications, exactAlarms };
+  return { notifications, exactAlarms, overlay: canDrawOverlays() };
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
@@ -78,6 +80,14 @@ export async function openBatteryOptimizationSettings(): Promise<void> {
       IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
     );
   }
+}
+
+/** "Display over other apps" permission, needed for the floating rest bubble. */
+export async function openOverlaySettings(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.MANAGE_OVERLAY_PERMISSION, {
+    data: `package:${androidPackage()}`,
+  });
 }
 
 export async function openNotificationSettings(): Promise<void> {

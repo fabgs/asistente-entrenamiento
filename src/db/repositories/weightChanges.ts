@@ -21,9 +21,17 @@ const SELECT = `
          reason, source, status, created_at AS createdAt, decided_at AS decidedAt
   FROM weight_change`;
 
-export async function listPendingChanges(db: Db): Promise<WeightChange[]> {
-  return db.getAllAsync<WeightChange>(`${SELECT} WHERE status = 'pending' ORDER BY id`);
+/**
+ * Recommendations still on the table: `pending` ones ask for a decision, `dismissed` ones stay on
+ * the exercise as a quiet suggestion that can still be applied (PLAN.md §6.2).
+ */
+export async function listOpenChanges(db: Db): Promise<WeightChange[]> {
+  return db.getAllAsync<WeightChange>(
+    `${SELECT} WHERE status IN ('pending', 'dismissed') ORDER BY id`,
+  );
 }
+
+export const isOpen = (c: WeightChange) => c.status === 'pending' || c.status === 'dismissed';
 
 export async function listChangesForSession(db: Db, sessionId: number): Promise<WeightChange[]> {
   return db.getAllAsync<WeightChange>(`${SELECT} WHERE session_id = ? ORDER BY id`, sessionId);
@@ -33,9 +41,10 @@ export async function getChange(db: Db, id: number): Promise<WeightChange | null
   return db.getFirstAsync<WeightChange>(`${SELECT} WHERE id = ?`, id);
 }
 
-async function expirePending(db: Db, slotId: number, now: number): Promise<void> {
+export async function expireOpenChanges(db: Db, slotId: number, now: number): Promise<void> {
   await db.runAsync(
-    `UPDATE weight_change SET status = 'expired', decided_at = ? WHERE slot_id = ? AND status = 'pending'`,
+    `UPDATE weight_change SET status = 'expired', decided_at = ?
+     WHERE slot_id = ? AND status IN ('pending', 'dismissed')`,
     now,
     slotId,
   );
@@ -54,7 +63,7 @@ export async function createRecommendation(
     now: number;
   },
 ): Promise<number> {
-  await expirePending(db, r.slotId, r.now);
+  await expireOpenChanges(db, r.slotId, r.now);
   const result = await db.runAsync(
     `INSERT INTO weight_change (slot_id, session_id, from_kg, to_kg, reason, source, status, created_at)
      VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
@@ -71,7 +80,7 @@ export async function createRecommendation(
 
 export async function applyChange(db: Db, id: number, now = Date.now()): Promise<void> {
   const change = await getChange(db, id);
-  if (!change || change.status !== 'pending') return;
+  if (!change || !isOpen(change)) return;
   await db.withTransactionAsync(async () => {
     await db.runAsync('UPDATE routine_slot SET weight_kg = ? WHERE id = ?', change.toKg, change.slotId);
     await db.runAsync(
@@ -115,7 +124,7 @@ export async function setSlotWeightManually(
   );
   if (!current || current.weight_kg === weightKg) return;
   await db.withTransactionAsync(async () => {
-    await expirePending(db, slotId, now);
+    await expireOpenChanges(db, slotId, now);
     await db.runAsync('UPDATE routine_slot SET weight_kg = ? WHERE id = ?', weightKg, slotId);
     await db.runAsync(
       `INSERT INTO weight_change (slot_id, session_id, from_kg, to_kg, reason, source, status, created_at, decided_at)

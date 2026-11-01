@@ -10,7 +10,9 @@ import {
   getPermissionState,
   openBatteryOptimizationSettings,
   openNotificationSettings,
+  openOverlaySettings,
   requestExactAlarmPermission,
+  type PermissionState,
   requestNotificationPermission,
 } from '@/services/notifications';
 import { scheduleTestRest } from '@/services/restTimer';
@@ -30,7 +32,12 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <SettingsForm key={JSON.stringify(data.settings)} settings={data.settings} onSaved={reload} />
-      <Diagnostics permissions={data.permissions} scheduled={data.scheduled} onChanged={reload} />
+      <Diagnostics
+        permissions={data.permissions}
+        scheduled={data.scheduled}
+        overlayEnabled={data.settings.restOverlay}
+        onChanged={reload}
+      />
     </Screen>
   );
 }
@@ -43,6 +50,7 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
   const [hour, setHour] = useState(initialHour);
   const [minute, setMinute] = useState(initialMinute);
   const [keepAwake, setKeepAwake] = useState(settings.keepAwake);
+  const [restOverlay, setRestOverlay] = useState(settings.restOverlay);
 
   const save = async () => {
     await updateSettings(db, {
@@ -50,6 +58,7 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
       dailyReminderEnabled: enabled,
       dailyReminderTime: `${pad(hour)}:${pad(minute)}`,
       keepAwake,
+      restOverlay,
     });
     await rescheduleDailyReminders(db);
     onSaved();
@@ -63,6 +72,10 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
       <Row style={{ justifyContent: 'space-between' }}>
         <AppText>Pantalla siempre encendida</AppText>
         <Switch value={keepAwake} onValueChange={setKeepAwake} trackColor={{ true: colors.primary }} />
+      </Row>
+      <Row style={{ justifyContent: 'space-between' }}>
+        <AppText style={{ flex: 1 }}>Burbuja flotante con el descanso al salir de la app</AppText>
+        <Switch value={restOverlay} onValueChange={setRestOverlay} trackColor={{ true: colors.primary }} />
       </Row>
       <Divider />
       <AppText variant="heading">Recordatorio diario</AppText>
@@ -82,10 +95,12 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
 function Diagnostics({
   permissions,
   scheduled,
+  overlayEnabled,
   onChanged,
 }: {
-  permissions: { notifications: boolean; exactAlarms: boolean };
+  permissions: PermissionState;
   scheduled: number;
+  overlayEnabled: boolean;
   onChanged: () => void;
 }) {
   const db = useDb();
@@ -105,16 +120,17 @@ function Diagnostics({
       {!permissions.exactAlarms ? (
         <Button kind="secondary" title="Permitir alarmas exactas" onPress={after(requestExactAlarmPermission)} />
       ) : null}
+      <Status label="Mostrar sobre otras apps (burbuja)" ok={permissions.overlay} />
+      {!permissions.overlay ? (
+        <Button kind="secondary" title="Permitir la burbuja flotante" onPress={after(openOverlaySettings)} />
+      ) : null}
       <AppText variant="small">
         Para que el descanso suene siempre a su hora, quita la optimización de batería de la app.
       </AppText>
       <Button kind="secondary" title="Optimización de batería" onPress={openBatteryOptimizationSettings} />
       <Button kind="secondary" title="Ajustes de notificaciones del sistema" onPress={openNotificationSettings} />
       <Divider />
-      <Button
-        title="Probar descanso (10 s)"
-        onPress={after(scheduleTestRest)}
-      />
+      <Button title="Probar descanso (10 s)" onPress={after(() => scheduleTestRest(overlayEnabled))} />
       <Button kind="secondary" title="Probar recordatorio (5 s)" onPress={after(() => sendTestReminder(db))} />
       <AppText variant="small">Notificaciones programadas: {scheduled}</AppText>
     </Card>

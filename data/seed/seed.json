@@ -142,6 +142,7 @@
         {
           "exercise": "Fondos en paralelas lastrados",
           "sets": 3,
+          "weightKg": 15,
           "target": {
             "kind": "range",
             "min": 5,
@@ -178,6 +179,7 @@
         {
           "exercise": "Dominadas pronas",
           "sets": 3,
+          "weightKg": null,
           "target": {
             "kind": "failure",
             "minus": 1
@@ -213,6 +215,7 @@
         {
           "exercise": "Flexiones declinadas diamond",
           "sets": 2,
+          "weightKg": null,
           "target": {
             "kind": "range",
             "min": 8,
@@ -247,6 +250,7 @@
         {
           "exercise": "Remo con barra (90º)",
           "sets": 3,
+          "weightKg": 35,
           "target": {
             "kind": "range",
             "min": 10,
@@ -274,6 +278,7 @@
         {
           "exercise": "Floor Press con barra",
           "sets": 2,
+          "weightKg": 35,
           "target": {
             "kind": "range",
             "min": 10,
@@ -300,6 +305,7 @@
         {
           "exercise": "Elevaciones laterales mancuerna",
           "sets": 3,
+          "weightKg": 5,
           "target": {
             "kind": "range",
             "min": 15,
@@ -336,6 +342,7 @@
         {
           "exercise": "Curl bíceps barra Z",
           "sets": 3,
+          "weightKg": 20,
           "target": {
             "kind": "range",
             "min": 10,
@@ -380,6 +387,7 @@
         {
           "exercise": "Sentadilla Búlgara lastrada",
           "sets": 3,
+          "weightKg": 10,
           "target": {
             "kind": "range",
             "min": 8,
@@ -416,6 +424,7 @@
         {
           "exercise": "Peso Muerto Rumano barra",
           "sets": 3,
+          "weightKg": 35,
           "target": {
             "kind": "range",
             "min": 10,
@@ -443,6 +452,7 @@
         {
           "exercise": "Zancadas caminando",
           "sets": 2,
+          "weightKg": 10,
           "target": {
             "kind": "fixed",
             "reps": 20
@@ -468,6 +478,7 @@
         {
           "exercise": "Curl femoral deslizante",
           "sets": 2,
+          "weightKg": null,
           "target": {
             "kind": "range",
             "min": 10,
@@ -494,6 +505,7 @@
         {
           "exercise": "Gemelos a 1 pierna",
           "sets": 3,
+          "weightKg": 0,
           "target": {
             "kind": "range",
             "min": 15,
@@ -521,6 +533,7 @@
         {
           "exercise": "Toes to bar",
           "sets": 2,
+          "weightKg": null,
           "target": {
             "kind": "failure",
             "minus": 0
@@ -554,6 +567,7 @@
         {
           "exercise": "Dominadas supinas lastradas",
           "sets": 3,
+          "weightKg": 7.5,
           "target": {
             "kind": "range",
             "min": 5,
@@ -590,6 +604,7 @@
         {
           "exercise": "Fondos paralelas",
           "sets": 3,
+          "weightKg": null,
           "target": {
             "kind": "failure",
             "minus": 1
@@ -625,6 +640,7 @@
         {
           "exercise": "Remo mentón barra Z",
           "sets": 3,
+          "weightKg": 15,
           "target": {
             "kind": "range",
             "min": 10,
@@ -661,6 +677,7 @@
         {
           "exercise": "Flexiones arqueras",
           "sets": 2,
+          "weightKg": null,
           "target": {
             "kind": "range",
             "min": 10,
@@ -695,6 +712,7 @@
         {
           "exercise": "Elevaciones laterales mancuerna",
           "sets": 3,
+          "weightKg": 5,
           "target": {
             "kind": "range",
             "min": 15,
@@ -731,6 +749,7 @@
         {
           "exercise": "Australianas (homb post)",
           "sets": 2,
+          "weightKg": 0,
           "target": {
             "kind": "range",
             "min": 15,
@@ -757,6 +776,7 @@
         {
           "exercise": "Rompecráneos suelo",
           "sets": 3,
+          "weightKg": 15,
           "target": {
             "kind": "range",
             "min": 10,
@@ -792,6 +812,7 @@
         {
           "exercise": "Sentadilla Goblet/Frontal",
           "sets": 3,
+          "weightKg": 35,
           "target": {
             "kind": "range",
             "min": 15,
@@ -828,6 +849,7 @@
         {
           "exercise": "Hip Thrust a 1 pierna",
           "sets": 2,
+          "weightKg": 20,
           "target": {
             "kind": "range",
             "min": 10,
@@ -862,6 +884,7 @@
         {
           "exercise": "Extensiones cuád. (Sissy)",
           "sets": 2,
+          "weightKg": null,
           "target": {
             "kind": "failure",
             "minus": 0
@@ -895,6 +918,7 @@
         {
           "exercise": "Gemelos a 1 pierna",
           "sets": 3,
+          "weightKg": 0,
           "target": {
             "kind": "range",
             "min": 15,
@@ -931,6 +955,7 @@
         {
           "exercise": "Toes to bar",
           "sets": 2,
+          "weightKg": 0,
           "target": {
             "kind": "range",
             "min": 10,

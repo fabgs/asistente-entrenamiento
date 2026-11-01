@@ -1,13 +1,12 @@
 import {
   formatCountdown,
-  formatDateDMY,
+  formatDateWithYear,
   formatEquipment,
   formatKg,
   formatLoad,
   formatLongDate,
   formatNumber,
   formatTarget,
-  parseDate,
   parseDecimal,
   parseDuration,
 } from '../format';
@@ -54,14 +53,8 @@ describe('format', () => {
     expect(parseDuration('2:75')).toBeNull();
   });
 
-  it('parses birth dates in Spanish or ISO order', () => {
-    expect(parseDate('25-06-1995')).toBe('1995-06-25');
-    expect(parseDate('25/6/1995')).toBe('1995-06-25');
-    expect(parseDate('1995-06-25')).toBe('1995-06-25');
-    expect(parseDate('31-02-1995')).toBeNull();
-    expect(parseDate('25-06-95')).toBeNull();
-    expect(parseDate('')).toBeNull();
-    expect(formatDateDMY('1995-06-25')).toBe('25-06-1995');
+  it('formats dates with the year', () => {
+    expect(formatDateWithYear('1995-06-25')).toBe('25 de junio de 1995');
   });
 
   it('labels equipment codes from the Excel', () => {

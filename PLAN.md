@@ -442,7 +442,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [ ] Historial de cardio.
 
 ### Fase 6 — Perfil y peso
-- [x] Aviso en Hoy si falta la fecha de nacimiento; formulario de perfil.
+- [x] Aviso en Hoy si falta la fecha de nacimiento; formulario de perfil (la fecha se elige con el calendario nativo de Android, `@react-native-community/datetimepicker`).
 - [x] Perfil con cálculos (§4) y registro de peso (lista).
 - [ ] Gráfica de evolución del peso.
 
@@ -508,3 +508,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Las recomendaciones ignoradas siguen como sugerencia aplicable en el ejercicio. Nuevo módulo nativo `modules/rest-timer`: cuenta atrás del descanso en la pantalla de bloqueo y burbuja flotante. Build local desbloqueado sustituyendo el `ninja` del SDK por 1.12.1.
 - 2026-11-01 — Probado en emulador Android 16 (API 36.0): importación del seed, entreno con series/descanso/siguiente ejercicio, sugerencia ignorada aplicable, alarma de fin de descanso con `setAlarmClock` (dumpsys: flags 0x3, exacta), cuenta atrás fija pública, burbuja flotante, apertura desde la notificación, recuperación tras un cierre forzado y resumen con nueva recomendación. Encontrado y corregido: `setRequestPromotedOngoing` no existe en Android 16.0 (llega en una versión menor posterior). Falta probar en un móvil real (Doze, capa del fabricante, sonido en silencio).
 - 2026-11-01 — Fase 4 implementada: catálogo de ejercicios, editor de rutinas y de cada ejercicio de la rutina, cardio semanal editable y "añadir ejercicio a la rutina" desde el entreno. Los Stepper permiten escribir el valor a mano. La fecha de nacimiento se escribe en DD-MM-AAAA. Historial de git limpiado de datos personales.
+- 2026-11-01 — Fecha de nacimiento con el selector de fecha nativo (`DateField`).

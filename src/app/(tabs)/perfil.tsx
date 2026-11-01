@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
-import { AppText, Button, Card, Chip, Loading, Row, Screen, TextField } from '@/components/ui';
+import { AppText, Button, Card, Chip, DateField, Loading, Row, Screen, TextField } from '@/components/ui';
 import {
   getProfile,
   latestWeight,
@@ -11,7 +11,7 @@ import {
   updateProfile,
   type Profile,
 } from '@/db/repositories/settings';
-import { formatDateDMY, formatNumber, parseDate } from '@/domain/format';
+import { formatNumber } from '@/domain/format';
 import { ageOn } from '@/domain/nutrition';
 import { localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -74,7 +74,7 @@ export default function ProfileScreen() {
 
 function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: number | null; onSaved: () => void }) {
   const db = useDb();
-  const [birthDate, setBirthDate] = useState(profile.birthDate ? formatDateDMY(profile.birthDate) : '');
+  const [birthDate, setBirthDate] = useState(profile.birthDate);
   const [height, setHeight] = useState(profile.heightCm ? String(profile.heightCm) : '');
   const [weightText, setWeightText] = useState(weight ? formatNumber(weight) : '');
   const [deficit, setDeficit] = useState(String(profile.deficitKcal));
@@ -86,11 +86,9 @@ function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: n
     const heightCm = parseNumber(height);
     const weightKg = parseNumber(weightText);
     const deficitKcal = parseNumber(deficit);
-    const birthIso = birthDate.trim() ? parseDate(birthDate) : null;
-    if (birthDate.trim() && !birthIso) return setError('Escribe la fecha como DD-MM-AAAA, por ejemplo 25-06-1995');
     if (!(heightCm > 0) || !(weightKg > 0) || Number.isNaN(deficitKcal)) return setError('Revisa altura, peso y déficit');
     setError(null);
-    await updateProfile(db, { birthDate: birthIso, heightCm, sex, activityFactor: factor, deficitKcal });
+    await updateProfile(db, { birthDate, heightCm, sex, activityFactor: factor, deficitKcal });
     if (weightKg !== weight) await logWeight(db, localDateString(new Date()), weightKg);
     onSaved();
   };
@@ -98,7 +96,7 @@ function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: n
   return (
     <Card>
       <AppText variant="heading">Mis datos</AppText>
-      <TextField keyboard="date" label="Fecha de nacimiento (DD-MM-AAAA)" value={birthDate} onChangeText={setBirthDate} placeholder="25-06-1995" />
+      <DateField label="Fecha de nacimiento" value={birthDate} onChange={setBirthDate} yearsAgo={25} />
       <Row>
         <View style={{ flex: 1 }}>
           <TextField keyboard="decimal" label="Altura (cm)" value={height} onChangeText={setHeight} />

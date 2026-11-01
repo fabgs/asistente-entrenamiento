@@ -1,3 +1,4 @@
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
@@ -12,8 +13,8 @@ import {
   type TextProps,
   type ViewStyle,
 } from 'react-native';
-import { formatNumber, parseDecimal } from '@/domain/format';
-import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
+import { formatDateWithYear, formatNumber, parseDecimal } from '@/domain/format';
+import { ISO_WEEKDAYS, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { colors, radius, spacing } from '@/theme';
 
@@ -171,7 +172,7 @@ export function Stepper({
   );
 }
 
-const KEYBOARDS = { text: 'default', decimal: 'decimal-pad', date: 'numbers-and-punctuation' } as const;
+const KEYBOARDS = { text: 'default', decimal: 'decimal-pad' } as const;
 
 export function TextField({
   label,
@@ -200,6 +201,42 @@ export function TextField({
         multiline={multiline}
         style={[styles.input, multiline && styles.inputMultiline]}
       />
+    </View>
+  );
+}
+
+/** Opens the system calendar; `value` and `onChange` use 'YYYY-MM-DD'. Dates after today are not allowed. */
+export function DateField({
+  label,
+  value,
+  onChange,
+  placeholder = 'Elegir fecha',
+  yearsAgo = 0,
+}: {
+  label: string;
+  value: string | null;
+  onChange: (iso: string) => void;
+  placeholder?: string;
+  yearsAgo?: number;
+}) {
+  const open = () =>
+    DateTimePickerAndroid.open({
+      value: pickerStartDate(value, yearsAgo),
+      mode: 'date',
+      maximumDate: today(),
+      onChange: (event, date) => {
+        if (event.type === 'set' && date) onChange(localDateString(date));
+      },
+    });
+
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <AppText variant="small">{label}</AppText>
+      <Pressable onPress={open} style={styles.input} accessibilityRole="button" accessibilityHint="Abre el calendario">
+        <AppText style={value ? undefined : { color: colors.muted }}>
+          {value ? formatDateWithYear(value) : placeholder}
+        </AppText>
+      </Pressable>
     </View>
   );
 }

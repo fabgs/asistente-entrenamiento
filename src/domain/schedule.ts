@@ -57,3 +57,19 @@ export function buildDailyMessage(day: DayPlan): { title: string; body: string }
     body: parts.length > 0 ? parts.join(' · ') : 'Día libre',
   };
 }
+
+/** Local Date for a 'YYYY-MM-DD' string. */
+export function parseLocalDate(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+/** Today at local midnight. */
+export function today(now = new Date()): Date {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+}
+
+/** Where a date picker opens: the current value, or 1 January `yearsAgo` years back. */
+export function pickerStartDate(value: string | null, yearsAgo: number, now = new Date()): Date {
+  return value ? parseLocalDate(value) : new Date(now.getFullYear() - yearsAgo, 0, 1);
+}

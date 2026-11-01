@@ -33,7 +33,9 @@
         "expo-notifications",
         {
           "color": "#4ADE80",
-          "sounds": ["./assets/sounds/rest_end.wav"]
+          "sounds": [
+            "./assets/sounds/rest_end.wav"
+          ]
         }
       ],
       [
@@ -43,7 +45,8 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

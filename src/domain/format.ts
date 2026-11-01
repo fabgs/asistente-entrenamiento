@@ -92,23 +92,8 @@ export function parseDuration(text: string): number | null {
   return parseDecimal(text);
 }
 
-/** ISO 'YYYY-MM-DD' from "25-06-1995", "25/06/1995", "25.06.1995" or "1995-06-25"; null if invalid. */
-export function parseDate(text: string): string | null {
-  const t = text.trim();
-  const dmy = t.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  const ymd = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  const [y, m, d] = dmy
-    ? [Number(dmy[3]), Number(dmy[2]), Number(dmy[1])]
-    : ymd
-      ? [Number(ymd[1]), Number(ymd[2]), Number(ymd[3])]
-      : [0, 0, 0];
-  const date = new Date(y, m - 1, d);
-  if (!y || date.getFullYear() !== y || date.getMonth() !== m - 1 || date.getDate() !== d) return null;
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
-/** "25-06-1995" from ISO 'YYYY-MM-DD'. */
-export function formatDateDMY(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return `${d}-${m}-${y}`;
+/** "25 de junio de 1995" from ISO 'YYYY-MM-DD'. */
+export function formatDateWithYear(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return format(new Date(y, m - 1, d), "d 'de' MMMM 'de' yyyy", { locale: es });
 }

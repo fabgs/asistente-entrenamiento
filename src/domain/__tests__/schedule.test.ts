@@ -4,6 +4,9 @@ import {
   isoToExpoWeekday,
   isoWeekdayOf,
   localDateString,
+  parseLocalDate,
+  pickerStartDate,
+  today,
 } from '../schedule';
 
 describe('weekday conventions', () => {
@@ -21,6 +24,19 @@ describe('weekday conventions', () => {
     expect(localDateString(dateOfWeekday(sunday, 1, 0))).toBe('2026-10-26');
     expect(localDateString(dateOfWeekday(sunday, 5, 1))).toBe('2026-10-23');
     expect(localDateString(dateOfWeekday(new Date(2026, 10, 2), 7, 1))).toBe('2026-11-01');
+  });
+});
+
+describe('date helpers', () => {
+  it('round-trips local dates', () => {
+    expect(localDateString(parseLocalDate('1995-06-25'))).toBe('1995-06-25');
+    expect(localDateString(today(new Date(2026, 10, 1, 23, 59)))).toBe('2026-11-01');
+  });
+
+  it('opens the picker at the value or some years back', () => {
+    const now = new Date(2026, 10, 1);
+    expect(localDateString(pickerStartDate('1995-06-25', 25, now))).toBe('1995-06-25');
+    expect(localDateString(pickerStartDate(null, 25, now))).toBe('2001-01-01');
   });
 });
 

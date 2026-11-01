@@ -140,7 +140,10 @@ function Diagnostics({
       ) : null}
       <Status label="Mostrar sobre otras apps (burbuja)" ok={permissions.overlay} />
       {!permissions.overlay ? (
-        <Button kind="secondary" title="Permitir la burbuja flotante" onPress={after(openOverlaySettings)} />
+        <>
+          <Button kind="secondary" title="Permitir la burbuja flotante" onPress={after(openOverlaySettings)} />
+          <AppText variant="small">Si se abre una lista de apps, busca Entreno y permítelo.</AppText>
+        </>
       ) : null}
       <AppText variant="small">
         Para que el descanso suene siempre a su hora, quita la optimización de batería de la app.

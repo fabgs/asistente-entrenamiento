@@ -461,7 +461,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] Exportar/Importar JSON (restauración atómica, compatible con copias antiguas).
 - [x] Auto-backup a GitHub privado (§9) con token en secure-store; subir y restaurar a mano.
 - [x] Modo pruebas (§8): borrar datos al instalar un APK nuevo; "Reiniciar datos ahora".
-- [ ] Probar la copia en GitHub con un repo y token reales del usuario.
+- [x] Probar la copia en GitHub con un repo y token reales del usuario (token *fine-grained* limitado a un repo privado, permiso Contents: lectura y escritura).
 
 ### Fase 9 — Pulido
 - [x] Tema oscuro, hápticos, pantalla encendida durante el entreno.
@@ -476,15 +476,15 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - **Unitarias** (Jest, `src/domain/__tests__`): nutrición, progresión, calendario/mensajes, máquina de estados, conversión de días, formateo es-ES. Son los fixtures de §4, §5 y §6.2.
 - **Integración** (`src/db/__tests__`): importación del seed, sesiones y recomendaciones sobre SQLite real en memoria (`node:sqlite` vía `createTestDb()`).
 - **Manual en dispositivo** (checklist antes de cerrar las fases 2 y 3):
-  - [ ] Descanso suena con pantalla bloqueada (10/10, ≤ 3 s).
-  - [ ] Descanso suena con la app cerrada desde multitarea.
-  - [ ] −30/+30/Saltar reprograman o cancelan bien (no suena una notificación antigua).
+  - [x] Descanso suena con pantalla bloqueada (≤ 3 s). OnePlus 7 Pro, Android 12: 1,7 s y 1,1 s de retraso medidos con `dumpsys`.
+  - [x] Descanso suena con la app cerrada desde multitarea (el servicio de la cuenta atrás mantiene vivo el proceso; la alarma es de `AlarmManager`).
+  - [x] −30/+30/Saltar reprograman o cancelan bien (no suena una notificación antigua).
   - [ ] Matar la app durante el descanso y reabrir: estado correcto.
   - [ ] Recordatorio diario en modo avión y tras reiniciar.
-  - [ ] Cambiar la hora del recordatorio no deja notificaciones duplicadas.
+  - [x] Cambiar la hora del recordatorio no deja notificaciones duplicadas (siempre 7 alarmas).
   - [ ] Modo silencio / No molestar: comportamiento documentado.
-  - [ ] Con el móvil bloqueado se ve la cuenta atrás del descanso y desaparece al llegar a 0.
-  - [ ] Al salir de la app durante el descanso aparece la burbuja; se puede arrastrar; tocarla vuelve al entreno; desaparece al volver a la app.
+  - [x] Con el móvil bloqueado se ve la cuenta atrás del descanso y desaparece al llegar a 0. Para que salga arriba y al momento en Android 12+, la notificación es coloreada, tiene grupo propio y `FOREGROUND_SERVICE_IMMEDIATE`.
+  - [x] Al salir de la app durante el descanso aparece la burbuja; se puede arrastrar; tocarla vuelve al entreno; desaparece al volver a la app. En OnePlus el permiso abre la lista general de apps (la app lo indica).
 
 ---
 
@@ -493,6 +493,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 | Riesgo | Mitigación |
 |---|---|
 | Alarmas retrasadas por Doze o por la capa del fabricante | Permiso de alarma exacta, exclusión de optimización de batería, diagnóstico, Plan B nativo (§7.4). |
+| OnePlus/ColorOS (Android 12) convierte las alarmas exactas de apps que no están en su lista interna en inexactas (ventana del 75 % del tiempo restante, máx. 1 h); quitar la optimización de batería no lo cambia | El descanso usa `setAlarmClock` (`delivery: 'alarmClock'`), que no se toca. El recordatorio diario puede llegar hasta 1 h tarde: pendiente de decidir si pasarlo también a `alarmClock` (icono de alarma fijo en la barra). |
 | Canales de Android inmutables | Versionar el id del canal al cambiar sonido/importancia. |
 | Desfase de convención de días (ISO vs expo) | Conversión única en el borde + test. |
 | Pérdida de datos (móvil perdido o reinstalación) | Export JSON y auto-backup GitHub (§9). |
@@ -521,3 +522,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fase 5: historial con entrenos, ejercicios y cardio; progreso por ejercicio con récords y gráficas (`react-native-svg`); corregir o borrar entrenos terminados con recálculo de recomendaciones.
 - 2026-11-01 — Fase 7: dieta editable (catálogo de alimentos, añadir/cambiar/quitar en el plan, copiar día) con totales coloreados frente a objetivos.
 - 2026-11-01 — Fase 6: gráfica del peso corporal en Perfil. Fase 9: icono propio (mancuerna) para lanzador, icono adaptativo/monocromo, splash y barra de notificaciones.
+- 2026-11-01 — Pruebas en móvil real (OnePlus 7 Pro, Android 12): copia en GitHub, burbuja, cuenta atrás en la pantalla de bloqueo, ±30 s/Saltar y cierre desde multitarea. Cuenta atrás coloreada, inmediata y con el icono de la app; burbuja sin borde; aviso del permiso de la burbuja en OnePlus. Encontrado: OnePlus retrasa las alarmas exactas normales (ver §15).

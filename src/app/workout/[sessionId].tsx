@@ -440,7 +440,7 @@ function SetView({
         </View>
       ) : null}
 
-      <Row>
+      <Row style={{ justifyContent: 'space-between' }}>
         <Button kind="secondary" title="Ver ejercicios" onPress={onBack} />
         {done === 0 ? <Button kind="ghost" title="Saltar ejercicio" onPress={onSkip} /> : null}
       </Row>
@@ -510,7 +510,7 @@ function RestView({
           <AppText variant="heading">Burbuja flotante</AppText>
           <AppText variant="muted">
             Para ver el descanso en una burbuja cuando sales de la app, Android necesita el permiso «Mostrar sobre
-            otras apps».
+            otras apps». Si se abre una lista de apps, busca Entreno y permítelo.
           </AppText>
           <Row>
             <Button title="Dar permiso" onPress={onGrantOverlay} />

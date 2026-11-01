@@ -15,6 +15,25 @@
 - Usa **dev build** (`expo-dev-client`), no Expo Go.
 - Comentarios escasos: solo donde el porqué no sea obvio.
 
+## Expo cambia en cada SDK: no te fíes de la memoria
+
+El proyecto usa **Expo SDK 58** (React Native 0.88, TypeScript 6). Antes de tocar una API de Expo, React Native o EAS, mira la versión en `package.json` y consulta la documentación de esa versión (`https://docs.expo.dev/versions/v58.0.0/`, índice en `https://docs.expo.dev/llms.txt`) o los `.d.ts` en `node_modules`. Detalles ya verificados:
+
+- Pestañas JS: `import { Tabs } from 'expo-router/js-tabs'` (el `Tabs` de `expo-router` está deprecado).
+- Notificaciones: `setNotificationHandler` usa `shouldShowBanner`/`shouldShowList`; los triggers llevan `type: SchedulableTriggerInputTypes.X` y `channelId`; `WEEKLY` usa 1 = domingo; `DATE` acepta `delivery: 'alarmClock'`.
+- TypeScript 6 no carga tipos globales por defecto: están declarados en `tsconfig.json` (`types: ["jest", "node"]`).
+- Instala dependencias con `npx expo install <paquete>` (resuelve versiones compatibles con el SDK).
+
+## Compilar y probar
+
+```bash
+npx expo prebuild --platform android        # genera android/ (no se versiona)
+cd android && ./gradlew assembleRelease     # APK en android/app/build/outputs/apk/release/
+npx expo run:android                         # build de desarrollo + Metro, con móvil o emulador conectado
+```
+
+Necesitas `ANDROID_HOME` apuntando al SDK de Android (en este equipo: `%LOCALAPPDATA%\Android\Sdk`) y JDK 17. Tras cambiar `app.json` o añadir un módulo nativo, vuelve a ejecutar `prebuild`.
+
 ## Antes de dar algo por terminado
 
 ```bash

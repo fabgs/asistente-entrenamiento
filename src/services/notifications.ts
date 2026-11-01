@@ -1,0 +1,92 @@
+import Constants from 'expo-constants';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
+
+// Android channels are immutable once created: bump the suffix when changing sound or importance.
+export const REST_CHANNEL_ID = 'rest-timer-v1';
+export const DAILY_CHANNEL_ID = 'daily-reminder-v1';
+export const REST_SOUND = 'rest_end.wav';
+
+export function configureNotificationHandler(): void {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowBanner: true,
+      shouldShowList: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+      priority: Notifications.AndroidNotificationPriority.MAX,
+    }),
+  });
+}
+
+export async function ensureChannels(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await Notifications.setNotificationChannelAsync(REST_CHANNEL_ID, {
+    name: 'Fin del descanso',
+    description: 'Suena cuando termina el descanso entre series',
+    importance: Notifications.AndroidImportance.MAX,
+    sound: REST_SOUND,
+    enableVibrate: true,
+    vibrationPattern: [0, 400, 200, 400, 200, 700],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    audioAttributes: {
+      usage: Notifications.AndroidAudioUsage.ALARM,
+      contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+    },
+  });
+  await Notifications.setNotificationChannelAsync(DAILY_CHANNEL_ID, {
+    name: 'Recordatorio diario',
+    description: 'Lo que toca entrenar hoy',
+    importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+}
+
+export interface PermissionState {
+  notifications: boolean;
+  exactAlarms: boolean;
+}
+
+export async function getPermissionState(): Promise<PermissionState> {
+  const notifications = (await Notifications.getPermissionsAsync()).granted;
+  const exactAlarms =
+    Platform.OS === 'android' ? (await Notifications.getExactAlarmPermissionsAsync()).granted : true;
+  return { notifications, exactAlarms };
+}
+
+export async function requestNotificationPermission(): Promise<boolean> {
+  return (await Notifications.requestPermissionsAsync()).granted;
+}
+
+export async function requestExactAlarmPermission(): Promise<void> {
+  if (Platform.OS === 'android') await Notifications.requestExactAlarmPermissionsAsync();
+}
+
+const androidPackage = () => Constants.expoConfig?.android?.package ?? 'com.fabgs.entreno';
+
+/** Asks Android to stop optimizing battery for the app, so alarms are not delayed. */
+export async function openBatteryOptimizationSettings(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  try {
+    await IntentLauncher.startActivityAsync(
+      IntentLauncher.ActivityAction.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+      { data: `package:${androidPackage()}` },
+    );
+  } catch {
+    await IntentLauncher.startActivityAsync(
+      IntentLauncher.ActivityAction.IGNORE_BATTERY_OPTIMIZATION_SETTINGS,
+    );
+  }
+}
+
+export async function openNotificationSettings(): Promise<void> {
+  if (Platform.OS !== 'android') return;
+  await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.APP_NOTIFICATION_SETTINGS, {
+    extra: { 'android.provider.extra.APP_PACKAGE': androidPackage() },
+  });
+}
+
+export async function countScheduledNotifications(): Promise<number> {
+  return (await Notifications.getAllScheduledNotificationsAsync()).length;
+}

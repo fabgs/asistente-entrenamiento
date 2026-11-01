@@ -31,14 +31,14 @@ No objetivos (por ahora): multiusuario, cuentas, servidor propio, publicar en Pl
 |---|---|---|
 | Plataforma | **Android primero** (APK instalado a mano). iOS posible más adelante con el mismo código. | Uso personal, desarrollo desde Windows; iOS exige Mac o cuenta de Apple Developer para instalar. |
 | Framework | **Expo (React Native) + TypeScript**, última SDK estable (`npx create-expo-app@latest`). | Multiplataforma, ecosistema grande, builds en la nube con EAS desde Windows, muy bien conocido por agentes. |
-| Navegación | **expo-router** (tabs + stacks). | Estándar en Expo; facilita deep links desde notificaciones. |
-| Base de datos | **expo-sqlite + Drizzle ORM** (migraciones con drizzle-kit, `useLiveQuery` para UI reactiva). | Almacenamiento interno del móvil, relacional, tipado, offline. |
-| Estado UI | Datos persistentes → SQLite (fuente de verdad). Estado efímero del entrenamiento activo → **Zustand**. | Si la app muere, todo lo importante ya está en la BD. |
-| Notificaciones | **expo-notifications**, solo **notificaciones locales programadas** (nada de push remoto). | Funcionan sin internet y con la app cerrada. Plan B nativo en §7.4. |
+| Navegación | **expo-router**: rutas en `src/app/` (convención de SDK 58), `Stack` raíz con las pestañas JS (`expo-router/js-tabs`) dentro, para que el modo entrenamiento se abra a pantalla completa encima. | Estándar en Expo; facilita deep links desde notificaciones. `NativeTabs` no documenta pantallas apiladas por encima. |
+| Base de datos | **expo-sqlite con SQL escrito a mano** (sin ORM). Migraciones en `src/db/migrations.ts` con `PRAGMA user_version`; repositorios tipados en `src/db/repositories/`. | Son ~14 tablas sencillas: sin generación de código, ni ficheros `.sql`, ni plugins de Babel. Los repositorios dependen de una interfaz mínima (`src/db/db.ts`) y se testean en Jest con el SQLite integrado de Node 22. *(Se descartó Drizzle el 2026-11-01.)* |
+| Estado UI | Datos persistentes → SQLite (fuente de verdad), recargados al enfocar cada pantalla (`useLoader`). El estado del entrenamiento activo (ejercicio actual, fin del descanso, ejercicios saltados) también vive en `workout_session`. | Si la app muere, todo lo importante ya está en la BD. No hace falta Zustand por ahora. |
+| Notificaciones | **expo-notifications**, solo **notificaciones locales programadas** (nada de push remoto). El descanso usa trigger `DATE` con **`delivery: 'alarmClock'`** (→ `AlarmManager.setAlarmClock()`). | Funcionan sin internet y con la app cerrada; `setAlarmClock` no lo retrasa Doze. Plan B nativo en §7.4 solo si falla en el móvil real. |
 | Gráficas | **react-native-gifted-charts**. | Sencillo, sin dependencias pesadas. |
 | Fechas | **date-fns** con locale `es`. | Ligero. |
 | Tests | **jest-expo** + @testing-library/react-native. La lógica de dominio es TS puro y se testea sin RN. | |
-| Builds | **dev build** (`expo-dev-client`), nunca Expo Go (sonidos de notificación personalizados, canales y permisos lo requieren). EAS Build con perfil APK, o `npx expo run:android` en local. | |
+| Builds | Nunca Expo Go (sonidos de notificación personalizados, canales y permisos lo requieren). **Build local**: `npx expo prebuild --platform android` + `cd android && ./gradlew assembleRelease` → APK firmado con la clave de debug, instalable a mano (ver [README](README.md)). Para desarrollo con recarga en caliente: `npx expo run:android` (incluye `expo-dev-client`). EAS Build es opcional (requiere cuenta de Expo). | |
 | Backup online | **Export/Import JSON** (manual) + **auto-backup a un repo privado de GitHub** vía API REST (§9). | Sin servidor, gratis, los datos son míos, y el historial de git da versiones de cada copia. |
 
 Identificadores: nombre visible **"Entreno"**, Android package **`com.fabgs.entreno`**, esquema de deep link **`entreno://`**.
@@ -224,7 +224,7 @@ Máquina de estados (`src/domain/workoutMachine.ts`, pura y testeada):
 Diseño (`src/services/restTimer.ts`):
 
 1. Al pulsar "Serie hecha": `endsAt = Date.now() + restSeconds·1000`.
-2. **Programar una notificación local con trigger de fecha en `endsAt`** (canal `rest-timer`, identificador `rest-<sessionId>`, título "¡Descanso terminado!", cuerpo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg", `data.url = entreno://workout/<sessionId>`). La programa el sistema operativo, así que **suena con la pantalla bloqueada, con la app en segundo plano e incluso si el proceso muere**.
+2. **Programar una notificación local con trigger de fecha en `endsAt` y `delivery: 'alarmClock'`** (canal `rest-timer-v1`, identificador `rest-<sessionId>`, título "¡Descanso terminado!", cuerpo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg", `data.url = entreno://workout/<sessionId>`). La programa el sistema operativo, así que **suena con la pantalla bloqueada, con la app en segundo plano e incluso si el proceso muere**.
 3. Guardar `rest_ends_at` y `rest_notification_id` en `workout_session`.
 4. La cuenta atrás de la UI **se calcula siempre como `endsAt − Date.now()`** (nunca restando ticks), refrescando cada ~250 ms; al volver a primer plano (`AppState` → `active`) se recalcula.
 5. −30 s / +30 s / Saltar / editar → cancelar la notificación y reprogramarla (o no).
@@ -280,7 +280,7 @@ Estado de permisos (notificaciones, alarmas exactas, optimización de batería) 
 
 ### 7.4 Plan B (si las alarmas llegan tarde)
 
-Crear un **módulo nativo local de Expo** (Kotlin, `modules/exact-alarm`) que programe con `AlarmManager.setAlarmClock()` (exento de Doze y el más fiable) un `BroadcastReceiver` que publique la notificación en el canal `rest-timer`, y que la reprograme tras reinicio (`BOOT_COMPLETED`). API JS: `scheduleExact(id, timestampMs, title, body, url)` / `cancel(id)`. `restTimer.ts` lo usa detrás de la misma interfaz. Documentar la decisión aquí si se activa.
+Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se pide `delivery: 'alarmClock'` y hay permiso de alarma exacta (lo que se usa en `restTimer.ts`), así que este plan B solo hace falta si en el móvil real sigue llegando tarde. En ese caso, crear un **módulo nativo local de Expo** (Kotlin, `modules/exact-alarm`) que programe con `AlarmManager.setAlarmClock()` (exento de Doze y el más fiable) un `BroadcastReceiver` que publique la notificación en el canal `rest-timer`, y que la reprograme tras reinicio (`BOOT_COMPLETED`). API JS: `scheduleExact(id, timestampMs, title, body, url)` / `cancel(id)`. `restTimer.ts` lo usa detrás de la misma interfaz. Documentar la decisión aquí si se activa.
 
 ---
 
@@ -302,7 +302,7 @@ Descanso por defecto (s), incremento por defecto (kg), modo de progresión (`ave
 
 ---
 
-## 10. Modelo de datos (SQLite / Drizzle)
+## 10. Modelo de datos (SQLite)
 
 Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; fechas locales `TEXT 'YYYY-MM-DD'`; instantes en **epoch ms (INTEGER)**; booleanos `INTEGER 0/1`; día de la semana **ISO 1–7**; `archived` para borrado lógico.
 
@@ -317,7 +317,7 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 | `routine_slot` | `id`, `routine_id`, `exercise_id`, `position`, `weight_kg` (peso actual; null = peso corporal sin lastre), `sets`, `target_kind` ('range'/'fixed'/'failure'), `rep_min`, `rep_max`, `fixed_reps`, `failure_minus`, `per_side`, `unit` ('reps'/'steps'/'seconds'), `progression` ('load'/'manual'), `allow_decrease`, `increment_kg`, `rest_seconds`, `note`, `archived` |
 | `cardio_activity` | `id`, `weekday`, `name`, `target`, `intensity`, `notes`, `position`, `archived` |
 | `cardio_log` | `id`, `date`, `activity_id` (nullable), `name`, `done`, `value`, `notes` |
-| `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'/'abandoned'), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id` |
+| `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'/'abandoned'), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id`, `skipped_slot_ids` (JSON) |
 | `set_log` | `id`, `session_id`, `slot_id` (nullable: ejercicio puntual), `exercise_id`, `set_index`, `weight_kg` (copia del peso del slot al registrar; nullable), `reps`, `is_extra`, `completed_at` |
 | `weight_change` | `id`, `slot_id`, `session_id` (nullable), `from_kg`, `to_kg`, `reason`, `source` ('progression'/'manual'/'import'), `status` ('pending'/'applied'/'dismissed'/'expired'), `created_at`, `decided_at` |
 | `food` | `id`, `name` (único), `fat_per_100g`, `carbs_per_100g`, `protein_per_100g`, `archived` |
@@ -331,35 +331,33 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 
 ## 11. Estructura del proyecto
 
-El proyecto Expo vive en la **raíz del repo** (junto a este plan).
+El proyecto Expo vive en la **raíz del repo** (junto a este plan). `android/` lo genera `expo prebuild` y no se versiona.
 
 ```
-app/                              # rutas (expo-router)
-  _layout.tsx                     # init BD + migraciones + seed, canales y handler de notificaciones, deep links
-  (tabs)/_layout.tsx              # Hoy · Entreno · Historial · Dieta · Perfil
-  (tabs)/index.tsx                # Hoy
-  (tabs)/entreno.tsx              # rutinas, calendario semanal, catálogo
-  (tabs)/historial.tsx
-  (tabs)/dieta.tsx
-  (tabs)/perfil.tsx               # perfil + peso + acceso a Ajustes
-  workout/[sessionId].tsx         # modo entrenamiento
-  workout/resumen/[sessionId].tsx
-  rutina/[id].tsx                 # editor de rutina
-  ejercicio/[id].tsx              # detalle e historial de ejercicio
-  ajustes.tsx                     # ajustes, backup, diagnóstico
-  onboarding.tsx                  # fecha de nacimiento, permisos
 src/
-  db/        schema.ts · client.ts · migrations/ · seed.ts · repositories/*.ts
-  domain/    progression.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · __tests__/
-  services/  notifications.ts · restTimer.ts · dailyReminder.ts · backup.ts · githubBackup.ts
-  stores/    workoutStore.ts
-  components/
-  theme/
-assets/sounds/rest_end.wav
+  app/                              # rutas (expo-router)
+    _layout.tsx                     # SQLiteProvider (migraciones + seed), canales y permisos, deep links, Stack raíz
+    (tabs)/_layout.tsx              # Hoy · Rutinas · Historial · Dieta · Perfil
+    (tabs)/index.tsx                # Hoy
+    (tabs)/rutinas.tsx              # semana + rutinas con pesos (editor completo: fase 4)
+    (tabs)/historial.tsx            # sesiones terminadas
+    (tabs)/dieta.tsx                # plan semanal y totales (edición: fase 7)
+    (tabs)/perfil.tsx               # datos, objetivos calculados, registro de peso
+    workout/[sessionId].tsx         # modo entrenamiento (lista · serie · descanso)
+    workout/resumen/[sessionId].tsx # resumen + recomendaciones
+    slot/[id].tsx                   # peso de un ejercicio de rutina + recomendación pendiente
+    ajustes.tsx                     # descanso, recordatorio, pantalla encendida, diagnóstico de avisos
+  db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedTypes.ts · repositories/*.ts · __tests__/
+  domain/     progression.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
+  services/   notifications.ts · restTimer.ts · dailyReminder.ts
+  components/ ui.tsx (Screen, Card, Button, Stepper…) · Recommendation.tsx
+  hooks/      data.ts (useDb, useLoader, useNow)
+  theme.ts
+assets/sounds/rest_end.wav          # generado (sin derechos)
 data/seed/seed.json
 ```
 
-Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % testeable). Las pantallas no hablan con SQLite directamente: usan `src/db/repositories`. Las notificaciones solo se tocan desde `src/services`.
+Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % testeable). Las pantallas no hablan con SQLite directamente: usan `src/db/repositories`. Las notificaciones solo se tocan desde `src/services`. Las pantallas no llaman a `Date.now()` (lo marca la regla de pureza del React Compiler): los repositorios y servicios reciben `now` con valor por defecto.
 
 ---
 
@@ -376,72 +374,79 @@ Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % 
 Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y un build probado en el móvil.
 
 ### Fase 0 — Bootstrap
-- [ ] Crear el proyecto Expo con TypeScript y expo-router en la raíz (crearlo en una carpeta temporal y mover los ficheros si la plantilla se niega a usar un directorio no vacío; conservar `PLAN.md`, `AGENTS.md`, `CLAUDE.md`, `README.md`, `data/`).
-- [ ] `tsconfig` estricto, alias `@/` → `src/`, ESLint + Prettier, scripts `test`, `lint`, `typecheck`.
-- [ ] jest-expo configurado con un test de ejemplo.
-- [ ] `expo-dev-client`; `app.json`: nombre "Entreno", package `com.fabgs.entreno`, scheme `entreno`, permisos de §6.5, plugin `expo-notifications` con `sounds`.
-- [ ] `eas.json` con perfiles `development` (dev client, APK) y `preview` (APK instalable).
-- [ ] Sonido `assets/sounds/rest_end.wav` (corto, claro, libre de derechos o generado).
+- [x] Proyecto Expo SDK 58 con TypeScript y expo-router en la raíz.
+- [x] `tsconfig` estricto, alias `@/` → `src/`, ESLint (`eslint-config-expo`), scripts `test`, `lint`, `typecheck`.
+- [x] jest-expo configurado.
+- [x] `expo-dev-client`; `app.json`: nombre "Entreno", package `com.fabgs.entreno`, scheme `entreno`, permisos de §6.5, plugin `expo-notifications` con `sounds`.
+- [x] Sonido `assets/sounds/rest_end.wav` (generado).
+- [x] Build local de APK de release (`expo prebuild` + `gradlew assembleRelease`).
 - [ ] Instalada en un Android real.
+- [ ] (Opcional) `eas.json` si algún día se usa EAS Build.
 
-**Aceptación**: la app abre en el móvil con las 5 tabs vacías.
+**Aceptación**: la app abre en el móvil con las 5 pestañas.
 
-### Fase 1 — Datos y dominio
-- [ ] Esquema Drizzle (§10) + migraciones + cliente.
-- [ ] Importación del seed en el primer arranque (§3), incluidas las recomendaciones pendientes iniciales, con test.
-- [ ] Repositorios (rutinas, slots, sesiones, series, perfil, ajustes, peso, cardio, alimentos, dieta).
-- [ ] `nutrition.ts` + tests (§4).
-- [ ] `progression.ts` + tests (tabla de §6.2 y casos extra).
-- [ ] `schedule.ts` (rutina/cardio del día, `buildDailyMessage`, `isoToExpoWeekday`) + tests.
-- [ ] `workoutMachine.ts` + tests.
+### Fase 1 — Datos y dominio ✅
+- [x] Esquema SQL (§10) + migraciones + interfaz `Db`.
+- [x] Importación del seed en el primer arranque (§3), incluidas las recomendaciones pendientes iniciales, con test.
+- [x] Repositorios (rutinas, slots, sesiones, series, perfil, ajustes, peso, cardio, dieta, recomendaciones).
+- [x] `nutrition.ts` + tests (§4).
+- [x] `progression.ts` + tests (tabla de §6.2 y casos extra).
+- [x] `schedule.ts` (rutina/cardio del día, `buildDailyMessage`, `isoToExpoWeekday`) + tests.
+- [x] `workoutMachine.ts` + tests.
 
-**Aceptación**: tests verdes; en el primer arranque hay 4 rutinas, 22 ejercicios, 34 alimentos, 145 elementos de dieta y 9 actividades de cardio.
+**Aceptación**: tests verdes (70); en el primer arranque hay 4 rutinas, 22 ejercicios, 34 alimentos, 145 elementos de dieta y 9 actividades de cardio.
 
 ### Fase 2 — Entrenar (MVP) ⭐
-- [ ] Pantalla Hoy (§6.3) con pesos de cada slot y cardio.
-- [ ] Iniciar/continuar sesión; modo entrenamiento completo (§6.4) con input solo de reps.
-- [ ] Descanso con notificación programada (§6.5), −30/+30/Saltar, deep link.
-- [ ] Onboarding mínimo: pedir permiso de notificaciones y alarmas exactas.
-- [ ] Corregir reps/borrar serie, serie extra, ejercicio puntual, saltar ejercicio, acceso rápido a editar el peso del slot.
-- [ ] Al terminar: crear recomendaciones pendientes; resumen con Aplicar / Ignorar / Aplicar todas; pendientes visibles en Hoy y en la primera serie del ejercicio.
-- [ ] Recuperación tras cerrar la app.
+- [x] Pantalla Hoy (§6.3) con pesos de cada slot, recomendaciones pendientes y cardio.
+- [x] Iniciar/continuar sesión; modo entrenamiento completo (§6.4) con input solo de reps.
+- [x] Descanso con notificación programada (§6.5, `alarmClock`), −30/+30/Saltar, deep link.
+- [x] Permiso de notificaciones al arrancar; alarmas exactas y batería desde Ajustes → Diagnóstico.
+- [x] Corregir reps/borrar serie, serie extra, saltar ejercicio, acceso rápido a editar el peso del slot.
+- [ ] Añadir un ejercicio puntual (fuera de la rutina) durante la sesión.
+- [x] Al terminar: crear recomendaciones pendientes; resumen con Aplicar / Ignorar / Aplicar todas; pendientes visibles en Hoy y en la primera serie del ejercicio.
+- [x] Recuperación tras cerrar la app (estado en `workout_session`).
+- [ ] **Verificación en móvil real** (checklist de §14).
 
 **Aceptación (móvil real)**: completar el Día 1 de principio a fin; con el móvil bloqueado el descanso suena a los 2:30 (≤ 3 s de retraso, 10/10); matar la app a mitad de descanso y reabrir → la cuenta atrás sigue bien y la notificación suena; al terminar se proponen los pesos de `recommend()` y el peso del slot **solo cambia al pulsar Aplicar**.
 
 ### Fase 3 — Recordatorio diario
-- [ ] `dailyReminder.ts` + ajustes de hora/activación.
-- [ ] Reprogramación al arrancar y tras cambios.
-- [ ] Pantalla de diagnóstico (§7.3) con exclusión de optimización de batería.
+- [x] `dailyReminder.ts` + ajustes de hora/activación.
+- [x] Reprogramación al arrancar y al guardar ajustes (falta engancharla al editor de rutinas de la fase 4).
+- [x] Pantalla de diagnóstico (§7.3) con exclusión de optimización de batería y botones de prueba.
+- [ ] **Verificación en móvil real** (checklist de §14).
 
 **Aceptación**: en modo avión y con la app cerrada, la notificación llega a la hora configurada con el texto correcto del día; sigue llegando tras reiniciar el móvil.
 
 ### Fase 4 — Editor de rutinas
 - [ ] Catálogo de ejercicios (§6.7).
-- [ ] Editor de rutina y slots, reordenar, asignar días.
-- [ ] Cardio semanal y vista calendario.
+- [ ] Editor de rutina y slots, reordenar, asignar días (hoy solo se puede cambiar el peso de un slot).
+- [ ] Cardio semanal editable (la vista calendario ya existe en la pestaña Rutinas).
 
 **Aceptación**: añadir un ejercicio a una rutina, cambiarle el día y la hora → Hoy y la notificación diaria lo reflejan.
 
 ### Fase 5 — Historial y progreso
-- [ ] Lista y detalle de sesiones (editable).
+- [x] Lista de sesiones y resumen de cada una (solo lectura).
+- [ ] Editar series de una sesión ya terminada.
 - [ ] Detalle de ejercicio con tabla, gráficas y récords.
 - [ ] Historial de cardio.
 
 ### Fase 6 — Perfil y peso
-- [ ] Onboarding completo (fecha de nacimiento, confirmar altura/peso).
-- [ ] Perfil con cálculos (§4), registro de peso y gráfica.
+- [x] Aviso en Hoy si falta la fecha de nacimiento; formulario de perfil.
+- [x] Perfil con cálculos (§4) y registro de peso (lista).
+- [ ] Gráfica de evolución del peso.
 
 ### Fase 7 — Dieta
 - [ ] CRUD de alimentos.
 - [ ] Plan semanal editable con "Copiar día a…".
-- [ ] Totales por comida/día/semana frente a objetivos (§5).
+- [x] Totales por comida/día/semana frente a objetivos (§5), en vista de solo lectura.
 
 ### Fase 8 — Backup
 - [ ] Exportar/Importar JSON.
 - [ ] Auto-backup a GitHub privado (§9) con token en secure-store.
 
 ### Fase 9 — Pulido
-- [ ] Icono y splash, tema, hápticos, pantalla encendida.
+- [x] Tema oscuro, hápticos, pantalla encendida durante el entreno.
+- [ ] Icono y splash propios (ahora son los de la plantilla de Expo).
 - [ ] Notificación persistente con cronómetro durante el descanso (opcional).
 - [ ] Revisión de accesibilidad (tamaños de fuente, contraste).
 
@@ -450,7 +455,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 ## 14. Pruebas
 
 - **Unitarias** (Jest, `src/domain/__tests__`): nutrición, progresión, calendario/mensajes, máquina de estados, conversión de días, formateo es-ES. Son los fixtures de §4, §5 y §6.2.
-- **Integración**: importación del seed sobre una BD SQLite en memoria (o mock) y repositorios principales.
+- **Integración** (`src/db/__tests__`): importación del seed, sesiones y recomendaciones sobre SQLite real en memoria (`node:sqlite` vía `createTestDb()`).
 - **Manual en dispositivo** (checklist antes de cerrar las fases 2 y 3):
   - [ ] Descanso suena con pantalla bloqueada (10/10, ≤ 3 s).
   - [ ] Descanso suena con la app cerrada desde multitarea.
@@ -470,7 +475,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 | Canales de Android inmutables | Versionar el id del canal al cambiar sonido/importancia. |
 | Desfase de convención de días (ISO vs expo) | Conversión única en el borde + test. |
 | Pérdida de datos (móvil perdido o reinstalación) | Export JSON y auto-backup GitHub (§9). |
-| Migraciones de BD que rompan datos | Migraciones de Drizzle versionadas; nunca editar una migración ya publicada; exportar backup antes de actualizar. |
+| Migraciones de BD que rompan datos | Migraciones versionadas con `PRAGMA user_version` (`src/db/migrations.ts`), solo se añaden al final; nunca editar una ya publicada; exportar backup antes de actualizar. |
 | Datos personales en un repo público | Excel, backups y tokens fuera del repo (`.gitignore`); el seed no incluye fecha de nacimiento. |
 
 ---
@@ -486,3 +491,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Plan inicial y `data/seed/seed.json` generados a partir del Excel. Ninguna fase empezada.
 - 2026-11-01 — El peso se define en el slot de la rutina (`routine_slot.weight_kg`); en el entreno solo se introducen reps. Seed con `weightKg` por slot.
 - 2026-11-01 — Las recomendaciones de peso **nunca se aplican solas**: quedan pendientes (`weight_change.status = 'pending'`) hasta que pulse Aplicar o Ignorar (resumen, Hoy o primera serie del ejercicio).
+- 2026-11-01 — Fases 0–1 completas y fases 2–3 implementadas (pendiente verificar en móvil real). Decisiones: SQL a mano en lugar de Drizzle; rutas en `src/app`; pestañas JS dentro de un Stack; descanso con `delivery: 'alarmClock'`; build local con `expo prebuild` + Gradle.

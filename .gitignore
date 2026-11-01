@@ -31,3 +31,15 @@ credentials.json
 npm-debug.*
 .vscode/
 .idea/
+
+# Expo / Metro / native extras
+expo-env.d.ts
+.kotlin/
+.metro-health-check*
+*.orig.*
+*.tsbuildinfo
+*.p8
+*.p12
+*.key
+*.pem
+*.mobileprovision

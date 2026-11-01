@@ -1,0 +1,33 @@
+# Datos personales: nunca al repo público
+*.xlsx
+*.xls
+backups/
+entreno-backup-*.json
+
+# Dependencias y builds
+node_modules/
+.expo/
+dist/
+web-build/
+coverage/
+*.apk
+*.aab
+*.ipa
+
+# Proyectos nativos generados por Expo (CNG / prebuild)
+/android
+/ios
+
+# Entorno y secretos
+.env
+.env*.local
+*.jks
+*.keystore
+credentials.json
+
+# Varios
+.DS_Store
+*.log
+npm-debug.*
+.vscode/
+.idea/

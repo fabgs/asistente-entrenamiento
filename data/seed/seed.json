@@ -1,0 +1,2110 @@
+{
+  "schemaVersion": 1,
+  "source": "Dieta y entrenamiento.xlsx (importado 2026-11-01)",
+  "profile": {
+    "sex": "male",
+    "birthDate": null,
+    "heightCm": 184,
+    "weightKg": 84,
+    "activityFactor": 1.5,
+    "deficitKcal": 400,
+    "proteinGPerKg": 2,
+    "fatGPerKg": 1,
+    "waterLPerKg": 0.035
+  },
+  "settings": {
+    "restSecondsDefault": 150,
+    "defaultIncrementKg": 2.5,
+    "progressionMode": "average",
+    "sessionsBelowToDecrease": 2,
+    "dailyReminderTime": "06:00",
+    "dailyReminderEnabled": true
+  },
+  "exercises": [
+    {
+      "name": "Fondos en paralelas lastrados",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Dominadas pronas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Flexiones declinadas diamond",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Remo con barra (90º)",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Floor Press con barra",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Elevaciones laterales mancuerna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Curl bíceps barra Z",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Sentadilla Búlgara lastrada",
+      "type": "external",
+      "equipment": "mancuernas"
+    },
+    {
+      "name": "Peso Muerto Rumano barra",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Zancadas caminando",
+      "type": "external",
+      "equipment": "mancuernas"
+    },
+    {
+      "name": "Curl femoral deslizante",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Gemelos a 1 pierna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Toes to bar",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Dominadas supinas lastradas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Fondos paralelas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Remo mentón barra Z",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Flexiones arqueras",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Australianas (homb post)",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Rompecráneos suelo",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Sentadilla Goblet/Frontal",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Hip Thrust a 1 pierna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Extensiones cuád. (Sissy)",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    }
+  ],
+  "routines": [
+    {
+      "name": "Día 1: Torso (Empuje Pesado + Tirón Volumen)",
+      "weekdays": [
+        1
+      ],
+      "slots": [
+        {
+          "exercise": "Fondos en paralelas lastrados",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 5,
+            "max": 8
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >8 reps = Sube lastre / Si <5 reps = Baja lastre",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 12.5,
+              "reps": [
+                10,
+                9,
+                8
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 15,
+              "reps": [
+                9,
+                8,
+                6
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Dominadas pronas",
+          "sets": 3,
+          "target": {
+            "kind": "failure",
+            "minus": 1
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Apuntar repeticiones con peso corporal",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                10,
+                9,
+                8
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": null,
+              "reps": [
+                10,
+                9,
+                8
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Flexiones declinadas diamond",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 8,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Elevar más los pies o añadir lastre",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                13,
+                12
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": null,
+              "reps": [
+                13,
+                11
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Remo con barra (90º)",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 35,
+              "reps": [
+                15,
+                15,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Floor Press con barra",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 15
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >15 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 35,
+              "reps": [
+                17,
+                17
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Elevaciones laterales mancuerna",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso / Si <15 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 5,
+              "reps": [
+                14,
+                13,
+                13
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 5,
+              "reps": [
+                13,
+                13,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Curl bíceps barra Z",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 20,
+              "reps": [
+                10,
+                9,
+                8
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 20,
+              "reps": [
+                10,
+                9,
+                9
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Día 2: Pierna y Core",
+      "weekdays": [
+        2
+      ],
+      "slots": [
+        {
+          "exercise": "Sentadilla Búlgara lastrada",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 8,
+            "max": 12
+          },
+          "perSide": true,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube lastre / Si <8 reps = Baja lastre",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 10,
+              "reps": [
+                14,
+                13,
+                13
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 10,
+              "reps": [
+                14,
+                14,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Peso Muerto Rumano barra",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 15
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >15 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 35,
+              "reps": [
+                15,
+                15,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Zancadas caminando",
+          "sets": 2,
+          "target": {
+            "kind": "fixed",
+            "reps": 20
+          },
+          "perSide": false,
+          "unit": "steps",
+          "progression": "load",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si completas bien = Sube peso (barra o disco)",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 10,
+              "reps": [
+                20,
+                20
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Curl femoral deslizante",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Buscar técnica estricta y aguantar 1 seg arriba",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                13,
+                12
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Gemelos a 1 pierna",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso en la mano",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 0,
+              "reps": [
+                20,
+                20,
+                20
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Toes to bar",
+          "sets": 2,
+          "target": {
+            "kind": "failure",
+            "minus": 0
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Apuntar repeticiones con peso corporal",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                7,
+                5
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Día 3: Torso (Tirón Pesado + Empuje Volumen)",
+      "weekdays": [
+        4
+      ],
+      "slots": [
+        {
+          "exercise": "Dominadas supinas lastradas",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 5,
+            "max": 8
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >8 reps = Sube lastre / Si <5 reps = Baja lastre",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 7.5,
+              "reps": [
+                11,
+                8,
+                7
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 7.5,
+              "reps": [
+                9,
+                8,
+                8
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Fondos paralelas",
+          "sets": 3,
+          "target": {
+            "kind": "failure",
+            "minus": 1
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Apuntar repeticiones con peso corporal",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                15,
+                12,
+                13
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": null,
+              "reps": [
+                15,
+                14,
+                13
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Remo mentón barra Z",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 15,
+              "reps": [
+                10,
+                10,
+                10
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 15,
+              "reps": [
+                15,
+                15,
+                15
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Flexiones arqueras",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 15
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Pasar a variante más dura si haces >15 reps",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                18,
+                16
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": null,
+              "reps": [
+                16,
+                16
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Elevaciones laterales mancuerna",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso / Si <15 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 5,
+              "reps": [
+                13,
+                12,
+                12
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 5,
+              "reps": [
+                14,
+                14,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Australianas (homb post)",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso / Si <15 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 0,
+              "reps": [
+                13,
+                12
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Rompecráneos suelo",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 15
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >15 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 15,
+              "reps": [
+                15,
+                13,
+                11
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Día 4: Pierna y Core (Metabólico)",
+      "weekdays": [
+        5
+      ],
+      "slots": [
+        {
+          "exercise": "Sentadilla Goblet/Frontal",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso (abrazar discos/barra)",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 30,
+              "reps": [
+                23,
+                20,
+                20
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 35,
+              "reps": [
+                15,
+                15,
+                14
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Hip Thrust a 1 pierna",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": true,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube peso / Si <10 reps = Baja peso",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 20,
+              "reps": [
+                9,
+                9
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 20,
+              "reps": [
+                9,
+                9
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Extensiones cuád. (Sissy)",
+          "sets": 2,
+          "target": {
+            "kind": "failure",
+            "minus": 0
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "manual",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Apuntar repeticiones (bajar controlado)",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": null,
+              "reps": [
+                13,
+                12
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": null,
+              "reps": [
+                12,
+                12
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Gemelos a 1 pierna",
+          "sets": 3,
+          "target": {
+            "kind": "range",
+            "min": 15,
+            "max": 20
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": false,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >20 reps = Sube peso en la mano",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 0,
+              "reps": [
+                19,
+                19,
+                19
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 0,
+              "reps": [
+                19,
+                19,
+                19
+              ]
+            }
+          ]
+        },
+        {
+          "exercise": "Toes to bar",
+          "sets": 2,
+          "target": {
+            "kind": "range",
+            "min": 10,
+            "max": 12
+          },
+          "perSide": false,
+          "unit": "reps",
+          "progression": "load",
+          "allowDecrease": true,
+          "incrementKg": null,
+          "restSeconds": null,
+          "note": "Si >12 reps = Sube lastre / Si <10 reps = Baja lastre",
+          "history": [
+            {
+              "label": "anterior",
+              "weightKg": 0,
+              "reps": [
+                7,
+                7
+              ]
+            },
+            {
+              "label": "hoy",
+              "weightKg": 0,
+              "reps": [
+                7
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "cardio": [
+    {
+      "weekday": 1,
+      "name": "Caminar",
+      "target": "5 km",
+      "intensity": "Baja (LISS)",
+      "notes": null
+    },
+    {
+      "weekday": 1,
+      "name": "Bici estática",
+      "target": "30 min",
+      "intensity": "Baja (LISS)",
+      "notes": null
+    },
+    {
+      "weekday": 2,
+      "name": "Caminar",
+      "target": "5 km",
+      "intensity": "Baja (LISS)",
+      "notes": null
+    },
+    {
+      "weekday": 3,
+      "name": "Sprints + Bouncing",
+      "target": "15 min",
+      "intensity": "Alta (HIIT)",
+      "notes": "Sesión de mañana"
+    },
+    {
+      "weekday": 4,
+      "name": "Caminar",
+      "target": "5 km",
+      "intensity": "Baja (LISS)",
+      "notes": null
+    },
+    {
+      "weekday": 4,
+      "name": "Bici estática",
+      "target": "30 min",
+      "intensity": "Media (MISS)",
+      "notes": "Zona 3-4: 5 min calentamiento + 20 min intensidad media + 5 min enfriamiento"
+    },
+    {
+      "weekday": 5,
+      "name": "Caminar",
+      "target": "5 km",
+      "intensity": "Baja (LISS)",
+      "notes": null
+    },
+    {
+      "weekday": 6,
+      "name": "Sprints + Bouncing",
+      "target": "15 min",
+      "intensity": "Alta (HIIT)",
+      "notes": "Sesión de mañana"
+    },
+    {
+      "weekday": 7,
+      "name": "Descanso / Caminar",
+      "target": "Opcional",
+      "intensity": "Muy baja",
+      "notes": null
+    }
+  ],
+  "foods": [
+    {
+      "name": "Leche entera",
+      "fatPer100g": 3.6,
+      "carbsPer100g": 4.9,
+      "proteinPer100g": 3.9
+    },
+    {
+      "name": "Proteina",
+      "fatPer100g": 3.3,
+      "carbsPer100g": 6.6,
+      "proteinPer100g": 77
+    },
+    {
+      "name": "Colageno",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Creatina",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Ensalada",
+      "fatPer100g": 0.4,
+      "carbsPer100g": 1.6,
+      "proteinPer100g": 1.6
+    },
+    {
+      "name": "Queso",
+      "fatPer100g": 31,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21
+    },
+    {
+      "name": "Frutos secos",
+      "fatPer100g": 43,
+      "carbsPer100g": 42,
+      "proteinPer100g": 18
+    },
+    {
+      "name": "Aceite",
+      "fatPer100g": 100,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Omega 3",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Yogurt griego",
+      "fatPer100g": 2,
+      "carbsPer100g": 3.9,
+      "proteinPer100g": 5.5
+    },
+    {
+      "name": "Platano",
+      "fatPer100g": 0.33,
+      "carbsPer100g": 22.84,
+      "proteinPer100g": 1.09
+    },
+    {
+      "name": "Kiwi",
+      "fatPer100g": 0.52,
+      "carbsPer100g": 14.66,
+      "proteinPer100g": 1.14
+    },
+    {
+      "name": "Arandanos",
+      "fatPer100g": 0.33,
+      "carbsPer100g": 14.49,
+      "proteinPer100g": 0.74
+    },
+    {
+      "name": "Frambuesas",
+      "fatPer100g": 0.65,
+      "carbsPer100g": 11.94,
+      "proteinPer100g": 1.2
+    },
+    {
+      "name": "Miel",
+      "fatPer100g": 0,
+      "carbsPer100g": 82.4,
+      "proteinPer100g": 0.3
+    },
+    {
+      "name": "Pechuga de pollo",
+      "fatPer100g": 7.72,
+      "carbsPer100g": 0,
+      "proteinPer100g": 29.55
+    },
+    {
+      "name": "Pechuga de pavo",
+      "fatPer100g": 1.66,
+      "carbsPer100g": 4.21,
+      "proteinPer100g": 17.07
+    },
+    {
+      "name": "Ternera magra",
+      "fatPer100g": 4.51,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21.7
+    },
+    {
+      "name": "Higado de ternera",
+      "fatPer100g": 4.85,
+      "carbsPer100g": 2.91,
+      "proteinPer100g": 19.93
+    },
+    {
+      "name": "Salmon",
+      "fatPer100g": 5.93,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21.62
+    },
+    {
+      "name": "Merluza",
+      "fatPer100g": 4.38,
+      "carbsPer100g": 0.41,
+      "proteinPer100g": 21.38
+    },
+    {
+      "name": "Arroz blanco",
+      "fatPer100g": 1,
+      "carbsPer100g": 75,
+      "proteinPer100g": 8.2
+    },
+    {
+      "name": "Tallarines",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 72,
+      "proteinPer100g": 13
+    },
+    {
+      "name": "Macarrones",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 72,
+      "proteinPer100g": 13
+    },
+    {
+      "name": "Patata",
+      "fatPer100g": 0.1,
+      "carbsPer100g": 15.71,
+      "proteinPer100g": 1.68
+    },
+    {
+      "name": "Salsa Pesto",
+      "fatPer100g": 7.51,
+      "carbsPer100g": 0.76,
+      "proteinPer100g": 2.71
+    },
+    {
+      "name": "Ragu",
+      "fatPer100g": 15,
+      "carbsPer100g": 4.5,
+      "proteinPer100g": 3.4
+    },
+    {
+      "name": "Atun lata",
+      "fatPer100g": 1.2,
+      "carbsPer100g": 0.9,
+      "proteinPer100g": 21
+    },
+    {
+      "name": "Tomate",
+      "fatPer100g": 0.2,
+      "carbsPer100g": 3.92,
+      "proteinPer100g": 0.88
+    },
+    {
+      "name": "Cebolla",
+      "fatPer100g": 0.08,
+      "carbsPer100g": 10.11,
+      "proteinPer100g": 0.92
+    },
+    {
+      "name": "Boniato",
+      "fatPer100g": 0.6,
+      "carbsPer100g": 24.19,
+      "proteinPer100g": 1.61
+    },
+    {
+      "name": "Huevo",
+      "fatPer100g": 9.94,
+      "carbsPer100g": 0.77,
+      "proteinPer100g": 12.58
+    },
+    {
+      "name": "Lentejas",
+      "fatPer100g": 9.83,
+      "carbsPer100g": 56.09,
+      "proteinPer100g": 21.38
+    },
+    {
+      "name": "Alubias",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 60,
+      "proteinPer100g": 22
+    }
+  ],
+  "dietPlan": [
+    {
+      "weekday": 1,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 1,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Tallarines",
+      "grams": 166
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Ragu",
+      "grams": 200
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 1,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 1,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 1,
+      "meal": "cena",
+      "food": "Pechuga de pollo",
+      "grams": 150
+    },
+    {
+      "weekday": 1,
+      "meal": "cena",
+      "food": "Patata",
+      "grams": 200
+    },
+    {
+      "weekday": 1,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 2,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 2,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Higado de ternera",
+      "grams": 150
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Cebolla",
+      "grams": 100
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Tomate",
+      "grams": 150
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Arroz blanco",
+      "grams": 140
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 2,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 2,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 2,
+      "meal": "cena",
+      "food": "Merluza",
+      "grams": 150
+    },
+    {
+      "weekday": 2,
+      "meal": "cena",
+      "food": "Patata",
+      "grams": 200
+    },
+    {
+      "weekday": 2,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 3,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 3,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Lentejas",
+      "grams": 200
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 3,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 3,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 3,
+      "meal": "cena",
+      "food": "Salmon",
+      "grams": 150
+    },
+    {
+      "weekday": 3,
+      "meal": "cena",
+      "food": "Huevo",
+      "grams": 50
+    },
+    {
+      "weekday": 3,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 4,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 4,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Macarrones",
+      "grams": 166
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Ternera magra",
+      "grams": 150
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Salsa Pesto",
+      "grams": 20
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 4,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 4,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 4,
+      "meal": "cena",
+      "food": "Pechuga de pavo",
+      "grams": 200
+    },
+    {
+      "weekday": 4,
+      "meal": "cena",
+      "food": "Patata",
+      "grams": 100
+    },
+    {
+      "weekday": 4,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 5,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 5,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Arroz blanco",
+      "grams": 150
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Atun lata",
+      "grams": 150
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Tomate",
+      "grams": 150
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 5,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 5,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 5,
+      "meal": "cena",
+      "food": "Pechuga de pollo",
+      "grams": 100
+    },
+    {
+      "weekday": 5,
+      "meal": "cena",
+      "food": "Patata",
+      "grams": 200
+    },
+    {
+      "weekday": 5,
+      "meal": "cena",
+      "food": "Huevo",
+      "grams": 150
+    },
+    {
+      "weekday": 5,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 6,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 6,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Alubias",
+      "grams": 140
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Pechuga de pollo",
+      "grams": 100
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 6,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 6,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 6,
+      "meal": "cena",
+      "food": "Higado de ternera",
+      "grams": 150
+    },
+    {
+      "weekday": 6,
+      "meal": "cena",
+      "food": "Cebolla",
+      "grams": 100
+    },
+    {
+      "weekday": 6,
+      "meal": "cena",
+      "food": "Boniato",
+      "grams": 250
+    },
+    {
+      "weekday": 6,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 7,
+      "meal": "desayuno",
+      "food": "Leche entera",
+      "grams": 300
+    },
+    {
+      "weekday": 7,
+      "meal": "desayuno",
+      "food": "Proteina",
+      "grams": 30
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Ensalada",
+      "grams": 75
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Queso",
+      "grams": 50
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Frutos secos",
+      "grams": 20
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Aceite",
+      "grams": 10
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Tallarines",
+      "grams": 166
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Ragu",
+      "grams": 150
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Colageno",
+      "grams": 12
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Creatina",
+      "grams": 5
+    },
+    {
+      "weekday": 7,
+      "meal": "comida",
+      "food": "Omega 3",
+      "grams": 1
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Yogurt griego",
+      "grams": 100
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Platano",
+      "grams": 100
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Kiwi",
+      "grams": 75
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Arandanos",
+      "grams": 50
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Frambuesas",
+      "grams": 50
+    },
+    {
+      "weekday": 7,
+      "meal": "merienda",
+      "food": "Miel",
+      "grams": 10
+    },
+    {
+      "weekday": 7,
+      "meal": "cena",
+      "food": "Salmon",
+      "grams": 200
+    },
+    {
+      "weekday": 7,
+      "meal": "cena",
+      "food": "Patata",
+      "grams": 200
+    },
+    {
+      "weekday": 7,
+      "meal": "cena",
+      "food": "Proteina",
+      "grams": 30
+    }
+  ]
+}

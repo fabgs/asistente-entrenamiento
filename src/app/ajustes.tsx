@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { Switch } from 'react-native';
+import { BackupCard, DevModeCard } from '@/components/DataSettings';
 import { AppText, Button, Card, Divider, Loading, Row, Screen, Stepper } from '@/components/ui';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatCountdown, parseDuration } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
+import { githubToken } from '@/services/backup';
 import { rescheduleDailyReminders, sendTestReminder } from '@/services/dailyReminder';
 import {
   countScheduledNotifications,
@@ -25,22 +27,30 @@ export default function SettingsScreen() {
     settings: await getSettings(db),
     permissions: await getPermissionState(),
     scheduled: await countScheduledNotifications(),
+    hasToken: (await githubToken.get()) !== null,
   }));
 
   if (!data) return <Loading />;
 
   return (
     <Screen>
-      <SettingsForm key={JSON.stringify(data.settings)} settings={data.settings} onSaved={reload} />
+      <SettingsForm key={formKey(data.settings)} settings={data.settings} onSaved={reload} />
       <Diagnostics
         permissions={data.permissions}
         scheduled={data.scheduled}
         overlayEnabled={data.settings.restOverlay}
         onChanged={reload}
       />
+      <BackupCard key={backupKey(data.settings)} settings={data.settings} hasToken={data.hasToken} onChanged={reload} />
+      <DevModeCard enabled={data.settings.devMode} onChanged={reload} />
     </Screen>
   );
 }
+
+// Remount forms only when their own saved values change, not on every settings update.
+const formKey = (s: Settings) =>
+  [s.restSecondsDefault, s.dailyReminderEnabled, s.dailyReminderTime, s.keepAwake, s.restOverlay].join('|');
+const backupKey = (s: Settings) => [s.backupOwner, s.backupRepo, s.backupPath].join('|');
 
 function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () => void }) {
   const db = useDb();

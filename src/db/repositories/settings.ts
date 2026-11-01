@@ -11,6 +11,12 @@ export interface Settings {
   dailyReminderTime: string;
   keepAwake: boolean;
   restOverlay: boolean;
+  devMode: boolean;
+  backupOwner: string | null;
+  backupRepo: string | null;
+  backupPath: string | null;
+  lastBackupAt: number | null;
+  lastBackupError: string | null;
 }
 
 interface SettingsRow {
@@ -22,6 +28,12 @@ interface SettingsRow {
   daily_reminder_time: string;
   keep_awake: number;
   rest_overlay: number;
+  dev_mode: number;
+  backup_owner: string | null;
+  backup_repo: string | null;
+  backup_path: string | null;
+  last_backup_at: number | null;
+  last_backup_error: string | null;
 }
 
 export async function getSettings(db: Db): Promise<Settings> {
@@ -36,6 +48,12 @@ export async function getSettings(db: Db): Promise<Settings> {
     dailyReminderTime: row.daily_reminder_time,
     keepAwake: bool(row.keep_awake),
     restOverlay: bool(row.rest_overlay),
+    devMode: bool(row.dev_mode),
+    backupOwner: row.backup_owner,
+    backupRepo: row.backup_repo,
+    backupPath: row.backup_path,
+    lastBackupAt: row.last_backup_at,
+    lastBackupError: row.last_backup_error,
   };
 }
 
@@ -49,6 +67,12 @@ export async function updateSettings(db: Db, patch: Partial<Settings>): Promise<
     dailyReminderTime: 'daily_reminder_time',
     keepAwake: 'keep_awake',
     restOverlay: 'rest_overlay',
+    devMode: 'dev_mode',
+    backupOwner: 'backup_owner',
+    backupRepo: 'backup_repo',
+    backupPath: 'backup_path',
+    lastBackupAt: 'last_backup_at',
+    lastBackupError: 'last_backup_error',
   };
   for (const [key, value] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     const sqlValue = typeof value === 'boolean' ? int(value) : value;

@@ -3,11 +3,11 @@ import { router, Stack, ThemeProvider, type Href } from 'expo-router';
 import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import seedJson from '../../data/seed/seed.json';
 import { migrate } from '@/db/migrations';
 import { importSeed } from '@/db/seed';
-import type { SeedData } from '@/db/seedTypes';
+import { SEED } from '@/db/seedData';
 import { useDb } from '@/hooks/data';
+import { maybeAutoBackup, resetIfNewInstallInDevMode } from '@/services/backup';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import {
   configureNotificationHandler,
@@ -21,7 +21,8 @@ configureNotificationHandler();
 
 async function initDatabase(db: SQLiteDatabase) {
   await migrate(db);
-  await importSeed(db, seedJson as SeedData, new Date());
+  await resetIfNewInstallInDevMode(db);
+  await importSeed(db, SEED, new Date());
 }
 
 function openFromNotification(response: Notifications.NotificationResponse | null) {
@@ -38,7 +39,8 @@ function Bootstrap() {
       await ensureChannels();
       if (!(await getPermissionState()).notifications) await requestNotificationPermission();
       await rescheduleDailyReminders(db);
-    })().catch((e) => console.warn('Notification setup failed', e));
+      await maybeAutoBackup(db);
+    })().catch((e) => console.warn('Start-up tasks failed', e));
   }, [db]);
 
   useEffect(() => {

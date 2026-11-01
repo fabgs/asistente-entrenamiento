@@ -25,6 +25,7 @@ import { formatCountdown, formatLoad, formatTarget } from '@/domain/format';
 import type { RepTarget } from '@/domain/types';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
 import { useDb, useLoader, useNow } from '@/hooks/data';
+import { maybeAutoBackup } from '@/services/backup';
 import { openOverlaySettings } from '@/services/notifications';
 import { canDrawOverlays, cancelRestEnd, restDeadline, scheduleRestEnd, shiftDeadline } from '@/services/restTimer';
 import { colors, radius, spacing } from '@/theme';
@@ -103,6 +104,7 @@ export default function WorkoutScreen() {
     await cancelRestEnd(id);
     await finishSession(db, id, toProgressionSettings(settings));
     router.replace(`/workout/resumen/${id}`);
+    maybeAutoBackup(db);
   };
 
   const confirmFinish = () => {

@@ -11,6 +11,7 @@ import { applyChange, listOpenChanges, type WeightChange } from '@/db/repositori
 import { formatLoad, formatLongDate, formatTarget } from '@/domain/format';
 import { isoWeekdayOf, localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
+import { maybeAutoBackup } from '@/services/backup';
 import { cancelRestEnd } from '@/services/restTimer';
 import { colors, spacing } from '@/theme';
 
@@ -36,6 +37,7 @@ export default function TodayScreen() {
       cardioDone: await cardioDoneOn(db, localDateString(now)),
       active: await getActiveSession(db),
       profile: await getProfile(db),
+      devMode: (await getSettings(db)).devMode,
     };
   });
 
@@ -74,6 +76,7 @@ export default function TodayScreen() {
           await cancelRestEnd(active.id);
           await finishSession(db, active.id, toProgressionSettings(await getSettings(db)));
           router.push(`/workout/resumen/${active.id}`);
+          maybeAutoBackup(db);
         },
       },
     ]);
@@ -84,6 +87,14 @@ export default function TodayScreen() {
   return (
     <Screen>
       <AppText variant="title">{title}</AppText>
+
+      {data.devMode ? (
+        <Pressable onPress={() => router.push('/ajustes')}>
+          <AppText variant="small" style={{ color: colors.warning }}>
+            Modo pruebas activo: los datos se borran al instalar una versión nueva.
+          </AppText>
+        </Pressable>
+      ) : null}
 
       {!data.profile.birthDate ? (
         <Pressable onPress={() => router.push('/perfil')}>

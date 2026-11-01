@@ -288,19 +288,21 @@ Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se p
 
 ## 8. Ajustes generales
 
-Descanso por defecto (s), incremento por defecto (kg), modo de progresión (`average`/`strict`), sesiones por debajo para bajar, recordatorio diario (on/off + hora), pantalla encendida durante entreno, backup (§9), diagnóstico (§7.3), importar/exportar, "Restablecer desde seed" (con doble confirmación).
+Descanso por defecto (s), pantalla encendida durante el entreno, burbuja flotante, recordatorio diario (on/off + hora), diagnóstico (§7.3), copia de seguridad (§9) y **modo pruebas**.
+
+**Modo pruebas** (`settings.dev_mode`, activado por defecto mientras la app está en pruebas): en el primer arranque tras instalar un APK nuevo se borran todos los datos y se vuelve a cargar el seed. Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para apagarlo y un botón "Reiniciar datos ahora". **Cuando el usuario empiece a usar la app de verdad**: apagarlo en Ajustes y cambiar el valor por defecto para instalaciones nuevas (pendiente de que el usuario lo pida).
 
 ---
 
 ## 9. Copia de seguridad
 
-1. **Exportar/Importar JSON** (fase temprana): volcado de todas las tablas `{ schemaVersion, exportedAt, tables: {...} }` → fichero `entreno-backup-AAAA-MM-DD.json` compartido con el menú del sistema (expo-file-system + expo-sharing → Drive, Telegram, correo…). Importar con expo-document-picker: validar `schemaVersion`, confirmar, reemplazar todo en una transacción, reprogramar notificaciones.
-2. **Auto-backup a GitHub** (fase posterior):
-   - Repo **privado** del usuario, p. ej. `fabgs/entreno-backup`, con un **fine-grained personal access token** con permiso *Contents: Read and write* solo sobre ese repo.
-   - Token guardado en **expo-secure-store** (nunca en la BD, en logs ni en el export JSON).
-   - Cuándo: al terminar una sesión y al abrir la app si el último backup tiene > 24 h; solo con conexión (expo-network). Si falla, se reintenta la próxima vez; estado visible en Ajustes ("Último backup: hace 2 h").
-   - Cómo: `GET /repos/{owner}/{repo}/contents/backup.json` para obtener el `sha` → `PUT` con el JSON en base64 y mensaje `backup AAAA-MM-DDTHH:mm`. Cada backup es un commit → historial de versiones gratis.
-   - Restaurar: descargar `backup.json` (o una versión anterior) e importarlo como en el punto 1.
+Código: `src/db/maintenance.ts` (exportar, validar, restaurar, borrar), `src/services/backup.ts` (ficheros, GitHub, modo pruebas), `src/services/githubBackup.ts` (cliente de la API de GitHub), UI en `src/components/DataSettings.tsx` (Ajustes).
+
+1. **Exportar/Importar fichero**: volcado de las tablas de `BACKUP_TABLES` → `{ app: 'entreno', schemaVersion, exportedAt, tables }` en `entreno-backup-AAAA-MM-DD.json` (caché) compartido con el menú del sistema (`expo-sharing`). Importar con `File.pickFileAsync` de `expo-file-system` → `parseBackup` → confirmación → `restoreBackup`: borra e inserta **en una sola transacción** (si algo falla, los datos actuales no se tocan), ignora columnas desconocidas y rechaza copias de un `schemaVersion` más nuevo. Después se cancelan y reprograman las notificaciones.
+2. **Copia automática en GitHub**: repo **privado** del usuario (usuario, repositorio y ruta del fichero en Ajustes) y un **fine-grained personal access token** con permiso *Contents: Read and write* solo sobre ese repo, guardado en **expo-secure-store** (nunca en la BD ni en el JSON).
+   - Cuándo: al arrancar la app y al terminar un entreno, como mucho una vez cada 24 h, nunca en modo pruebas; si falla, se guarda el error (`settings.last_backup_error`) y se reintenta la próxima vez. Manual: "Subir copia ahora".
+   - Cómo: `GET /repos/{owner}/{repo}/contents/{path}` para obtener el `sha` → `PUT` con el JSON en base64 (`File.base64()`). Cada copia es un commit → historial de versiones.
+   - Restaurar: descarga con `Accept: application/vnd.github.raw+json`, confirmación y `restoreBackup`.
 
 ---
 
@@ -311,7 +313,8 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 | Tabla | Columnas |
 |---|---|
 | `profile` (1 fila) | `id`=1, `name`, `sex` ('male'/'female'), `birth_date`, `height_cm`, `activity_factor`, `deficit_kcal`, `protein_g_per_kg`, `fat_g_per_kg`, `water_l_per_kg` |
-| `settings` (1 fila) | `id`=1, `rest_seconds_default`, `default_increment_kg`, `progression_mode`, `sessions_below_to_decrease`, `daily_reminder_enabled`, `daily_reminder_time` ('HH:mm'), `keep_awake`, `backup_owner`, `backup_repo`, `backup_path`, `last_backup_at` |
+| `settings` (1 fila) | `id`=1, `rest_seconds_default`, `default_increment_kg`, `progression_mode`, `sessions_below_to_decrease`, `daily_reminder_enabled`, `daily_reminder_time` ('HH:mm'), `keep_awake`, `rest_overlay`, `dev_mode`, `backup_owner`, `backup_repo`, `backup_path`, `last_backup_at`, `last_backup_error` |
+| `app_meta` | `key`, `value` — datos internos que sobreviven a un borrado (p. ej. `install-stamp`) |
 | `weight_log` | `id`, `date` (único), `weight_kg` |
 | `exercise` | `id`, `name` (único), `type` ('external'/'bodyweight'), `equipment`, `increment_kg` (null = por defecto), `notes`, `archived` |
 | `routine` | `id`, `name`, `position`, `archived` |
@@ -353,10 +356,10 @@ src/
     ejercicio/[id].tsx              # crear (id = nuevo) o editar un ejercicio del catálogo
     cardio.tsx                      # cardio semanal editable
     ajustes.tsx                     # descanso, recordatorio, pantalla encendida, diagnóstico de avisos
-  db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedTypes.ts · repositories/*.ts · __tests__/
+  db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedData.ts · seedTypes.ts · maintenance.ts (backup/borrado) · repositories/*.ts · __tests__/
   domain/     progression.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
-  services/   notifications.ts · restTimer.ts · dailyReminder.ts
-  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, SwitchRow, WeekdayPicker…) · Recommendation.tsx
+  services/   notifications.ts · restTimer.ts · dailyReminder.ts · backup.ts · githubBackup.ts · __tests__/
+  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, DateField, SwitchRow, WeekdayPicker…) · Recommendation.tsx · DataSettings.tsx
   hooks/      data.ts (useDb, useLoader, useNow)
   theme.ts
 modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
@@ -451,9 +454,11 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [ ] Plan semanal editable con "Copiar día a…".
 - [x] Totales por comida/día/semana frente a objetivos (§5), en vista de solo lectura.
 
-### Fase 8 — Backup
-- [ ] Exportar/Importar JSON.
-- [ ] Auto-backup a GitHub privado (§9) con token en secure-store.
+### Fase 8 — Backup ✅
+- [x] Exportar/Importar JSON (restauración atómica, compatible con copias antiguas).
+- [x] Auto-backup a GitHub privado (§9) con token en secure-store; subir y restaurar a mano.
+- [x] Modo pruebas (§8): borrar datos al instalar un APK nuevo; "Reiniciar datos ahora".
+- [ ] Probar la copia en GitHub con un repo y token reales del usuario.
 
 ### Fase 9 — Pulido
 - [x] Tema oscuro, hápticos, pantalla encendida durante el entreno.
@@ -509,3 +514,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Probado en emulador Android 16 (API 36.0): importación del seed, entreno con series/descanso/siguiente ejercicio, sugerencia ignorada aplicable, alarma de fin de descanso con `setAlarmClock` (dumpsys: flags 0x3, exacta), cuenta atrás fija pública, burbuja flotante, apertura desde la notificación, recuperación tras un cierre forzado y resumen con nueva recomendación. Encontrado y corregido: `setRequestPromotedOngoing` no existe en Android 16.0 (llega en una versión menor posterior). Falta probar en un móvil real (Doze, capa del fabricante, sonido en silencio).
 - 2026-11-01 — Fase 4 implementada: catálogo de ejercicios, editor de rutinas y de cada ejercicio de la rutina, cardio semanal editable y "añadir ejercicio a la rutina" desde el entreno. Los Stepper permiten escribir el valor a mano. La fecha de nacimiento se escribe en DD-MM-AAAA. Historial de git limpiado de datos personales.
 - 2026-11-01 — Fecha de nacimiento con el selector de fecha nativo (`DateField`).
+- 2026-11-01 — Fase 8: exportar/importar copia, copia automática en GitHub y modo pruebas (borra los datos al instalar un APK nuevo, activado por defecto mientras la app está en pruebas).

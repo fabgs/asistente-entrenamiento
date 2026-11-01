@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { canDrawOverlays } from '../../modules/rest-timer';
+import { canDrawOverlays, stopRestCountdown } from '../../modules/rest-timer';
 
 // Android channels are immutable once created: bump the suffix when changing sound or importance.
 export const REST_CHANNEL_ID = 'rest-timer-v1';
@@ -95,6 +95,13 @@ export async function openNotificationSettings(): Promise<void> {
   await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.APP_NOTIFICATION_SETTINGS, {
     extra: { 'android.provider.extra.APP_PACKAGE': androidPackage() },
   });
+}
+
+/** Cancels every pending alarm and reminder (after wiping or restoring data). */
+export async function resetNotifications(): Promise<void> {
+  stopRestCountdown();
+  await Notifications.cancelAllScheduledNotificationsAsync();
+  await Notifications.dismissAllNotificationsAsync();
 }
 
 export async function countScheduledNotifications(): Promise<number> {

@@ -1,5 +1,6 @@
 import {
   formatCountdown,
+  formatAgo,
   formatDateWithYear,
   formatEquipment,
   formatKg,
@@ -62,6 +63,12 @@ describe('format', () => {
     expect(formatEquipment('peso_corporal')).toBeNull();
     expect(formatEquipment('polea')).toBe('polea');
     expect(formatEquipment(null)).toBeNull();
+  });
+
+  it('formats elapsed time in Spanish', () => {
+    const now = new Date(2026, 10, 1, 12, 0).getTime();
+    expect(formatAgo(now - 2 * 60 * 60 * 1000, now)).toBe('hace alrededor de 2 horas');
+    expect(formatAgo(now - 3 * 24 * 60 * 60 * 1000, now)).toBe('hace 3 días');
   });
 
   it('formats targets', () => {

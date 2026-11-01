@@ -181,6 +181,7 @@ export function TextField({
   keyboard = 'text',
   placeholder,
   multiline = false,
+  secure = false,
 }: {
   label: string;
   value: string;
@@ -188,6 +189,7 @@ export function TextField({
   keyboard?: keyof typeof KEYBOARDS;
   placeholder?: string;
   multiline?: boolean;
+  secure?: boolean;
 }) {
   return (
     <View style={{ gap: spacing.xs }}>
@@ -196,6 +198,9 @@ export function TextField({
         value={value}
         onChangeText={onChangeText}
         keyboardType={KEYBOARDS[keyboard]}
+        secureTextEntry={secure}
+        autoCapitalize={secure ? 'none' : undefined}
+        autoCorrect={!secure}
         placeholder={placeholder}
         placeholderTextColor={colors.muted}
         multiline={multiline}

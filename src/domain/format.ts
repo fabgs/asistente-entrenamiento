@@ -1,4 +1,4 @@
-import { format } from 'date-fns';
+import { format, formatDistance } from 'date-fns';
 import { es } from 'date-fns/locale';
 import type { ExerciseType, RepTarget, RepUnit } from './types';
 
@@ -96,4 +96,9 @@ export function parseDuration(text: string): number | null {
 export function formatDateWithYear(iso: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   return format(new Date(y, m - 1, d), "d 'de' MMMM 'de' yyyy", { locale: es });
+}
+
+/** "hace 2 horas" */
+export function formatAgo(timestamp: number, now = Date.now()): string {
+  return formatDistance(timestamp, now, { addSuffix: true, locale: es });
 }

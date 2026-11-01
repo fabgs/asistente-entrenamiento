@@ -1,3 +1,5 @@
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import type { RepTarget, RepUnit } from './types';
 
 /** Spanish number formatting without relying on Intl support in the JS engine. */
@@ -49,4 +51,10 @@ export function formatTarget(target: RepTarget, unit: RepUnit, perSide: boolean)
       break;
   }
   return perSide ? `${label} por lado` : label;
+}
+
+/** "Domingo 1 de noviembre". */
+export function formatLongDate(date: Date): string {
+  const text = format(date, "EEEE d 'de' MMMM", { locale: es });
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

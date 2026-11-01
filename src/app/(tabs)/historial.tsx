@@ -1,10 +1,8 @@
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { router } from 'expo-router';
 import { Pressable } from 'react-native';
 import { AppText, Card, Chip, Loading, Row, Screen } from '@/components/ui';
 import { listFinishedSessions } from '@/db/repositories/sessions';
-import { formatDuration } from '@/domain/format';
+import { formatDuration, formatLongDate } from '@/domain/format';
 import { useLoader } from '@/hooks/data';
 
 export default function HistoryScreen() {
@@ -24,8 +22,8 @@ export default function HistoryScreen() {
               </AppText>
               {s.imported ? <Chip label="Excel" /> : null}
             </Row>
-            <AppText variant="muted" style={{ textTransform: 'capitalize' }}>
-              {format(new Date(s.startedAt), "EEEE d 'de' MMMM", { locale: es })} · {s.setCount} series
+            <AppText variant="muted">
+              {formatLongDate(new Date(s.startedAt))} · {s.setCount} series
               {s.finishedAt && !s.imported ? ` · ${formatDuration(s.finishedAt - s.startedAt)}` : ''}
             </AppText>
           </Card>

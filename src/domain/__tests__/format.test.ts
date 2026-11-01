@@ -1,4 +1,4 @@
-import { formatCountdown, formatKg, formatLoad, formatNumber, formatTarget } from '../format';
+import { formatCountdown, formatKg, formatLoad, formatLongDate, formatNumber, formatTarget } from '../format';
 
 describe('format', () => {
   it('uses a decimal comma', () => {
@@ -18,6 +18,10 @@ describe('format', () => {
     expect(formatCountdown(150_000)).toBe('2:30');
     expect(formatCountdown(59_001)).toBe('1:00');
     expect(formatCountdown(-5)).toBe('0:00');
+  });
+
+  it('formats long dates in Spanish with only the first letter capitalized', () => {
+    expect(formatLongDate(new Date(2026, 10, 1))).toBe('Domingo 1 de noviembre');
   });
 
   it('formats targets', () => {

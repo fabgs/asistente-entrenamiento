@@ -1,5 +1,3 @@
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Pressable, StyleSheet, View } from 'react-native';
@@ -10,7 +8,7 @@ import { isBodyweight, listRoutines, listSlots, type Routine, type Slot } from '
 import { discardSession, finishSession, getActiveSession, startSession } from '@/db/repositories/sessions';
 import { getProfile, getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listOpenChanges, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatLoad, formatTarget } from '@/domain/format';
+import { formatLoad, formatLongDate, formatTarget } from '@/domain/format';
 import { isoWeekdayOf, localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { cancelRestEnd } from '@/services/restTimer';
@@ -81,13 +79,11 @@ export default function TodayScreen() {
     ]);
   };
 
-  const title = format(data.now, "EEEE d 'de' MMMM", { locale: es });
+  const title = formatLongDate(data.now);
 
   return (
     <Screen>
-      <AppText variant="title" style={{ textTransform: 'capitalize' }}>
-        {title}
-      </AppText>
+      <AppText variant="title">{title}</AppText>
 
       {!data.profile.birthDate ? (
         <Pressable onPress={() => router.push('/perfil')}>

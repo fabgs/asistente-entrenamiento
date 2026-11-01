@@ -1,5 +1,3 @@
-import { format } from 'date-fns';
-import { es } from 'date-fns/locale';
 import { router, useLocalSearchParams } from 'expo-router';
 import { View } from 'react-native';
 import { RecommendationBox } from '@/components/Recommendation';
@@ -8,7 +6,7 @@ import { isBodyweight, listSlots, slotRule } from '@/db/repositories/routines';
 import { getSession, listSets, slotHistory } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession } from '@/db/repositories/weightChanges';
-import { formatDuration, formatLoad, formatNumber } from '@/domain/format';
+import { formatDuration, formatLoad, formatLongDate, formatNumber } from '@/domain/format';
 import { recommend } from '@/domain/progression';
 import { useDb, useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
@@ -60,8 +58,8 @@ export default function SummaryScreen() {
     <Screen>
       <View style={{ gap: spacing.xs }}>
         <AppText variant="title">{session.routineName ?? 'Entrenamiento'}</AppText>
-        <AppText variant="muted" style={{ textTransform: 'capitalize' }}>
-          {format(new Date(session.startedAt), "EEEE d 'de' MMMM", { locale: es })}
+        <AppText variant="muted">
+          {formatLongDate(new Date(session.startedAt))}
           {session.imported ? ' · importado del Excel' : ''}
         </AppText>
       </View>

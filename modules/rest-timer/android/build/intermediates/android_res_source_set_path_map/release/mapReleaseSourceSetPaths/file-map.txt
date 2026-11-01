@@ -1,0 +1,9 @@
+expo.modules.resttimer.rest-timer-pngs-0 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\generated\res\pngs\release
+expo.modules.resttimer.rest-timer-updated_navigation_xml-1 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\generated\updated_navigation_xml\release
+expo.modules.resttimer.rest-timer-mergeReleaseResources-2 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\intermediates\incremental\release\mergeReleaseResources\merged.dir
+expo.modules.resttimer.rest-timer-mergeReleaseResources-3 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\intermediates\incremental\release\mergeReleaseResources\stripped.dir
+expo.modules.resttimer.rest-timer-release-4 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\intermediates\merged_res\release\mergeReleaseResources
+expo.modules.resttimer.rest-timer-release-5 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\build\intermediates\packaged_res\release\packageReleaseResources
+expo.modules.resttimer.rest-timer-main-6 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\src\main\res
+expo.modules.resttimer.rest-timer-release-7 C:\Users\capit\Documents\GitHub\PERSONAL\asistente-entrenamiento\modules\rest-timer\android\src\release\res
+gradleHome-0 C:\Users\capit\.gradle

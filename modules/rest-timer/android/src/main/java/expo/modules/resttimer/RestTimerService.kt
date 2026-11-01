@@ -128,7 +128,8 @@ class RestTimerService : Service() {
       .setColor(ACCENT)
     openAppIntent()?.let { builder.setContentIntent(it) }
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.BAKLAVA) {
-      builder.setRequestPromotedOngoing(true)
+      // Live Updates arrived in a later Android 16 minor release; the first 36 builds lack the method.
+      runCatching { builder.setRequestPromotedOngoing(true) }
     }
     return builder.build()
   }

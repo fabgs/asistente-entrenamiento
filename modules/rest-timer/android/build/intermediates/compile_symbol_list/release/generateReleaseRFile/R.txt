@@ -1,0 +1,1 @@
+int drawable ic_rest_timer 0x0

@@ -32,6 +32,7 @@ import {
   decodeRoute,
   elevationChange,
   kmSplits,
+  MAX_ACCURACY_M,
   paceMinPerKm,
   speedSeries,
   summarizeTrack,
@@ -204,7 +205,9 @@ function GpsView({ session, points }: { session: CardioSession; points: TrackPoi
       ? 'Buscando la señal del GPS…'
       : now - last.t > STALE_FIX_MS
         ? 'Sin señal del GPS ahora mismo'
-        : `GPS preciso a ±${Math.round(last.accuracy ?? 0)} m`;
+        : (last.accuracy ?? 0) > MAX_ACCURACY_M
+          ? `Señal del GPS débil (±${Math.round(last.accuracy ?? 0)} m): aún no cuenta para la distancia`
+          : `GPS preciso a ±${Math.round(last.accuracy ?? 0)} m`;
 
   return (
     <Screen>

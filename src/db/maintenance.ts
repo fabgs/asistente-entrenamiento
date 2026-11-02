@@ -81,22 +81,24 @@ export async function wipeAllData(db: Db): Promise<void> {
   await db.withTransactionAsync(() => deleteAllRows(db));
 }
 
+/** Settings a reset keeps: see `resetData`. */
+const KEPT_ON_RESET = ['backup_owner', 'backup_repo', 'backup_path', 'last_backup_at', 'dev_mode'] as const;
+
 /**
  * Wipes everything and loads `seed`, like a fresh install, but keeps where the GitHub copy goes
- * (user, repository, file): right after a reset that copy is what one usually restores.
+ * (right after a reset that copy is what one usually restores) and when it was last uploaded and
+ * the developer mode: otherwise the automatic copy would upload the empty data over the good one.
  */
 export async function resetData(db: Db, seed: SeedData, now: Date): Promise<void> {
-  const target = await db.getFirstAsync<{ backup_owner: string | null; backup_repo: string | null; backup_path: string | null }>(
-    'SELECT backup_owner, backup_repo, backup_path FROM settings WHERE id = 1',
+  const kept = await db.getFirstAsync<Record<(typeof KEPT_ON_RESET)[number], SqlValue>>(
+    `SELECT ${KEPT_ON_RESET.join(', ')} FROM settings WHERE id = 1`,
   );
   await wipeAllData(db);
   await importSeed(db, seed, now);
-  if (target) {
+  if (kept) {
     await db.runAsync(
-      'UPDATE settings SET backup_owner = ?, backup_repo = ?, backup_path = ? WHERE id = 1',
-      target.backup_owner,
-      target.backup_repo,
-      target.backup_path,
+      `UPDATE settings SET ${KEPT_ON_RESET.map((c) => `${c} = ?`).join(', ')} WHERE id = 1`,
+      ...KEPT_ON_RESET.map((c) => kept[c]),
     );
   }
 }

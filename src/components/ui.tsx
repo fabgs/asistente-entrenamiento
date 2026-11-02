@@ -400,7 +400,10 @@ export function NumberRow({
 }) {
   return (
     <Row between>
-      <AppText style={{ flex: 1 }}>{label}</AppText>
+      {/* One line: on narrow screens the label shrinks instead of breaking a word. */}
+      <AppText style={{ flex: 1 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+        {label}
+      </AppText>
       <Pressable style={styles.miniButton} onPress={() => onChange(Math.max(min, value - step))} hitSlop={4}>
         <Icon name="minus" size={20} />
       </Pressable>

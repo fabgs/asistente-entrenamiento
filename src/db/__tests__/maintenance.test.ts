@@ -103,14 +103,28 @@ describe('wipe and metadata', () => {
     expect(await count(db, 'routine')).toBe(4);
   });
 
-  it('resets to a fresh install but keeps where the GitHub copy goes', async () => {
+  it('resets to a fresh install but keeps the GitHub copy settings and developer mode', async () => {
     const db = await seededDb();
-    await updateSettings(db, { backupOwner: 'yo', backupRepo: 'entreno-backup', backupPath: 'copia.json', restSecondsDefault: 90 });
+    await updateSettings(db, {
+      backupOwner: 'yo',
+      backupRepo: 'entreno-backup',
+      backupPath: 'copia.json',
+      lastBackupAt: 123,
+      devMode: true,
+      restSecondsDefault: 90,
+    });
     await resetData(db, CATALOG, NOW);
     expect(await count(db, 'routine')).toBe(0);
     expect(await count(db, 'exercise')).toBe(22);
     const settings = await getSettings(db);
-    expect(settings).toMatchObject({ backupOwner: 'yo', backupRepo: 'entreno-backup', backupPath: 'copia.json' });
+    // Without these, the automatic copy would upload the empty data over the good copy.
+    expect(settings).toMatchObject({
+      backupOwner: 'yo',
+      backupRepo: 'entreno-backup',
+      backupPath: 'copia.json',
+      lastBackupAt: 123,
+      devMode: true,
+    });
     // Everything else is back to the defaults.
     expect(settings.restSecondsDefault).toBe(150);
   });

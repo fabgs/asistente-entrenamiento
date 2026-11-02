@@ -1,3 +1,4 @@
+import * as Application from 'expo-application';
 import { useState } from 'react';
 import { BackupCard, DevModeCard } from '@/components/DataSettings';
 import { AppText, Button, Card, Divider, DurationField, Loading, Row, Screen, SwitchRow, TimeField } from '@/components/ui';
@@ -39,6 +40,9 @@ export default function SettingsScreen() {
       />
       <BackupCard key={backupKey(data.settings)} settings={data.settings} hasToken={data.hasToken} onChanged={reload} />
       <DevModeCard enabled={data.settings.devMode} onChanged={reload} />
+      <AppText variant="small" style={{ textAlign: 'center' }}>
+        Entreno v{Application.nativeApplicationVersion ?? '?'} · compilación {Application.nativeBuildVersion ?? '?'}
+      </AppText>
     </Screen>
   );
 }

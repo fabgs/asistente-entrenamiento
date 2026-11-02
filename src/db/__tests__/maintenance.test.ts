@@ -4,6 +4,7 @@ import {
   exportBackup,
   getMeta,
   parseBackup,
+  resetData,
   restoreBackup,
   schemaVersion,
   setMeta,
@@ -14,6 +15,7 @@ import { listSets, logSet, startSession } from '../repositories/sessions';
 import { getSettings, updateSettings } from '../repositories/settings';
 import { importSeed } from '../seed';
 import { DEMO_SEED as SEED } from '../demoSeed';
+import { SEED as CATALOG } from '../seedData';
 import { createTestDb } from './testDb';
 
 const NOW = new Date(2026, 10, 2, 7, 0);
@@ -99,6 +101,18 @@ describe('wipe and metadata', () => {
 
     expect(await importSeed(db, SEED, NOW)).toBe(true);
     expect(await count(db, 'routine')).toBe(4);
+  });
+
+  it('resets to a fresh install but keeps where the GitHub copy goes', async () => {
+    const db = await seededDb();
+    await updateSettings(db, { backupOwner: 'yo', backupRepo: 'entreno-backup', backupPath: 'copia.json', restSecondsDefault: 90 });
+    await resetData(db, CATALOG, NOW);
+    expect(await count(db, 'routine')).toBe(0);
+    expect(await count(db, 'exercise')).toBe(22);
+    const settings = await getSettings(db);
+    expect(settings).toMatchObject({ backupOwner: 'yo', backupRepo: 'entreno-backup', backupPath: 'copia.json' });
+    // Everything else is back to the defaults.
+    expect(settings.restSecondsDefault).toBe(150);
   });
 
   it('starts with developer mode off', async () => {

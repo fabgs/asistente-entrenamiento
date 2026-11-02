@@ -1,5 +1,7 @@
 import type { Db, SqlValue } from './db';
 import { CARDIO_TRACKING_DEFAULTS } from './migrations';
+import { importSeed } from './seed';
+import type { SeedData } from './seedTypes';
 
 /** Tables in a backup, in an order that respects foreign keys when inserting. */
 export const BACKUP_TABLES = [
@@ -77,6 +79,26 @@ async function deleteAllRows(db: Db): Promise<void> {
 /** Deletes every row of the user's data; the schema and app metadata stay. */
 export async function wipeAllData(db: Db): Promise<void> {
   await db.withTransactionAsync(() => deleteAllRows(db));
+}
+
+/**
+ * Wipes everything and loads `seed`, like a fresh install, but keeps where the GitHub copy goes
+ * (user, repository, file): right after a reset that copy is what one usually restores.
+ */
+export async function resetData(db: Db, seed: SeedData, now: Date): Promise<void> {
+  const target = await db.getFirstAsync<{ backup_owner: string | null; backup_repo: string | null; backup_path: string | null }>(
+    'SELECT backup_owner, backup_repo, backup_path FROM settings WHERE id = 1',
+  );
+  await wipeAllData(db);
+  await importSeed(db, seed, now);
+  if (target) {
+    await db.runAsync(
+      'UPDATE settings SET backup_owner = ?, backup_repo = ?, backup_path = ? WHERE id = 1',
+      target.backup_owner,
+      target.backup_repo,
+      target.backup_path,
+    );
+  }
 }
 
 /**

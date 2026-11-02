@@ -38,7 +38,7 @@ export function DevModeCard({ enabled, onChanged }: { enabled: boolean; onChange
       'Reiniciar datos',
       seed
         ? 'Se borrará todo y se cargarán los datos de prueba (rutinas, cardio, dieta e historial del Excel).'
-        : 'Se borrará todo (entrenos, rutinas, dieta, pesos y perfil) y la app quedará como recién instalada, solo con los catálogos de ejercicios y alimentos.',
+        : 'Se borrará todo (entrenos, rutinas, dieta, pesos y perfil) y la app quedará como recién instalada, solo con los catálogos de ejercicios y alimentos. Se mantiene la configuración de la copia en GitHub para poder restaurarla.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {

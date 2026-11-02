@@ -4,9 +4,8 @@ import * as SecureStore from 'expo-secure-store';
 import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Db } from '@/db/db';
-import { exportBackup, getMeta, parseBackup, restoreBackup, setMeta, wipeAllData, type Backup } from '@/db/maintenance';
+import { exportBackup, getMeta, parseBackup, resetData, restoreBackup, setMeta, type Backup } from '@/db/maintenance';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
-import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
 import type { SeedData } from '@/db/seedTypes';
 import { localDateString } from '@/domain/schedule';
@@ -39,15 +38,14 @@ export async function resetIfNewInstallInDevMode(db: Db): Promise<boolean> {
   if (previous === stamp) return false;
   const settings = await db.getFirstAsync<{ dev_mode: number }>('SELECT dev_mode FROM settings WHERE id = 1');
   if (settings?.dev_mode !== 1) return false;
-  await wipeAllData(db);
+  await resetData(db, SEED, new Date());
   await resetNotifications();
   return true;
 }
 
-/** Back to a fresh install (or to `seed`, e.g. the Excel data in a development build), keeping nothing. */
+/** Back to a fresh install (or to `seed`, e.g. the Excel data in a development build). */
 export async function resetToSeed(db: Db, now = new Date(), seed: SeedData = SEED): Promise<void> {
-  await wipeAllData(db);
-  await importSeed(db, seed, now);
+  await resetData(db, seed, now);
   await resetNotifications();
   await rescheduleDailyReminders(db);
 }

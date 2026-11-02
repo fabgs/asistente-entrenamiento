@@ -61,6 +61,11 @@ export function formatMetres(metres: number): string {
   return metres < 1000 ? `${Math.round(metres)} m` : `${formatNumber(metres / 1000, 2)} km`;
 }
 
+/** Result of a cardio session: "5,23 km · 58 min" with GPS, "30 min" for a timer. */
+export function formatCardioResult(distanceM: number | null, activeMs: number): string {
+  return distanceM !== null ? `${formatMetres(distanceM)} · ${formatDuration(activeMs)}` : formatDuration(activeMs);
+}
+
 export function formatSpeedKmh(metresPerSecond: number): string {
   return `${formatNumber(metresPerSecond * 3.6, 1)} km/h`;
 }

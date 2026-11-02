@@ -1,3 +1,5 @@
+import { formatCardioResult } from '@/domain/format';
+import { activeMs } from '@/domain/gps';
 import type { ExerciseSession } from '@/domain/progress';
 import { bool, type Db } from '../db';
 import type { WeightChange } from './weightChanges';
@@ -82,25 +84,42 @@ export interface CardioDay {
   activities: { name: string; value: string | null; sessionId: number | null; route: string | null }[];
 }
 
+/**
+ * Cardio done per day, newest first. Every finished session is its own entry (two walks on one day
+ * are two walks); activities only checked off come from the log.
+ */
 export async function cardioHistory(db: Db, limitDays = 60): Promise<CardioDay[]> {
-  const rows = await db.getAllAsync<{
+  const sessions = await db.getAllAsync<{
+    id: number;
     date: string;
     name: string;
-    value: string | null;
-    session_id: number | null;
+    started_at: number;
+    finished_at: number;
+    paused_ms: number;
+    distance_m: number | null;
     route: string | null;
   }>(
-    `SELECT cl.date, cl.name, cl.value, cl.session_id, cs.route FROM cardio_log cl
-     LEFT JOIN cardio_session cs ON cs.id = cl.session_id
-     WHERE cl.done = 1 AND cl.date IN (SELECT DISTINCT date FROM cardio_log WHERE done = 1 ORDER BY date DESC LIMIT ?)
-     ORDER BY cl.date DESC, cl.id`,
-    limitDays,
+    `SELECT id, date, name, started_at, finished_at, paused_ms, distance_m, route FROM cardio_session
+     WHERE status = 'finished' ORDER BY started_at`,
+  );
+  const checked = await db.getAllAsync<{ date: string; name: string; value: string | null }>(
+    `SELECT date, name, value FROM cardio_log
+     WHERE done = 1 AND (session_id IS NULL OR session_id NOT IN (SELECT id FROM cardio_session WHERE status = 'finished'))
+     ORDER BY id`,
   );
   const days = new Map<string, CardioDay>();
-  for (const r of rows) {
-    const day = days.get(r.date) ?? { date: r.date, activities: [] };
-    day.activities.push({ name: r.name, value: r.value, sessionId: r.session_id, route: r.route });
-    days.set(r.date, day);
+  const add = (date: string, activity: CardioDay['activities'][number]) => {
+    const day = days.get(date) ?? { date, activities: [] };
+    day.activities.push(activity);
+    days.set(date, day);
+  };
+  for (const c of checked) add(c.date, { name: c.name, value: c.value, sessionId: null, route: null });
+  for (const s of sessions) {
+    const active = activeMs(
+      { startedAt: s.started_at, finishedAt: s.finished_at, pausedAt: null, pausedMs: s.paused_ms },
+      s.finished_at,
+    );
+    add(s.date, { name: s.name, value: formatCardioResult(s.distance_m, active), sessionId: s.id, route: s.route });
   }
-  return [...days.values()];
+  return [...days.values()].sort((a, b) => b.date.localeCompare(a.date)).slice(0, limitDays);
 }

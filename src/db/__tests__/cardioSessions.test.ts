@@ -3,7 +3,7 @@ import { decodeRoute } from '@/domain/gps';
 import type { Db } from '../db';
 import { exportBackup, restoreBackup } from '../maintenance';
 import { migrate } from '../migrations';
-import { cardioLogOn, listCardio, updateCardio, type CardioActivity } from '../repositories/cardio';
+import { cardioLogOn, listCardio, setCardioDone, updateCardio, type CardioActivity } from '../repositories/cardio';
 import {
   addTrackPoints,
   discardCardioSession,
@@ -16,6 +16,7 @@ import {
   startCardioSession,
   type NewPoint,
 } from '../repositories/cardioSessions';
+import { cardioHistory } from '../repositories/progress';
 import { finishSession, finishedRoutinesOn, logSet, startSession } from '../repositories/sessions';
 import { listRoutines, listSlots } from '../repositories/routines';
 import { getSettings, toProgressionSettings } from '../repositories/settings';
@@ -137,6 +138,31 @@ describe('cardio tracking', () => {
     await finishCardioSession(db, id, T0 + 60 * 60_000);
     expect((await getCardioSession(db, id))!.finishedAt).toBe(T0 + 20 * 60_000);
     expect((await cardioLogOn(db, '2026-11-02')).get(bici.id)?.value).toBe('20 min');
+  });
+
+  it('lists every session in the history, even two walks on the same day', async () => {
+    const db = await seededDb();
+    const all = await listCardio(db);
+    const caminar = byName(all, 'Caminar', 1);
+    const morning = await startCardioSession(db, caminar, T0);
+    await addTrackPoints(db, walk(T0, 300));
+    await finishCardioSession(db, morning, T0 + 300_000);
+    const evening = await startCardioSession(db, caminar, T0 + 36_000_000);
+    await addTrackPoints(db, walk(T0 + 36_000_000, 120));
+    await finishCardioSession(db, evening, T0 + 36_120_000);
+    // The bike only checked off, no session.
+    await setCardioDone(db, '2026-11-02', byName(all, 'Bici estática', 1), true);
+
+    const [today] = await cardioHistory(db);
+    expect(today.date).toBe('2026-11-02');
+    expect(today.activities.map((a) => [a.name, a.value, a.sessionId])).toEqual([
+      ['Bici estática', null, null],
+      ['Caminar', '420 m · 5 min', morning],
+      ['Caminar', '168 m · 2 min', evening],
+    ]);
+    expect(today.activities[1].route).not.toBeNull();
+    // Today's log points at the latest walk.
+    expect((await cardioLogOn(db, '2026-11-02')).get(caminar.id)?.sessionId).toBe(evening);
   });
 
   it('discards a session and its points', async () => {

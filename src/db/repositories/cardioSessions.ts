@@ -1,5 +1,5 @@
 import { parsePlan, type CardioPlan } from '@/domain/cardioPlan';
-import { formatDuration, formatMetres } from '@/domain/format';
+import { formatCardioResult } from '@/domain/format';
 import {
   activeMs,
   buildSamples,
@@ -182,7 +182,7 @@ export async function finishCardioSession(db: Db, id: number, now = Date.now()):
     route = encodeRoute(summary.segments) || null;
     samples = summary.segments.length > 0 ? encodeSamples(buildSamples(summary.segments, session.startedAt)) : null;
   }
-  const value = distance !== null ? `${formatMetres(distance)} · ${formatDuration(active)}` : formatDuration(active);
+  const value = formatCardioResult(distance, active);
 
   await db.withTransactionAsync(async () => {
     await db.runAsync(

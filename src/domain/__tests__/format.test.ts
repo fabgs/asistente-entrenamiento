@@ -1,4 +1,5 @@
 import {
+  formatCardioResult,
   formatClock,
   formatCountdown,
   formatAgo,
@@ -101,6 +102,11 @@ describe('format', () => {
     expect(formatMetres(5234)).toBe('5,23 km');
     expect(formatSpeedKmh(1.4)).toBe('5 km/h');
     expect(formatSpeedKmh(1.5)).toBe('5,4 km/h');
+  });
+
+  it('formats the result of a cardio session', () => {
+    expect(formatCardioResult(5234, 58 * 60_000)).toBe('5,23 km · 58 min');
+    expect(formatCardioResult(null, 30 * 60_000)).toBe('30 min');
   });
 
   it('formats durations, in seconds below a minute', () => {

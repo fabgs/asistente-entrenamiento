@@ -317,7 +317,13 @@ function FinishedView({ session, onDelete }: { session: CardioSession; onDelete:
             <Stat label="Velocidad media" value={formatSpeedKmh(average)} />
           </StatRow>
           {segments.length > 0 ? <RouteMap segments={segments} height={300} /> : null}
-          {session.samples.length > 2 ? <WalkDetails samples={session.samples} /> : null}
+          {session.samples.length > 2 ? (
+            <WalkDetails samples={session.samples} />
+          ) : (
+            <AppText variant="small">
+              No hubo recorrido suficiente para las gráficas de velocidad y altitud ni los parciales por km.
+            </AppText>
+          )}
         </>
       ) : (
         <StatRow>

@@ -3,7 +3,7 @@ import type { Db } from '@/db/db';
 import { listCardio } from '@/db/repositories/cardio';
 import { listRoutines, listSlots } from '@/db/repositories/routines';
 import { getSettings } from '@/db/repositories/settings';
-import { buildDailyMessage, ISO_WEEKDAYS, isoToExpoWeekday, isoWeekdayOf, type DayPlan } from '@/domain/schedule';
+import { buildDailyMessage, ISO_WEEKDAYS, isoToExpoWeekday, type DayPlan } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { DAILY_CHANNEL_ID } from './notifications';
 
@@ -49,18 +49,4 @@ export async function rescheduleDailyReminders(db: Db): Promise<void> {
       },
     });
   }
-}
-
-export async function sendTestReminder(db: Db): Promise<void> {
-  const today = isoWeekdayOf(new Date());
-  const day = (await buildWeekPlan(db)).find((d) => d.weekday === today)!;
-  const { title, body } = buildDailyMessage(day);
-  await Notifications.scheduleNotificationAsync({
-    content: { title, body, data: { url: '/' } },
-    trigger: {
-      type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL,
-      seconds: 5,
-      channelId: DAILY_CHANNEL_ID,
-    },
-  });
 }

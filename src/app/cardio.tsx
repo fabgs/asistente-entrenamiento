@@ -1,3 +1,4 @@
+import { Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { AppText, Button, Card, Chip, Icon, Loading, NumberRow, Row, Screen, TextField, type IconName } from '@/components/ui';
@@ -8,6 +9,7 @@ import {
   updateCardio,
   type CardioActivity,
 } from '@/db/repositories/cardio';
+import { listRoutines, setRoutineWeekdays, type Routine } from '@/db/repositories/routines';
 import {
   DEFAULT_PLANS,
   describePlan,
@@ -24,10 +26,13 @@ import { useDb, useLoader } from '@/hooks/data';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import { colors, radius, spacing } from '@/theme';
 
+/** The whole week's cardio or, with `?dia=N` (ISO weekday), that day: its routines and its cardio. */
 export default function CardioScreen() {
   const db = useDb();
+  const { dia } = useLocalSearchParams<{ dia?: string }>();
+  const day = ISO_WEEKDAYS.find((d) => String(d) === dia);
   const [editing, setEditing] = useState<number | null>(null);
-  const { data, reload } = useLoader((db) => listCardio(db));
+  const { data, reload } = useLoader(async (db) => ({ cardio: await listCardio(db), routines: await listRoutines(db) }));
 
   if (!data) return <Loading />;
 
@@ -44,10 +49,17 @@ export default function CardioScreen() {
 
   return (
     <Screen>
-      {ISO_WEEKDAYS.map((weekday) => (
+      {day ? (
+        <>
+          <Stack.Screen options={{ title: WEEKDAY_NAMES[day] }} />
+          <DayRoutines day={day} routines={data.routines} onChanged={changed} />
+        </>
+      ) : null}
+      {(day ? [day] : ISO_WEEKDAYS).map((weekday) => (
         <Card key={weekday}>
-          <AppText variant="heading">{WEEKDAY_NAMES[weekday]}</AppText>
-          {data
+          <AppText variant="heading">{day ? 'Cardio' : WEEKDAY_NAMES[weekday]}</AppText>
+          {day && !data.cardio.some((a) => a.weekday === day) ? <AppText variant="muted">Sin cardio este día.</AppText> : null}
+          {data.cardio
             .filter((a) => a.weekday === weekday)
             .map((activity) =>
               editing === activity.id ? (
@@ -85,6 +97,36 @@ export default function CardioScreen() {
         </Card>
       ))}
     </Screen>
+  );
+}
+
+function DayRoutines({ day, routines, onChanged }: { day: IsoWeekday; routines: Routine[]; onChanged: () => Promise<void> }) {
+  const db = useDb();
+
+  const toggle = async (routine: Routine) => {
+    const weekdays = routine.weekdays.includes(day)
+      ? routine.weekdays.filter((d) => d !== day)
+      : [...routine.weekdays, day];
+    await setRoutineWeekdays(db, routine.id, weekdays);
+    await onChanged();
+  };
+
+  return (
+    <Card>
+      <AppText variant="heading">Rutinas</AppText>
+      {routines.length === 0 ? (
+        <AppText variant="muted">Aún no tienes rutinas.</AppText>
+      ) : (
+        <>
+          <Row>
+            {routines.map((r) => (
+              <Chip key={r.id} label={r.name} selected={r.weekdays.includes(day)} onPress={() => toggle(r)} />
+            ))}
+          </Row>
+          <AppText variant="small">Marca las que tocan este día.</AppText>
+        </>
+      )}
+    </Card>
   );
 }
 

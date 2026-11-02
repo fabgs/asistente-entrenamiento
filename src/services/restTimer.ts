@@ -52,7 +52,3 @@ export const restIsOver = (endsAt: number, now = Date.now()) => endsAt <= now;
 /** Moves a running rest by `deltaSeconds`, never into the past. */
 export const shiftDeadline = (endsAt: number, deltaSeconds: number, now = Date.now()) =>
   Math.max(now + 1000, endsAt + deltaSeconds * 1000);
-
-/** Rest alarm in 10 s for the settings diagnostics; session 0 never exists. */
-export const scheduleTestRest = (overlay: boolean) =>
-  scheduleRestEnd(0, restDeadline(10), 'Prueba: bloquea el móvil o sal de la app', overlay);

@@ -258,7 +258,7 @@ Android:
 - **Catálogo de ejercicios**: crear/editar (nombre, tipo, equipo, incremento propio, notas) y archivar (nunca borrar si tiene historial).
 - **Rutinas**: crear/renombrar/archivar; asignar días de la semana; añadir ejercicios desde el catálogo; reordenar (arrastrar o subir/bajar); editar slot (**peso actual** — se registra como cambio `manual` —, series, objetivo `range`/`fixed`/`failure`, por lado, unidad, progresión `load`/`manual`, permitir bajada, incremento, descanso, nota); quitar slot (soft delete: `archived = 1`, conserva historial).
 - **Cardio semanal**: por día, lista de actividades (nombre, objetivo, intensidad, notas).
-- **Vista calendario** L–D con lo que toca cada día.
+- **Semana** (arriba de la pestaña Rutinas): L–D con lo que toca cada día. Tocar un día abre su editor (`cardio.tsx?dia=N`): las rutinas como casillas para asignarlas a ese día y su cardio. «Editar» abre el cardio de toda la semana (`cardio.tsx`).
 - Cualquier cambio aquí llama a `rescheduleDailyReminders()` (§7).
 
 ### 6.8 Cardio con seguimiento (fase 10)
@@ -300,7 +300,7 @@ Cada actividad de cardio tiene un **tipo de seguimiento** (`cardio_activity.trac
 
 ### 7.3 Pantalla de diagnóstico (Ajustes)
 
-Estado de permisos (notificaciones, alarmas exactas, optimización de batería) con botones para corregirlos, botón **"Probar descanso (10 s)"**, botón **"Probar recordatorio"** y lista de notificaciones programadas.
+Estado de permisos (notificaciones, alarmas exactas, optimización de batería) con botones para corregirlos y el número de notificaciones programadas. Los botones «Probar descanso (10 s)» y «Probar recordatorio (5 s)» se quitaron en la fase 11: el descanso ya está probado en entrenos reales y el recordatorio se comprueba con el aviso de verdad (poniendo la hora un par de minutos después).
 
 ### 7.4 Plan B (si las alarmas llegan tarde)
 
@@ -312,7 +312,7 @@ Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se p
 
 Descanso por defecto (s), pantalla encendida durante el entreno, burbuja flotante, recordatorio diario (on/off + hora), diagnóstico (§7.3), copia de seguridad (§9) y **modo pruebas**.
 
-**Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y la app queda como recién instalada (solo catálogos, §3). Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora". Reiniciar (a mano o al instalar en modo pruebas) **conserva la configuración de la copia en GitHub** (usuario, repositorio, fichero; el token vive aparte, en secure-store) para poder restaurarla justo después, **y también el modo pruebas y la fecha de la última copia** (`resetData`): si no, la copia automática subiría los datos vacíos encima de la buena. Al final de Ajustes se ve la versión instalada (p. ej. `Entreno v1.1.3 · compilación 5`).
+**Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y la app queda como recién instalada (solo catálogos, §3). Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora". Reiniciar (a mano o al instalar en modo pruebas) **conserva la configuración de la copia en GitHub** (usuario, repositorio, fichero; el token vive aparte, en secure-store) para poder restaurarla justo después, **y también el modo pruebas y la fecha de la última copia** (`resetData`): si no, la copia automática subiría los datos vacíos encima de la buena. Al final de Ajustes se ve la versión instalada (p. ej. `Entreno v1.2.0`).
 
 ---
 
@@ -518,6 +518,13 @@ Notas del usuario del 2026-11-02, después de entrenar con la app. Cada casilla 
 - [x] Verificación en emulador (GPS simulado con `adb emu geo fix`).
 - [ ] Verificación en móvil real: una caminata de verdad por la calle (distancia, ritmo, altitud) y los avisos del temporizador con la pantalla bloqueada. Ya probado en el OnePlus (1.1.2): alarmas del temporizador con la app en segundo plano (< 0,1 s de retraso), grabación GPS 40 s en segundo plano (el servicio sigue y el GPS pide posiciones cada 3 s) y liberación del GPS al terminar; ciclo copia → reiniciar → restaurar desde GitHub con todos los datos de vuelta.
 
+### Fase 11 — Versión 1.2.0
+Notas del usuario del 2026-11-02, después de usar la 1.1.
+- [x] 11.1 Semana (pestaña Rutinas): tocar un día abre su editor, con las rutinas y el cardio de ese día; «Editar» arriba abre el cardio de toda la semana y sustituye al botón «Cardio semanal» del final.
+- [x] 11.2 Ajustes muestra solo la versión (`Entreno v1.2.0`), sin el número de compilación.
+- [x] 11.3 Fuera los botones «Probar descanso» y «Probar recordatorio» de Diagnóstico (§7.3).
+- [x] Verificación en emulador.
+
 ---
 
 ## 14. Pruebas
@@ -577,3 +584,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-02 — **Versión 1.1.1.** El historial de cardio lista cada sesión terminada (antes, dos caminatas de la misma actividad el mismo día dejaban solo la última enlazada; la otra quedaba guardada pero sin acceso). Una caminata sin recorrido explica por qué no tiene gráficas ni parciales.
 - 2026-11-02 — **Versión 1.1.2.** La versión instalada aparece al final de Ajustes. Reiniciar los datos conserva la configuración de la copia en GitHub.
 - 2026-11-02 — **Versión 1.1.3**, tras probar la 1.1.2 en el OnePlus con el ciclo copia en GitHub → modo pruebas → reiniciar → probar → restaurar (todo volvió igual). Encontrado y corregido: reiniciar los datos apagaba el modo pruebas y vaciaba la fecha de la última copia, así que la copia automática habría subido los datos vacíos encima de la buena (no llegó a pasar; ahora `resetData` conserva ambos). Etiquetas de los números del plan de cardio en una línea («Calentamiento» se partía) y aviso de «señal del GPS débil» cuando la precisión no vale para medir.
+- 2026-11-02 — **Versión 1.2.0** (fase 11). En la tarjeta Semana de Rutinas, tocar un día abre su editor (rutinas de ese día como casillas y su cardio) y «Editar» arriba abre el cardio de toda la semana, en lugar del botón «Cardio semanal» al final. Ajustes muestra solo la versión. Fuera los botones «Probar descanso» y «Probar recordatorio».

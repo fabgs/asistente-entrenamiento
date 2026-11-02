@@ -5,7 +5,7 @@ import { AppText, Button, Card, Divider, DurationField, Loading, Row, Screen, Sw
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { useDb, useLoader } from '@/hooks/data';
 import { githubToken } from '@/services/backup';
-import { rescheduleDailyReminders, sendTestReminder } from '@/services/dailyReminder';
+import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import {
   countScheduledNotifications,
   getPermissionState,
@@ -16,7 +16,6 @@ import {
   type PermissionState,
   requestNotificationPermission,
 } from '@/services/notifications';
-import { scheduleTestRest } from '@/services/restTimer';
 import { colors } from '@/theme';
 
 export default function SettingsScreen() {
@@ -32,16 +31,11 @@ export default function SettingsScreen() {
   return (
     <Screen>
       <SettingsForm key={formKey(data.settings)} settings={data.settings} onSaved={reload} />
-      <Diagnostics
-        permissions={data.permissions}
-        scheduled={data.scheduled}
-        overlayEnabled={data.settings.restOverlay}
-        onChanged={reload}
-      />
+      <Diagnostics permissions={data.permissions} scheduled={data.scheduled} onChanged={reload} />
       <BackupCard key={backupKey(data.settings)} settings={data.settings} hasToken={data.hasToken} onChanged={reload} />
       <DevModeCard enabled={data.settings.devMode} onChanged={reload} />
       <AppText variant="small" style={{ textAlign: 'center' }}>
-        Entreno v{Application.nativeApplicationVersion ?? '?'} · compilación {Application.nativeBuildVersion ?? '?'}
+        Entreno v{Application.nativeApplicationVersion ?? '?'}
       </AppText>
     </Screen>
   );
@@ -91,15 +85,12 @@ function SettingsForm({ settings, onSaved }: { settings: Settings; onSaved: () =
 function Diagnostics({
   permissions,
   scheduled,
-  overlayEnabled,
   onChanged,
 }: {
   permissions: PermissionState;
   scheduled: number;
-  overlayEnabled: boolean;
   onChanged: () => void;
 }) {
-  const db = useDb();
   const after = (fn: () => Promise<unknown>) => async () => {
     await fn();
     onChanged();
@@ -128,9 +119,6 @@ function Diagnostics({
       </AppText>
       <Button kind="secondary" title="Optimización de batería" onPress={openBatteryOptimizationSettings} />
       <Button kind="secondary" title="Ajustes de notificaciones del sistema" onPress={openNotificationSettings} />
-      <Divider />
-      <Button title="Probar descanso (10 s)" onPress={after(() => scheduleTestRest(overlayEnabled))} />
-      <Button kind="secondary" title="Probar recordatorio (5 s)" onPress={after(() => sendTestReminder(db))} />
       <AppText variant="small">Notificaciones programadas: {scheduled}</AppText>
     </Card>
   );

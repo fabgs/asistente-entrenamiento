@@ -31,4 +31,4 @@ cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
 
 El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Cópialo al móvil e instálalo (hay que permitir "instalar apps de origen desconocido"), o con el móvil conectado por USB: `adb install -r app-release.apk`.
 
-Después, en la app: **Perfil → Ajustes y notificaciones → Diagnóstico de avisos**, quita la optimización de batería y usa "Probar descanso (10 s)" con el móvil bloqueado para comprobar que suena.
+Después, en la app: **Perfil → Ajustes y notificaciones → Diagnóstico de avisos**, quita la optimización de batería y comprueba que el resto de permisos pone «Sí».

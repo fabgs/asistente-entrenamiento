@@ -1,6 +1,6 @@
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText, Button, Card, Loading, Row, Screen } from '@/components/ui';
+import { AppText, Button, Card, Icon, Loading, Row, Screen } from '@/components/ui';
 import { listCardio } from '@/db/repositories/cardio';
 import { createRoutine, isBodyweight, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
 import { SuggestionLine } from '@/components/Recommendation';
@@ -29,12 +29,20 @@ export default function RoutinesScreen() {
   return (
     <Screen>
       <Card>
-        <AppText variant="heading">Semana</AppText>
+        <Row between>
+          <AppText variant="heading" style={{ flex: 1 }}>
+            Semana
+          </AppText>
+          <Button kind="ghost" title="Editar" onPress={() => router.push('/cardio')} />
+        </Row>
         {ISO_WEEKDAYS.map((wd) => {
           const strength = data.routines.filter((r) => r.weekdays.includes(wd)).map((r) => r.name);
           const cardio = data.cardio.filter((c) => c.weekday === wd).map((c) => `${c.name}${c.target ? ` ${c.target}` : ''}`);
           return (
-            <View key={wd} style={styles.dayRow}>
+            <Pressable
+              key={wd}
+              style={({ pressed }) => [styles.dayRow, pressed && { opacity: 0.75 }]}
+              onPress={() => router.push({ pathname: '/cardio', params: { dia: String(wd) } })}>
               <AppText style={styles.dayName}>{WEEKDAY_NAMES[wd].slice(0, 3)}</AppText>
               <View style={{ flex: 1 }}>
                 {strength.map((s) => (
@@ -42,7 +50,8 @@ export default function RoutinesScreen() {
                 ))}
                 <AppText variant="small">{cardio.join(' · ') || '—'}</AppText>
               </View>
-            </View>
+              <Icon name="chevron-right" size={20} color={colors.muted} />
+            </Pressable>
           );
         })}
       </Card>
@@ -81,13 +90,12 @@ export default function RoutinesScreen() {
 
       <Button title="Nueva rutina" onPress={newRoutine} />
       <Button kind="secondary" title="Catálogo de ejercicios" onPress={() => router.push('/ejercicios')} />
-      <Button kind="secondary" title="Cardio semanal" onPress={() => router.push('/cardio')} />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  dayRow: { flexDirection: 'row', gap: spacing.md, paddingVertical: spacing.xs },
+  dayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
   dayName: { width: 40, color: colors.muted, fontWeight: '700' },
   slotRow: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: 2 },
 });

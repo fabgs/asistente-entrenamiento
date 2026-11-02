@@ -1,6 +1,6 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { RecommendationBox } from '@/components/Recommendation';
 import {
   AppText,
@@ -8,6 +8,7 @@ import {
   Card,
   Chip,
   Divider,
+  DurationField,
   Loading,
   Row,
   Screen,
@@ -26,7 +27,7 @@ import {
 import { slotHistory } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
 import { listOpenChanges, setSlotWeightManually } from '@/db/repositories/weightChanges';
-import { formatCountdown, formatKg, formatLoad, formatTarget, parseDuration } from '@/domain/format';
+import { formatCountdown, formatKg, formatLoad, formatTarget } from '@/domain/format';
 import type { ProgressionKind, RepTarget, RepUnit } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
@@ -63,7 +64,7 @@ export default function SlotEditorScreen() {
   const { slot } = data;
 
   const remove = () =>
-    Alert.alert('Quitar ejercicio', `«${slot.exerciseName}» se quitará de la rutina. Su historial se conserva.`, [
+    showDialog('Quitar ejercicio', `«${slot.exerciseName}» se quitará de la rutina. Su historial se conserva.`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Quitar',
@@ -291,17 +292,7 @@ function PrescriptionForm({
         value={ownRest}
         onValueChange={touch(setOwnRest)}
       />
-      {ownRest ? (
-        <Stepper
-          value={rest}
-          onChange={touch(setRest)}
-          step={15}
-          min={15}
-          format={(s) => formatCountdown(s * 1000)}
-          parse={parseDuration}
-          toText={String}
-        />
-      ) : null}
+      {ownRest ? <DurationField value={rest} onChange={touch(setRest)} /> : null}
       <TextField label="Nota (se ve durante el entreno)" value={note} onChangeText={touch(setNote)} multiline />
 
       <Button title="Guardar cambios" onPress={save} />

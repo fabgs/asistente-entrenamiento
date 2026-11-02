@@ -1,0 +1,320 @@
+{
+  "exercises": [
+    {
+      "name": "Fondos en paralelas lastrados",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Dominadas pronas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Flexiones declinadas diamond",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Remo con barra (90º)",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Floor Press con barra",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Elevaciones laterales mancuerna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Curl bíceps barra Z",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Sentadilla Búlgara lastrada",
+      "type": "external",
+      "equipment": "mancuernas"
+    },
+    {
+      "name": "Peso Muerto Rumano barra",
+      "type": "external",
+      "equipment": "barra"
+    },
+    {
+      "name": "Zancadas caminando",
+      "type": "external",
+      "equipment": "mancuernas"
+    },
+    {
+      "name": "Curl femoral deslizante",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Gemelos a 1 pierna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Toes to bar",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Dominadas supinas lastradas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Fondos paralelas",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Remo mentón barra Z",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Flexiones arqueras",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Australianas (homb post)",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    },
+    {
+      "name": "Rompecráneos suelo",
+      "type": "external",
+      "equipment": "barra_z"
+    },
+    {
+      "name": "Sentadilla Goblet/Frontal",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Hip Thrust a 1 pierna",
+      "type": "external",
+      "equipment": "mancuerna"
+    },
+    {
+      "name": "Extensiones cuád. (Sissy)",
+      "type": "bodyweight",
+      "equipment": "peso_corporal"
+    }
+  ],
+  "foods": [
+    {
+      "name": "Leche entera",
+      "fatPer100g": 3.6,
+      "carbsPer100g": 4.9,
+      "proteinPer100g": 3.9
+    },
+    {
+      "name": "Proteina",
+      "fatPer100g": 3.3,
+      "carbsPer100g": 6.6,
+      "proteinPer100g": 77
+    },
+    {
+      "name": "Colageno",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Creatina",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Ensalada",
+      "fatPer100g": 0.4,
+      "carbsPer100g": 1.6,
+      "proteinPer100g": 1.6
+    },
+    {
+      "name": "Queso",
+      "fatPer100g": 31,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21
+    },
+    {
+      "name": "Frutos secos",
+      "fatPer100g": 43,
+      "carbsPer100g": 42,
+      "proteinPer100g": 18
+    },
+    {
+      "name": "Aceite",
+      "fatPer100g": 100,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Omega 3",
+      "fatPer100g": 0,
+      "carbsPer100g": 0,
+      "proteinPer100g": 0
+    },
+    {
+      "name": "Yogurt griego",
+      "fatPer100g": 2,
+      "carbsPer100g": 3.9,
+      "proteinPer100g": 5.5
+    },
+    {
+      "name": "Platano",
+      "fatPer100g": 0.33,
+      "carbsPer100g": 22.84,
+      "proteinPer100g": 1.09
+    },
+    {
+      "name": "Kiwi",
+      "fatPer100g": 0.52,
+      "carbsPer100g": 14.66,
+      "proteinPer100g": 1.14
+    },
+    {
+      "name": "Arandanos",
+      "fatPer100g": 0.33,
+      "carbsPer100g": 14.49,
+      "proteinPer100g": 0.74
+    },
+    {
+      "name": "Frambuesas",
+      "fatPer100g": 0.65,
+      "carbsPer100g": 11.94,
+      "proteinPer100g": 1.2
+    },
+    {
+      "name": "Miel",
+      "fatPer100g": 0,
+      "carbsPer100g": 82.4,
+      "proteinPer100g": 0.3
+    },
+    {
+      "name": "Pechuga de pollo",
+      "fatPer100g": 7.72,
+      "carbsPer100g": 0,
+      "proteinPer100g": 29.55
+    },
+    {
+      "name": "Pechuga de pavo",
+      "fatPer100g": 1.66,
+      "carbsPer100g": 4.21,
+      "proteinPer100g": 17.07
+    },
+    {
+      "name": "Ternera magra",
+      "fatPer100g": 4.51,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21.7
+    },
+    {
+      "name": "Higado de ternera",
+      "fatPer100g": 4.85,
+      "carbsPer100g": 2.91,
+      "proteinPer100g": 19.93
+    },
+    {
+      "name": "Salmon",
+      "fatPer100g": 5.93,
+      "carbsPer100g": 0,
+      "proteinPer100g": 21.62
+    },
+    {
+      "name": "Merluza",
+      "fatPer100g": 4.38,
+      "carbsPer100g": 0.41,
+      "proteinPer100g": 21.38
+    },
+    {
+      "name": "Arroz blanco",
+      "fatPer100g": 1,
+      "carbsPer100g": 75,
+      "proteinPer100g": 8.2
+    },
+    {
+      "name": "Tallarines",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 72,
+      "proteinPer100g": 13
+    },
+    {
+      "name": "Macarrones",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 72,
+      "proteinPer100g": 13
+    },
+    {
+      "name": "Patata",
+      "fatPer100g": 0.1,
+      "carbsPer100g": 15.71,
+      "proteinPer100g": 1.68
+    },
+    {
+      "name": "Salsa Pesto",
+      "fatPer100g": 7.51,
+      "carbsPer100g": 0.76,
+      "proteinPer100g": 2.71
+    },
+    {
+      "name": "Ragu",
+      "fatPer100g": 15,
+      "carbsPer100g": 4.5,
+      "proteinPer100g": 3.4
+    },
+    {
+      "name": "Atun lata",
+      "fatPer100g": 1.2,
+      "carbsPer100g": 0.9,
+      "proteinPer100g": 21
+    },
+    {
+      "name": "Tomate",
+      "fatPer100g": 0.2,
+      "carbsPer100g": 3.92,
+      "proteinPer100g": 0.88
+    },
+    {
+      "name": "Cebolla",
+      "fatPer100g": 0.08,
+      "carbsPer100g": 10.11,
+      "proteinPer100g": 0.92
+    },
+    {
+      "name": "Boniato",
+      "fatPer100g": 0.6,
+      "carbsPer100g": 24.19,
+      "proteinPer100g": 1.61
+    },
+    {
+      "name": "Huevo",
+      "fatPer100g": 9.94,
+      "carbsPer100g": 0.77,
+      "proteinPer100g": 12.58
+    },
+    {
+      "name": "Lentejas",
+      "fatPer100g": 9.83,
+      "carbsPer100g": 56.09,
+      "proteinPer100g": 21.38
+    },
+    {
+      "name": "Alubias",
+      "fatPer100g": 1.5,
+      "carbsPer100g": 60,
+      "proteinPer100g": 22
+    }
+  ]
+}

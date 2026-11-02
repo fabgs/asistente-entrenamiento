@@ -91,7 +91,7 @@ export default function ExerciseProgressScreen() {
             const weight = Math.max(0, ...s.sets.map((set) => set.weightKg ?? 0));
             return (
               <Pressable key={s.sessionId} style={styles.row} onPress={() => router.push(`/workout/resumen/${s.sessionId}`)}>
-                <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+                <Row between>
                   <AppText>{formatShortDate(s.date)}</AppText>
                   {s.imported ? <Chip label="Excel" /> : null}
                 </Row>
@@ -127,7 +127,7 @@ export default function ExerciseProgressScreen() {
 
 function RecordRow({ label, value, date }: { label: string; value: string; date: string }) {
   return (
-    <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+    <Row between>
       <AppText variant="muted">{label}</AppText>
       <AppText>
         <AppText style={{ fontWeight: '700' }}>{value}</AppText>

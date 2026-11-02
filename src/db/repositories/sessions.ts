@@ -359,3 +359,17 @@ export async function listFinishedSessions(db: Db, limit = 100): Promise<Session
   );
   return rows.map((r) => ({ ...r, imported: bool(r.imported) }));
 }
+
+/** Routines finished on a date, with the session to open its summary. */
+export async function finishedRoutinesOn(db: Db, date: string): Promise<Map<number, SessionSummaryRow>> {
+  const rows = await db.getAllAsync<Omit<SessionSummaryRow, 'imported'> & { imported: number; routineId: number }>(
+    `SELECT ws.id, ws.routine_id AS routineId, ws.date, r.name AS routineName, ws.started_at AS startedAt,
+            ws.finished_at AS finishedAt, ws.imported,
+            (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id) AS setCount
+     FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id
+     WHERE ws.status = 'finished' AND ws.imported = 0 AND ws.date = ? AND ws.routine_id IS NOT NULL
+     ORDER BY ws.started_at`,
+    date,
+  );
+  return new Map(rows.map(({ routineId, ...r }) => [routineId, { ...r, imported: bool(r.imported) }]));
+}

@@ -1,6 +1,25 @@
 import type { Db } from './db';
 
 /**
+ * Tracking type and timer plan inferred from the activity, for cardio created before they existed
+ * (migration 4, the seed and old backups). Only touches activities still on 'check'.
+ */
+export const CARDIO_TRACKING_DEFAULTS = `
+  UPDATE cardio_activity SET tracking = 'gps'
+    WHERE tracking = 'check' AND name LIKE '%caminar%';
+  UPDATE cardio_activity
+    SET tracking = 'timer', plan = '{"kind":"hiit","warmupMin":3,"rounds":6,"workSec":30,"restSec":60,"cooldownMin":3}'
+    WHERE tracking = 'check' AND intensity LIKE '%HIIT%';
+  UPDATE cardio_activity
+    SET tracking = 'timer', plan = '{"kind":"miss","warmupMin":5,"mainMin":20,"cooldownMin":5}'
+    WHERE tracking = 'check' AND name LIKE '%bici%' AND intensity LIKE '%MISS%';
+  UPDATE cardio_activity
+    SET tracking = 'timer',
+        plan = '{"kind":"liss","minutes":' || COALESCE(NULLIF(CAST(target AS INTEGER), 0), 30) || '}'
+    WHERE tracking = 'check' AND name LIKE '%bici%';
+`;
+
+/**
  * Append-only list: never edit a migration that has shipped, add a new one instead.
  * The index + 1 is stored in PRAGMA user_version.
  */
@@ -165,6 +184,42 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE settings ADD COLUMN dev_mode INTEGER NOT NULL DEFAULT 1;
   ALTER TABLE settings ADD COLUMN last_backup_error TEXT;
   CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  `,
+  `
+  ALTER TABLE cardio_activity ADD COLUMN tracking TEXT NOT NULL DEFAULT 'check';
+  ALTER TABLE cardio_activity ADD COLUMN plan TEXT;
+  CREATE TABLE cardio_session (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    activity_id INTEGER REFERENCES cardio_activity(id),
+    name TEXT NOT NULL,
+    date TEXT NOT NULL,
+    tracking TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER,
+    paused_at INTEGER,
+    paused_ms INTEGER NOT NULL DEFAULT 0,
+    segment INTEGER NOT NULL DEFAULT 0,
+    plan TEXT,
+    distance_m REAL,
+    route TEXT,
+    samples TEXT
+  );
+  CREATE TABLE cardio_point (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id INTEGER NOT NULL REFERENCES cardio_session(id) ON DELETE CASCADE,
+    segment INTEGER NOT NULL,
+    t INTEGER NOT NULL,
+    lat REAL NOT NULL,
+    lon REAL NOT NULL,
+    accuracy REAL,
+    speed REAL,
+    altitude REAL
+  );
+  CREATE INDEX idx_cardio_point_session ON cardio_point(session_id, t);
+  CREATE INDEX idx_cardio_session_status ON cardio_session(status);
+  ALTER TABLE cardio_log ADD COLUMN session_id INTEGER REFERENCES cardio_session(id);
+  ${CARDIO_TRACKING_DEFAULTS}
   `,
 ];
 

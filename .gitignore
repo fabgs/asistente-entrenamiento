@@ -47,3 +47,4 @@ expo-env.d.ts
 # Artefactos de compilación de módulos nativos locales
 modules/*/android/build/
 modules/*/android/.cxx/
+modules/*/android/.gradle/

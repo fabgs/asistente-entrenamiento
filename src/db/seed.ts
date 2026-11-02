@@ -2,6 +2,7 @@ import { recommend } from '@/domain/progression';
 import { dateOfWeekday, localDateString } from '@/domain/schedule';
 import type { ProgressionSettings } from '@/domain/types';
 import { int, type Db } from './db';
+import { CARDIO_TRACKING_DEFAULTS } from './migrations';
 import { targetColumns } from './repositories/routines';
 import { createRecommendation } from './repositories/weightChanges';
 import type { SeedData } from './seedTypes';
@@ -9,11 +10,11 @@ import type { SeedData } from './seedTypes';
 const WEEKS_AGO = { anterior: 2, hoy: 1 } as const;
 
 /**
- * Loads data/seed/seed.json into an empty database (PLAN.md §3).
- * Returns false and does nothing if routines already exist.
+ * Loads the initial data into an empty database (PLAN.md §3): the catalogue in the app, the Excel
+ * data in tests. Returns false and does nothing if the database already has a profile.
  */
 export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boolean> {
-  const existing = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM routine');
+  const existing = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM profile');
   if ((existing?.n ?? 0) > 0) return false;
 
   const nowMs = now.getTime();
@@ -49,11 +50,9 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
       int(s.dailyReminderEnabled),
       s.dailyReminderTime,
     );
-    await db.runAsync(
-      'INSERT INTO weight_log (date, weight_kg) VALUES (?, ?)',
-      localDateString(now),
-      p.weightKg,
-    );
+    if (p.weightKg !== null) {
+      await db.runAsync('INSERT INTO weight_log (date, weight_kg) VALUES (?, ?)', localDateString(now), p.weightKg);
+    }
 
     const exerciseIds = new Map<string, number>();
     for (const e of seed.exercises) {
@@ -180,6 +179,7 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
         i,
       );
     }
+    await db.execAsync(CARDIO_TRACKING_DEFAULTS);
 
     const foodIds = new Map<string, number>();
     for (const f of seed.foods) {

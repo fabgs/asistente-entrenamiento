@@ -13,7 +13,7 @@ import { listRoutines, listSlots } from '../repositories/routines';
 import { listSets, logSet, startSession } from '../repositories/sessions';
 import { getSettings, updateSettings } from '../repositories/settings';
 import { importSeed } from '../seed';
-import { SEED } from '../seedData';
+import { DEMO_SEED as SEED } from '../demoSeed';
 import { createTestDb } from './testDb';
 
 const NOW = new Date(2026, 10, 2, 7, 0);

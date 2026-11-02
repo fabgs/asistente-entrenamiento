@@ -1,12 +1,15 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Pressable } from 'react-native';
-import { AppText, Card, Chip, Loading, Row, Screen } from '@/components/ui';
+import { RouteThumbnail } from '@/components/RouteMap';
+import { AppText, Card, Chip, Icon, Loading, Row, Screen } from '@/components/ui';
 import { cardioHistory, exercisesWithHistory } from '@/db/repositories/progress';
 import { listFinishedSessions } from '@/db/repositories/sessions';
 import { formatDuration, formatKg, formatLongDate, formatShortDate } from '@/domain/format';
+import { decodeRoute } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
 import { useLoader } from '@/hooks/data';
+import { colors } from '@/theme';
 
 type HistoryView = 'entrenos' | 'ejercicios' | 'cardio';
 
@@ -40,7 +43,7 @@ export default function HistoryScreen() {
           {data.sessions.map((s) => (
             <Pressable key={s.id} onPress={() => router.push(`/workout/resumen/${s.id}`)}>
               <Card>
-                <Row style={{ justifyContent: 'space-between' }}>
+                <Row between>
                   <AppText variant="heading" style={{ flex: 1 }}>
                     {s.routineName ?? 'Entrenamiento'}
                   </AppText>
@@ -82,10 +85,20 @@ export default function HistoryScreen() {
             <Card key={day.date}>
               <AppText variant="heading">{formatLongDate(parseLocalDate(day.date))}</AppText>
               {day.activities.map((a, i) => (
-                <AppText key={i} variant="muted">
-                  ✓ {a.name}
-                  {a.value ? ` · ${a.value}` : ''}
-                </AppText>
+                <Pressable
+                  key={i}
+                  disabled={a.sessionId === null}
+                  onPress={() => router.push(`/cardio-sesion/${a.sessionId}`)}>
+                  <Row style={{ flexWrap: 'nowrap', minHeight: a.route ? 64 : undefined }}>
+                    <Icon name="check" size={18} color={colors.primary} />
+                    <AppText variant="muted" style={{ flex: 1 }}>
+                      {a.name}
+                      {a.value ? ` · ${a.value}` : ''}
+                    </AppText>
+                    {a.route ? <RouteThumbnail segments={decodeRoute(a.route)} /> : null}
+                    {a.sessionId !== null ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
+                  </Row>
+                </Pressable>
               ))}
             </Card>
           ))}

@@ -49,7 +49,7 @@ export default function RoutinesScreen() {
 
       {data.routines.map((routine) => (
         <Card key={routine.id}>
-          <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+          <Row between>
             <AppText variant="heading" style={{ flex: 1 }}>
               {routine.name}
             </AppText>
@@ -60,7 +60,7 @@ export default function RoutinesScreen() {
           </AppText>
           {(data.slots.get(routine.id) ?? []).map((slot) => (
             <Pressable key={slot.id} onPress={() => router.push(`/slot/${slot.id}`)} style={styles.slotRow}>
-              <Row style={{ justifyContent: 'space-between' }}>
+              <Row between>
                 <AppText style={{ flex: 1 }}>{slot.exerciseName}</AppText>
                 <AppText style={{ color: colors.primary, fontWeight: '700' }}>
                   {formatLoad(slot.weightKg, isBodyweight(slot))}

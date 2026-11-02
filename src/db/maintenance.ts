@@ -1,4 +1,5 @@
 import type { Db, SqlValue } from './db';
+import { CARDIO_TRACKING_DEFAULTS } from './migrations';
 
 /** Tables in a backup, in an order that respects foreign keys when inserting. */
 export const BACKUP_TABLES = [
@@ -10,6 +11,7 @@ export const BACKUP_TABLES = [
   'routine_weekday',
   'routine_slot',
   'cardio_activity',
+  'cardio_session',
   'cardio_log',
   'workout_session',
   'set_log',
@@ -61,6 +63,8 @@ export function parseBackup(text: string): Backup {
 }
 
 async function deleteAllRows(db: Db): Promise<void> {
+  // GPS points of a walk in progress are not backed up, but they reference its session.
+  await db.runAsync('DELETE FROM cardio_point');
   for (const table of [...BACKUP_TABLES].reverse()) {
     await db.runAsync(`DELETE FROM ${table}`);
   }
@@ -102,6 +106,7 @@ export async function restoreBackup(db: Db, backup: Backup): Promise<void> {
         );
       }
     }
+    if (backup.schemaVersion < 4) await db.execAsync(CARDIO_TRACKING_DEFAULTS);
     // Restored data is real data: developer mode must not wipe it on the next install.
     await db.runAsync('UPDATE settings SET dev_mode = 0 WHERE id = 1');
   });

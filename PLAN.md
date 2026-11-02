@@ -49,6 +49,8 @@ Identificadores: nombre visible **"Entreno"**, Android package **`com.fabgs.entr
 
 [`data/seed/seed.json`](data/seed/seed.json) se generó a partir del Excel. **El Excel no se sube al repo** (contiene datos personales; está en `.gitignore`).
 
+> **Desde la fase 10, la app compilada no incluye estos datos.** Una instalación nueva solo trae el catálogo de ejercicios y alimentos ([`data/seed/catalog.json`](data/seed/catalog.json), `SEED` en `src/db/seedData.ts`) y ajustes por defecto (recordatorio diario apagado): cada usuario monta sus rutinas, cardio y dieta, y Hoy le guía con «Monta tu semana». El Excel completo (`DEMO_SEED`, `src/db/demoSeed.ts`) son **datos de prueba**: lo usan los tests y el botón «Cargar datos de prueba (Excel)» de Ajustes → Modo pruebas, que solo existe en builds de desarrollo (`__DEV__`; el bundle de release no lo contiene, comprobado con `expo export`). `importSeed` solo actúa si la BD no tiene perfil. Lo que sigue describe lo que carga `DEMO_SEED`.
+
 Contenido:
 
 - `profile`: altura 184 cm, peso 84 kg, hombre, factor actividad 1,5, déficit 400 kcal, 2 g/kg proteína, 1 g/kg grasa, 0,035 L/kg agua. **`birthDate` es `null` a propósito**: se pide en el onboarding.
@@ -192,9 +194,9 @@ Añadir además tests de: `strict`, incremento personalizado, bajada que llegar�
 
 ### 6.3 Pantalla "Hoy" (tab inicial)
 
-- Fecha y día. Rutina de hoy (según `routine_weekday`) con la lista de ejercicios, series × objetivo y **peso del slot**. Si hay recomendación pendiente: "35 kg → **37,5 kg** recomendado" con su motivo y botones **Aplicar / Ignorar** (y "Aplicar todas" si hay varias).
-- Cardio de hoy como checklist (marcar hecho, opcional: valor real "5,3 km", "32 min").
-- Botón **"Empezar rutina"** (o **"Continuar entrenamiento"** si hay una sesión `in_progress`).
+- Fecha y día. Dos grupos: **«Para hoy»** (primero el cardio pendiente, luego la rutina) y **«Hecho»** (lo terminado baja aquí). *(Fase 10.)*
+- Rutina de hoy (según `routine_weekday`) **compacta**: casilla ✓ que se marca sola al terminarla hoy, título, «7 ejercicios · 21 series», aviso «2 cambios de peso por decidir» y el botón **"Empezar rutina"** (o **"Continuar entrenamiento"**) sin tener que bajar. La flecha despliega los ejercicios con series × objetivo y **peso del slot**; ahí está cada recomendación pendiente ("35 kg → **37,5 kg**" con su motivo y **Aplicar / Ignorar**, y "Aplicar todas"). Ya hecha: «Hecha · 1 h 12 min · 21 series» y «Ver resumen».
+- Cardio de hoy como checklist (marcar hecho). Las actividades con GPS o temporizador tienen **«Iniciar»** (§6.8) y, al terminar, muestran el resultado ("5,2 km · 58 min") y abren la sesión.
 - "Entrenar otra rutina" (selector) por si cambio el día. En días sin rutina: mensaje de descanso + cardio.
 - Si hay una sesión `in_progress` de hace más de 12 h: preguntar "¿Terminarla o descartarla?".
 
@@ -214,6 +216,8 @@ Máquina de estados (`src/domain/workoutMachine.ts`, pura y testeada):
 - **SET_INPUT**: nombre, "Serie 2 de 3", **peso del slot (solo lectura**, "37,5 kg", "Lastre 15 kg" o "Peso corporal"), objetivo ("10–12 reps", "por pierna"), nota/regla y reps de esta serie la última vez. **Único input: reps**, grande, con stepper ±1, precargado con las reps de esa serie la última vez (o el mínimo del rango). Botón **"Serie hecha"** → guarda `set_log` (reps + copia del peso del slot) **inmediatamente** en la BD. Si el slot tiene una recomendación pendiente, al llegar a su **primera serie** aparece un aviso "Recomendado 37,5 kg (media 14,7 > 12) — **Aplicar / Ignorar / Ahora no**"; si aplico, las series de hoy ya usan el nuevo peso. Si hace falta cambiar el peso por otro motivo (p. ej. no está libre la mancuerna), un icono "editar" abre el editor del slot; el cambio afecta a esta sesión y a las siguientes.
 - **RESTING**: cuenta atrás grande (2:30 por defecto; `slot.restSeconds ?? settings.restSecondsDefault`), botones **−30 s / +30 s / Saltar**, y debajo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg" o "Siguiente ejercicio: …". Al llegar a 0: sonido + vibración y botón **"Siguiente serie"** / **"Siguiente ejercicio"** / "Elegir otro". Tras la **última serie del último ejercicio** no hay descanso: se ofrece terminar.
 - Desde cualquier estado: ver/corregir las reps o borrar series ya hechas y añadir **serie extra**.
+- **Atrás** (botón del sistema o de la cabecera) durante una serie o un descanso lleva a la **lista de ejercicios**; desde la lista sale a Hoy. Durante el descanso la lista muestra arriba una barra con la cuenta atrás que vuelve al temporizador; elegir ahí un ejercicio pendiente lo convierte en el siguiente sin cortar el descanso (`usePreventRemove`). Las notificaciones abren rutas con `router.navigate`, que vuelve a la pantalla si ya está abierta en vez de apilar otra copia. *(Fase 10.)*
+- Al completar todas las series, la lista muestra la tarjeta **«Rutina completada»** (ejercicios, series, tiempo) con «Terminar y ver resumen»; las confirmaciones usan el diálogo propio de la app (`showDialog`, `src/components/Dialog.tsx`), nunca la alerta del sistema.
 - **"Terminar entrenamiento"**: marca la sesión como `finished` y **crea las recomendaciones pendientes** (§6.2) en la misma transacción. No cambia ningún peso.
 - **SUMMARY** (`app/workout/resumen/[sessionId].tsx`): duración, series totales, volumen (Σ peso × reps de ejercicios con carga), récords (más reps a un peso o primer día con un peso nuevo) y **recomendaciones** por slot ("Remo con barra: 35 → 37,5 kg · media 14,7 > 12") con botones **Aplicar / Ignorar** y "Aplicar todas"; nada viene marcado por defecto y lo que no decida queda pendiente. Los slots sin cambio muestran "=" y su motivo.
 - **Pantalla siempre encendida** durante el entreno (expo-keep-awake, configurable). Hápticos en "Serie hecha" y fin de descanso.
@@ -257,6 +261,24 @@ Android:
 - **Vista calendario** L–D con lo que toca cada día.
 - Cualquier cambio aquí llama a `rescheduleDailyReminders()` (§7).
 
+### 6.8 Cardio con seguimiento (fase 10)
+
+Cada actividad de cardio tiene un **tipo de seguimiento** (`cardio_activity.tracking`): `check` (solo marcar, como hasta ahora), `gps` (caminar, correr) o `timer` (bici, HIIT). En Hoy, las de GPS y temporizador muestran **«Iniciar»**, que abre `src/app/cardio-sesion/[id].tsx`. Una sesión (`cardio_session`) se guarda en la BD desde el principio, así que sobrevive a que se cierre la app, igual que el entreno de fuerza. Al terminarla se marca el cardio del día en `cardio_log` con el resumen («5,2 km · 58 min» o «30 min») y el enlace a la sesión.
+
+**GPS** (`src/services/gpsTracker.ts`, `expo-location` + `expo-task-manager`):
+- `Location.startLocationUpdatesAsync` con *foreground service* (notificación fija «Grabando caminata»), precisión alta, cada ~3 s o 5 m. La tarea (`TaskManager.defineTask`, definida al cargar el módulo) solo **añade puntos** a `cardio_point`; así sigue grabando con la pantalla bloqueada y la app en segundo plano. Android pide el permiso de ubicación «Permitir siempre» (`ACCESS_BACKGROUND_LOCATION`, válido porque la app no va a Play Store); la app explica cómo darlo.
+- Pausar detiene la grabación; al reanudar empieza un **tramo** nuevo (`segment`), y la distancia nunca une tramos.
+- Distancia, velocidad y ritmo los calcula la función pura `summarizeTrack()` (`src/domain/gps.ts`, con tests): descarta puntos con precisión peor de 30 m, saltos imposibles (> 10 m/s) y el ruido de estar parado (movimientos menores que la precisión). Velocidad media = distancia / tiempo en movimiento (sin pausas). Ritmo en min/km.
+- Al terminar, la ruta se guarda **comprimida** (polilínea codificada, `encodePolyline`) en `cardio_session.route` y un **perfil** con una muestra cada 10 s de actividad (segundos activos, metros acumulados y altitud, `buildSamples`) en `cardio_session.samples`; después se borran sus puntos. Una caminata de 1 h ocupa ~10 KB en la copia de seguridad en vez de miles de filas.
+- Detalle de una caminata: distancia, tiempo, ritmo y velocidad medios, mapa, **gráfica de velocidad** en el tiempo (media móvil de 30 s, `speedSeries`), **gráfica de altitud** por distancia con el desnivel acumulado (media móvil e histéresis de 3 m, `altitudeProfile`/`elevationChange`; la altitud del GPS es aproximada) y **parciales por km** (`kmSplits`, interpolados) con una barra de ritmo relativo. En el historial de cardio cada caminata lleva una miniatura de su ruta.
+- Mapa (`src/components/RouteMap.tsx`): la ruta en SVG sobre las teselas de OpenStreetMap (`tile.openstreetmap.org`, con su atribución y un User-Agent propio, como pide su política de uso) oscurecidas con un velo para el tema oscuro; sin internet se ve la ruta sobre el fondo de la app. Sin SDK de mapas ni claves de API. *(CARTO se descartó: sus teselas ya exigen clave.)*
+
+**Temporizador** (`src/domain/cardioPlan.ts`, puro y con tests): el plan se guarda como JSON en `cardio_activity.plan` y se expande en fases con su intensidad:
+- **LISS**: un bloque continuo (p. ej. 30 min suave, Z2).
+- **MISS**: calentamiento + bloque medio (Z3-4) + enfriamiento (p. ej. 5 + 20 + 5 min).
+- **HIIT**: calentamiento + N rondas de trabajo/descanso + enfriamiento (p. ej. 3 min + 8 × (30 s + 60 s) + 3 min).
+- Al iniciar se programan **todas las alarmas de cambio de fase** a la vez (`delivery: 'alarmClock'`, canal del descanso, identificadores `cardio-<sesión>-<n>`), así que suenan con la pantalla bloqueada aunque el JS esté parado; el módulo `rest-timer` muestra la cuenta atrás hasta el final en la pantalla de bloqueo. Pausar cancela las alarmas; reanudar las reprograma con lo que falte. La pantalla muestra la fase actual en grande, lo que queda de ella, la siguiente y una barra con todas las fases coloreadas por intensidad.
+
 ---
 
 ## 7. Notificación diaria
@@ -290,7 +312,7 @@ Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se p
 
 Descanso por defecto (s), pantalla encendida durante el entreno, burbuja flotante, recordatorio diario (on/off + hora), diagnóstico (§7.3), copia de seguridad (§9) y **modo pruebas**.
 
-**Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y se vuelve a cargar el seed. Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora".
+**Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y la app queda como recién instalada (solo catálogos, §3). Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora".
 
 ---
 
@@ -320,8 +342,10 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 | `routine` | `id`, `name`, `position`, `archived` |
 | `routine_weekday` | `routine_id`, `weekday` — PK (`routine_id`, `weekday`) |
 | `routine_slot` | `id`, `routine_id`, `exercise_id`, `position`, `weight_kg` (peso actual; null = peso corporal sin lastre), `sets`, `target_kind` ('range'/'fixed'/'failure'), `rep_min`, `rep_max`, `fixed_reps`, `failure_minus`, `per_side`, `unit` ('reps'/'steps'/'seconds'), `progression` ('load'/'manual'), `allow_decrease`, `increment_kg`, `rest_seconds`, `note`, `archived` |
-| `cardio_activity` | `id`, `weekday`, `name`, `target`, `intensity`, `notes`, `position`, `archived` |
-| `cardio_log` | `id`, `date`, `activity_id` (nullable), `name`, `done`, `value`, `notes` |
+| `cardio_activity` | `id`, `weekday`, `name`, `target`, `intensity`, `notes`, `position`, `archived`, `tracking` ('check'/'gps'/'timer'), `plan` (JSON del temporizador, §6.8) |
+| `cardio_log` | `id`, `date`, `activity_id` (nullable), `name`, `done`, `value`, `notes`, `session_id` (nullable → `cardio_session`) |
+| `cardio_session` | `id`, `activity_id` (nullable), `name`, `date`, `tracking` ('gps'/'timer'), `status` ('in_progress'/'finished'), `started_at`, `finished_at`, `paused_at` (null = corriendo), `paused_ms`, `segment`, `plan` (copia del plan), `distance_m`, `route` (polilínea codificada), `samples` (JSON `[[s, d, a], …]`) |
+| `cardio_point` | `id`, `session_id`, `segment`, `t`, `lat`, `lon`, `accuracy`, `speed`, `altitude` — puntos de la sesión en curso; se borran al terminar (no van en la copia) |
 | `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'/'abandoned'), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id`, `skipped_slot_ids` (JSON) |
 | `set_log` | `id`, `session_id`, `slot_id` (nullable: ejercicio puntual), `exercise_id`, `set_index`, `weight_kg` (copia del peso del slot al registrar; nullable), `reps`, `is_extra`, `completed_at` |
 | `weight_change` | `id`, `slot_id`, `session_id` (nullable), `from_kg`, `to_kg`, `reason`, `source` ('progression'/'manual'/'import'), `status` ('pending'/'applied'/'dismissed'/'expired'), `created_at`, `decided_at` |
@@ -353,6 +377,7 @@ src/
     (tabs)/perfil.tsx               # datos, objetivos calculados, registro de peso
     workout/[sessionId].tsx         # modo entrenamiento (lista · serie · descanso)
     workout/resumen/[sessionId].tsx # resumen + recomendaciones
+    cardio-sesion/[id].tsx          # caminata con GPS o temporizador por fases; resumen con mapa
     slot/[id].tsx                   # ejercicio de una rutina: peso, prescripción, recomendación, quitar
     rutina/[id].tsx                 # editor de rutina: nombre, días, orden, añadir/archivar
     ejercicios.tsx                  # catálogo de ejercicios / selector para añadir a una rutina
@@ -360,9 +385,9 @@ src/
     cardio.tsx                      # cardio semanal editable
     ajustes.tsx                     # descanso, recordatorio, pantalla encendida, diagnóstico de avisos
   db/         db.ts (interfaz Db) · migrations.ts · seed.ts · seedData.ts · seedTypes.ts · maintenance.ts (backup/borrado) · repositories/*.ts · __tests__/
-  domain/     progression.ts · progress.ts · nutrition.ts · schedule.ts · workoutMachine.ts · format.ts · types.ts · __tests__/
-  services/   notifications.ts · restTimer.ts · dailyReminder.ts · backup.ts · githubBackup.ts · __tests__/
-  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, DateField, SwitchRow, WeekdayPicker…) · Recommendation.tsx · DataSettings.tsx · LineChart.tsx
+  domain/     progression.ts · progress.ts · nutrition.ts · schedule.ts · workoutMachine.ts · gps.ts · cardioPlan.ts · mapView.ts · format.ts · types.ts · __tests__/
+  services/   notifications.ts · restTimer.ts · dailyReminder.ts · backup.ts · githubBackup.ts · gpsTracker.ts · cardioTimer.ts · cardioSession.ts · __tests__/
+  components/ ui.tsx (Screen, Card, Button, Stepper editable, TextField, DateField, TimeField, DurationField, NumberRow, Stat, SwitchRow, WeekdayPicker…) · Dialog.tsx · Recommendation.tsx · DataSettings.tsx · LineChart.tsx · RouteMap.tsx
   hooks/      data.ts (useDb, useLoader, useNow)
   theme.ts
 modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
@@ -469,6 +494,30 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 - [x] Cuenta atrás del descanso en la pantalla de bloqueo (Live Update en Android 16) y burbuja flotante sobre otras apps (`modules/rest-timer`).
 - [ ] Revisión de accesibilidad (tamaños de fuente, contraste).
 
+### Fase 10 — Mejoras tras el primer entreno real
+Notas del usuario del 2026-11-02, después de entrenar con la app. Cada casilla es una «issue».
+
+**Errores**
+- [x] 10.1 Atrás durante el descanso o una serie lleva a la **lista de ejercicios** (el descanso sigue contando y se ve en una barra arriba); tocar la notificación del descanso ya no apila otra copia del entreno (antes, tras varios ejercicios, «atrás» volvía al propio temporizador).
+- [x] 10.2 Resumen: las cajas Duración · Series · Volumen tienen **la misma altura** aunque la duración sea «1 h 40 min».
+
+**Interfaz** (mismo aspecto oscuro y verde, menos «app genérica»)
+- [x] 10.3 Fin de la rutina con el estilo de la app: tarjeta «Rutina completada» en el entreno y diálogos propios (`ConfirmDialog`) en lugar de las alertas del sistema en el entreno y en Hoy.
+- [x] 10.4 Hoy (§6.3): cada rutina se ve compacta (casilla ✓ si ya se hizo hoy, título, flecha para desplegar los ejercicios y botón «Empezar» visible sin bajar); el cardio pendiente va arriba y lo ya hecho (cardio o rutina) baja al final.
+- [x] 10.5 Selectores de hora en una sola fila («06:00») que abren el reloj circular de Android; el descanso se elige con atajos (1:30, 2:00, 2:30, 3:00) además del − / +.
+
+**Cardio** (§6.8)
+- [x] 10.6 Caminar con GPS: Iniciar / Pausar / Terminar; graba la ruta, km, tiempo, velocidad y ritmo también con la pantalla bloqueada. Al terminar marca el cardio de hoy («5,2 km · 58 min»).
+- [x] 10.7 Temporizador de cardio (bici, HIIT) por fases LISS / MISS / HIIT con aviso sonoro en cada cambio de fase aunque el móvil esté bloqueado, y cuenta atrás en la pantalla de bloqueo.
+- [x] 10.8 Editor de cardio: tipo de seguimiento (solo marcar / GPS / temporizador) y plan del temporizador.
+- [x] 10.9 Historial de cardio con distancia, tiempo, ritmo y mapa de la ruta.
+- [x] 10.10 En la lista del entreno, la sugerencia de peso se ve en la propia línea («↑ Sugerido: 35 kg → 37,5 kg»).
+- [x] 10.11 Alineación: los botones de solo texto no tienen margen lateral (quedan pegados al borde al que se alinean) y las filas izquierda/derecha usan `<Row between>` (la derecha nunca salta de línea).
+- [x] 10.13 Detalle de la caminata con gráficas de velocidad y altitud (desnivel) y parciales por km; miniatura de la ruta en el historial de cardio.
+- [x] 10.12 La app compilada solo lleva el catálogo de ejercicios y alimentos; los datos del Excel quedan como datos de prueba (§3).
+- [x] Verificación en emulador (GPS simulado con `adb emu geo fix`).
+- [ ] Verificación en móvil real: una caminata de verdad con la pantalla bloqueada y los avisos del temporizador con el móvil bloqueado.
+
 ---
 
 ## 14. Pruebas
@@ -504,7 +553,7 @@ Cada fase termina con `npm test`, `npm run lint` y `npx tsc --noEmit` en verde y
 
 ## 16. Ideas futuras (fuera de alcance)
 
-Registro diario de comidas reales y lista de la compra · estimación de 1RM · deload automático tras estancamiento · temporizador de cardio/HIIT por intervalos · widget de pantalla de inicio con "lo de hoy" · integración con Health Connect (pasos, peso) · versión iOS · horario de estudio del Excel (pestaña "Rutina") como agenda diaria.
+Registro diario de comidas reales y lista de la compra · estimación de 1RM · deload automático tras estancamiento · widget de pantalla de inicio con "lo de hoy" · integración con Health Connect (pasos, peso) · versión iOS · horario de estudio del Excel (pestaña "Rutina") como agenda diaria.
 
 ---
 
@@ -524,3 +573,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-01 — Fase 6: gráfica del peso corporal en Perfil. Fase 9: icono propio (mancuerna) para lanzador, icono adaptativo/monocromo, splash y barra de notificaciones.
 - 2026-11-01 — Pruebas en móvil real (OnePlus 7 Pro, Android 12): copia en GitHub, burbuja, cuenta atrás en la pantalla de bloqueo, ±30 s/Saltar y cierre desde multitarea. Cuenta atrás coloreada, inmediata y con el icono de la app; burbuja sin borde; aviso del permiso de la burbuja en OnePlus. Encontrado: OnePlus retrasa las alarmas exactas normales (ver §15).
 - 2026-11-01 — **Versión 1.0.0.** Modo pruebas desactivado por defecto (y siempre apagado tras restaurar una copia): el usuario empieza a usar la app con sus datos reales. El recordatorio diario se queda sin `alarmClock` de momento (el usuario prefiere ver si llega a su hora).
+- 2026-11-02 — **Fase 10** (notas del primer entreno real). Errores: «atrás» en el descanso o en una serie lleva a la lista de ejercicios (con el descanso visible arriba) y las notificaciones ya no apilan copias del entreno (`router.navigate`); las cajas del resumen tienen la misma altura. Interfaz: Hoy agrupa «Para hoy» / «Hecho» con rutinas compactas y casilla de hecho; tarjeta «Rutina completada» y diálogos propios (`showDialog`) en toda la app; hora del recordatorio con el reloj nativo; atajos de descanso; sugerencia de peso en la línea del ejercicio; botones de texto alineados al borde. Cardio (§6.8, migración 4): caminatas con GPS en segundo plano (`expo-location` con servicio en primer plano, sin permiso «siempre») y mapa de OpenStreetMap; temporizador LISS/MISS/HIIT con alarmas por fase. Detalle de la caminata con gráficas de velocidad y altitud y parciales por km. La app compilada ya no incluye los datos del Excel (solo catálogos). Probado en el emulador (Android 16); falta probar GPS y alarmas del temporizador en el móvil real. **Versión 1.1.0** (versionCode 2).

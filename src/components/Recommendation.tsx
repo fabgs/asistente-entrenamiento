@@ -108,9 +108,10 @@ const styles = StyleSheet.create({
   quiet: { borderLeftColor: colors.border },
   suggestion: {
     justifyContent: 'space-between',
+    flexWrap: 'nowrap',
     backgroundColor: colors.cardAlt,
     borderRadius: radius.sm,
-    paddingLeft: spacing.md,
+    paddingHorizontal: spacing.md,
   },
   suggestionButton: { paddingVertical: spacing.sm },
 });

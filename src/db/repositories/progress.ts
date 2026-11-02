@@ -78,20 +78,28 @@ export async function exerciseWeightChanges(db: Db, exerciseId: number, limit = 
 
 export interface CardioDay {
   date: string;
-  activities: { name: string; value: string | null }[];
+  /** `route` is the encoded GPS route of the session, if it had one. */
+  activities: { name: string; value: string | null; sessionId: number | null; route: string | null }[];
 }
 
 export async function cardioHistory(db: Db, limitDays = 60): Promise<CardioDay[]> {
-  const rows = await db.getAllAsync<{ date: string; name: string; value: string | null }>(
-    `SELECT date, name, value FROM cardio_log
-     WHERE done = 1 AND date IN (SELECT DISTINCT date FROM cardio_log WHERE done = 1 ORDER BY date DESC LIMIT ?)
-     ORDER BY date DESC, id`,
+  const rows = await db.getAllAsync<{
+    date: string;
+    name: string;
+    value: string | null;
+    session_id: number | null;
+    route: string | null;
+  }>(
+    `SELECT cl.date, cl.name, cl.value, cl.session_id, cs.route FROM cardio_log cl
+     LEFT JOIN cardio_session cs ON cs.id = cl.session_id
+     WHERE cl.done = 1 AND cl.date IN (SELECT DISTINCT date FROM cardio_log WHERE done = 1 ORDER BY date DESC LIMIT ?)
+     ORDER BY cl.date DESC, cl.id`,
     limitDays,
   );
   const days = new Map<string, CardioDay>();
   for (const r of rows) {
     const day = days.get(r.date) ?? { date: r.date, activities: [] };
-    day.activities.push({ name: r.name, value: r.value });
+    day.activities.push({ name: r.name, value: r.value, sessionId: r.session_id, route: r.route });
     days.set(r.date, day);
   }
   return [...days.values()];

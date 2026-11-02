@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText, Button, Card, Loading, Row, Screen, TextField } from '@/components/ui';
+import { AppText, Button, Card, Chip, Icon, Loading, NumberRow, Row, Screen, TextField, type IconName } from '@/components/ui';
 import {
   addCardio,
   archiveCardio,
@@ -8,11 +8,21 @@ import {
   updateCardio,
   type CardioActivity,
 } from '@/db/repositories/cardio';
+import {
+  DEFAULT_PLANS,
+  describePlan,
+  PLAN_KIND_LABEL,
+  planSeconds,
+  type CardioPlan,
+  type CardioTracking,
+  type PlanKind,
+} from '@/domain/cardioPlan';
+import { formatClock } from '@/domain/format';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
-import { colors, spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 export default function CardioScreen() {
   const db = useDb();
@@ -51,13 +61,23 @@ export default function CardioScreen() {
                 />
               ) : (
                 <Pressable key={activity.id} style={styles.row} onPress={() => setEditing(activity.id)}>
-                  <AppText>
-                    {activity.name}
-                    {activity.target ? ` · ${activity.target}` : ''}
-                  </AppText>
-                  {activity.intensity || activity.notes ? (
-                    <AppText variant="small">{[activity.intensity, activity.notes].filter(Boolean).join(' · ')}</AppText>
-                  ) : null}
+                  <Icon name={TRACKING[activity.tracking].icon} size={20} color={colors.muted} />
+                  <View style={{ flex: 1, gap: 2 }}>
+                    <AppText>
+                      {activity.name}
+                      {activity.target ? ` · ${activity.target}` : ''}
+                    </AppText>
+                    <AppText variant="small">
+                      {[
+                        activity.tracking === 'timer' && activity.plan
+                          ? `${PLAN_KIND_LABEL[activity.plan.kind]} · ${describePlan(activity.plan)}`
+                          : activity.intensity,
+                        activity.notes,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </AppText>
+                  </View>
                 </Pressable>
               ),
             )}
@@ -68,8 +88,16 @@ export default function CardioScreen() {
   );
 }
 
+const TRACKING: Record<CardioTracking, { label: string; icon: IconName; help: string }> = {
+  check: { label: 'Solo marcar', icon: 'checkbox-marked-outline', help: 'Se marca como hecha en Hoy.' },
+  gps: { label: 'GPS', icon: 'map-marker-path', help: 'Graba la ruta, la distancia y el ritmo (caminar, correr).' },
+  timer: { label: 'Temporizador', icon: 'timer-outline', help: 'Cuenta atrás por fases con aviso en cada cambio (bici, HIIT).' },
+};
+
 function ActivityForm({ activity, onDone }: { activity: CardioActivity; onDone: () => void }) {
   const db = useDb();
+  const [tracking, setTracking] = useState(activity.tracking);
+  const [plan, setPlan] = useState<CardioPlan>(activity.plan ?? DEFAULT_PLANS.liss);
   const [name, setName] = useState(activity.name);
   const [target, setTarget] = useState(activity.target ?? '');
   const [intensity, setIntensity] = useState(activity.intensity ?? '');
@@ -82,6 +110,8 @@ function ActivityForm({ activity, onDone }: { activity: CardioActivity; onDone: 
       target: target.trim() || null,
       intensity: intensity.trim() || null,
       notes: notes.trim() || null,
+      tracking,
+      plan: tracking === 'timer' ? plan : null,
     });
     onDone();
   };
@@ -97,6 +127,14 @@ function ActivityForm({ activity, onDone }: { activity: CardioActivity; onDone: 
       <TextField label="Objetivo" value={target} onChangeText={setTarget} placeholder="5 km, 30 min…" />
       <TextField label="Intensidad" value={intensity} onChangeText={setIntensity} placeholder="Baja (LISS)" />
       <TextField label="Notas" value={notes} onChangeText={setNotes} />
+      <AppText variant="small">Cómo se registra</AppText>
+      <Row>
+        {(Object.keys(TRACKING) as CardioTracking[]).map((t) => (
+          <Chip key={t} label={TRACKING[t].label} selected={tracking === t} onPress={() => setTracking(t)} />
+        ))}
+      </Row>
+      <AppText variant="small">{TRACKING[tracking].help}</AppText>
+      {tracking === 'timer' ? <PlanEditor plan={plan} onChange={setPlan} /> : null}
       <Row>
         <Button title="Guardar" onPress={save} disabled={!name.trim()} />
         <Button kind="danger" title="Quitar" onPress={remove} />
@@ -105,8 +143,65 @@ function ActivityForm({ activity, onDone }: { activity: CardioActivity; onDone: 
   );
 }
 
+function PlanEditor({ plan, onChange }: { plan: CardioPlan; onChange: (plan: CardioPlan) => void }) {
+  const min = (m: number) => `${m} min`;
+  const sec = (s: number) => `${s} s`;
+  const set = <K extends string>(key: K) => (value: number) => onChange({ ...plan, [key]: value } as CardioPlan);
+
+  return (
+    <View style={styles.plan}>
+      <Row>
+        {(Object.keys(DEFAULT_PLANS) as PlanKind[]).map((k) => (
+          <Chip
+            key={k}
+            label={k.toUpperCase()}
+            selected={plan.kind === k}
+            onPress={() => plan.kind !== k && onChange(DEFAULT_PLANS[k])}
+          />
+        ))}
+      </Row>
+      <AppText variant="small">{PLAN_KIND_LABEL[plan.kind]}</AppText>
+      {plan.kind === 'liss' ? (
+        <NumberRow label="Duración" value={plan.minutes} onChange={set('minutes')} step={5} min={1} format={min} />
+      ) : null}
+      {plan.kind === 'miss' ? (
+        <>
+          <NumberRow label="Calentamiento" value={plan.warmupMin} onChange={set('warmupMin')} format={min} />
+          <NumberRow label="Intensidad media" value={plan.mainMin} onChange={set('mainMin')} step={5} min={1} format={min} />
+          <NumberRow label="Enfriamiento" value={plan.cooldownMin} onChange={set('cooldownMin')} format={min} />
+        </>
+      ) : null}
+      {plan.kind === 'hiit' ? (
+        <>
+          <NumberRow label="Calentamiento" value={plan.warmupMin} onChange={set('warmupMin')} format={min} />
+          <NumberRow label="Rondas" value={plan.rounds} onChange={set('rounds')} min={1} />
+          <NumberRow label="Sprint" value={plan.workSec} onChange={set('workSec')} step={5} min={5} format={sec} />
+          <NumberRow label="Recuperación" value={plan.restSec} onChange={set('restSec')} step={5} min={5} format={sec} />
+          <NumberRow label="Enfriamiento" value={plan.cooldownMin} onChange={set('cooldownMin')} format={min} />
+        </>
+      ) : null}
+      <AppText variant="muted">
+        Total {formatClock(planSeconds(plan) * 1000)} · {describePlan(plan)}
+      </AppText>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  row: { gap: 2, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  plan: {
+    gap: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
+  },
   form: {
     gap: spacing.sm,
     paddingVertical: spacing.sm,

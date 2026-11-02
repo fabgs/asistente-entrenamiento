@@ -12,7 +12,7 @@ import {
   updateFood,
 } from '../repositories/diet';
 import { importSeed } from '../seed';
-import { SEED } from '../seedData';
+import { DEMO_SEED as SEED } from '../demoSeed';
 import { createTestDb } from './testDb';
 
 async function seededDb(): Promise<Db> {

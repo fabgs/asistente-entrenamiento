@@ -1,7 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert } from 'react-native';
 import type { Backup } from '@/db/maintenance';
+import type { SeedData } from '@/db/seedTypes';
 import { updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatAgo, formatLongDate } from '@/domain/format';
 import { useDb } from '@/hooks/data';
@@ -15,7 +15,15 @@ import {
   shareBackupFile,
 } from '@/services/backup';
 import { colors } from '@/theme';
+import { showDialog } from './Dialog';
 import { AppText, Button, Card, Divider, Row, SwitchRow, TextField } from './ui';
+
+// Only development builds bundle the Excel data: `__DEV__` is false in a release build, so the
+// bundler drops this branch and the require with it.
+const loadDemoSeed: (() => SeedData) | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    () => (require('@/db/demoSeed') as typeof import('@/db/demoSeed')).DEMO_SEED
+  : null;
 
 export function DevModeCard({ enabled, onChanged }: { enabled: boolean; onChanged: () => void }) {
   const db = useDb();
@@ -25,17 +33,19 @@ export function DevModeCard({ enabled, onChanged }: { enabled: boolean; onChange
     onChanged();
   };
 
-  const reset = () =>
-    Alert.alert(
+  const reset = (seed?: SeedData) =>
+    showDialog(
       'Reiniciar datos',
-      'Se borrará todo (entrenos, pesos, perfil, cambios en rutinas) y se cargarán otra vez los datos del Excel.',
+      seed
+        ? 'Se borrará todo y se cargarán los datos de prueba (rutinas, cardio, dieta e historial del Excel).'
+        : 'Se borrará todo (entrenos, rutinas, dieta, pesos y perfil) y la app quedará como recién instalada, solo con los catálogos de ejercicios y alimentos.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
           text: 'Borrar todo',
           style: 'destructive',
           onPress: async () => {
-            await resetToSeed(db);
+            await resetToSeed(db, undefined, seed);
             router.replace('/');
           },
         },
@@ -48,24 +58,26 @@ export function DevModeCard({ enabled, onChanged }: { enabled: boolean; onChange
       <SwitchRow label="Borrar los datos al instalar una versión nueva" value={enabled} onValueChange={toggle} />
       <AppText variant="small">
         {enabled
-          ? 'Activo: al instalar un APK nuevo se borra todo y vuelven los datos del Excel. Apágalo ANTES de instalar una versión nueva si quieres conservar tus datos.'
+          ? 'Activo: al instalar un APK nuevo se borra todo y la app queda como recién instalada. Apágalo ANTES de instalar una versión nueva si quieres conservar tus datos.'
           : 'Desactivado: tus datos se conservan al actualizar la app.'}
       </AppText>
-      <Button kind="danger" title="Reiniciar datos ahora" onPress={reset} />
+      <Button kind="danger" title="Reiniciar datos ahora" onPress={() => reset()} />
+      {loadDemoSeed ? (
+        <Button kind="secondary" title="Cargar datos de prueba (Excel)" onPress={() => reset(loadDemoSeed!())} />
+      ) : null}
     </Card>
   );
 }
 
 function confirmRestore(backup: Backup): Promise<boolean> {
   return new Promise((resolve) =>
-    Alert.alert(
+    showDialog(
       'Restaurar copia',
       `Se reemplazarán TODOS los datos actuales por la copia del ${formatLongDate(new Date(backup.exportedAt))}.`,
       [
         { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
         { text: 'Restaurar', style: 'destructive', onPress: () => resolve(true) },
       ],
-      { cancelable: true, onDismiss: () => resolve(false) },
     ),
   );
 }

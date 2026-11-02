@@ -14,6 +14,10 @@ export const colors = {
   danger: '#F87171',
   up: '#4ADE80',
   down: '#F87171',
+  /** Cardio intensity: LISS, MISS and HIIT phases. */
+  intensityLow: '#60A5FA',
+  intensityMedium: '#FBBF24',
+  intensityHigh: '#F87171',
   /** Series colour for charts: validated for lightness band and contrast on `card` (dataviz). */
   chart: '#16A34A',
 } as const;

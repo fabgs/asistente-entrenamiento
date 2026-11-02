@@ -1,5 +1,6 @@
+import { parsePlan, type CardioPlan, type CardioTracking } from '@/domain/cardioPlan';
 import type { IsoWeekday } from '@/domain/types';
-import { bool, int, type Db } from '../db';
+import { int, type Db } from '../db';
 
 export interface CardioActivity {
   id: number;
@@ -8,13 +9,28 @@ export interface CardioActivity {
   target: string | null;
   intensity: string | null;
   notes: string | null;
+  tracking: CardioTracking;
+  plan: CardioPlan | null;
 }
 
+type CardioRow = Omit<CardioActivity, 'plan'> & { plan: string | null };
+
+const toActivity = (row: CardioRow): CardioActivity => ({ ...row, plan: parsePlan(row.plan) });
+
 export async function listCardio(db: Db): Promise<CardioActivity[]> {
-  return db.getAllAsync<CardioActivity>(
-    `SELECT id, weekday, name, target, intensity, notes FROM cardio_activity
+  const rows = await db.getAllAsync<CardioRow>(
+    `SELECT id, weekday, name, target, intensity, notes, tracking, plan FROM cardio_activity
      WHERE archived = 0 ORDER BY weekday, position, id`,
   );
+  return rows.map(toActivity);
+}
+
+export async function getCardio(db: Db, id: number): Promise<CardioActivity | null> {
+  const row = await db.getFirstAsync<CardioRow>(
+    'SELECT id, weekday, name, target, intensity, notes, tracking, plan FROM cardio_activity WHERE id = ?',
+    id,
+  );
+  return row ? toActivity(row) : null;
 }
 
 export async function cardioForWeekday(db: Db, weekday: IsoWeekday): Promise<CardioActivity[]> {
@@ -23,11 +39,21 @@ export async function cardioForWeekday(db: Db, weekday: IsoWeekday): Promise<Car
 
 /** Activity ids marked as done on a date. */
 export async function cardioDoneOn(db: Db, date: string): Promise<Set<number>> {
-  const rows = await db.getAllAsync<{ activity_id: number; done: number }>(
-    'SELECT activity_id, done FROM cardio_log WHERE date = ? AND activity_id IS NOT NULL',
+  return new Set((await cardioLogOn(db, date)).keys());
+}
+
+export interface CardioDone {
+  value: string | null;
+  sessionId: number | null;
+}
+
+/** What was done on a date, by activity id: the result ("5,2 km · 58 min") and its session. */
+export async function cardioLogOn(db: Db, date: string): Promise<Map<number, CardioDone>> {
+  const rows = await db.getAllAsync<{ activity_id: number; value: string | null; session_id: number | null }>(
+    'SELECT activity_id, value, session_id FROM cardio_log WHERE date = ? AND activity_id IS NOT NULL AND done = 1',
     date,
   );
-  return new Set(rows.filter((r) => bool(r.done)).map((r) => r.activity_id));
+  return new Map(rows.map((r) => [r.activity_id, { value: r.value, sessionId: r.session_id }]));
 }
 
 export async function setCardioDone(
@@ -51,6 +77,8 @@ export interface CardioFields {
   target: string | null;
   intensity: string | null;
   notes: string | null;
+  tracking?: CardioTracking;
+  plan?: CardioPlan | null;
 }
 
 export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioFields): Promise<number> {
@@ -59,13 +87,16 @@ export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioField
     weekday,
   );
   const result = await db.runAsync(
-    'INSERT INTO cardio_activity (weekday, name, target, intensity, notes, position) VALUES (?, ?, ?, ?, ?, ?)',
+    `INSERT INTO cardio_activity (weekday, name, target, intensity, notes, position, tracking, plan)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     weekday,
     fields.name,
     fields.target,
     fields.intensity,
     fields.notes,
     row?.next ?? 0,
+    fields.tracking ?? 'check',
+    fields.plan ? JSON.stringify(fields.plan) : null,
   );
   return result.lastInsertRowId;
 }
@@ -79,6 +110,14 @@ export async function updateCardio(db: Db, id: number, fields: CardioFields): Pr
     fields.notes,
     id,
   );
+  if (fields.tracking) {
+    await db.runAsync(
+      'UPDATE cardio_activity SET tracking = ?, plan = ? WHERE id = ?',
+      fields.tracking,
+      fields.plan ? JSON.stringify(fields.plan) : null,
+      id,
+    );
+  }
 }
 
 /** Hides the activity; days already marked as done keep their log. */

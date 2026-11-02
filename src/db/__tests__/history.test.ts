@@ -17,7 +17,7 @@ import {
 import { getSettings, toProgressionSettings } from '../repositories/settings';
 import { applyChange, listChangesForSession, listOpenChanges } from '../repositories/weightChanges';
 import { importSeed } from '../seed';
-import { SEED } from '../seedData';
+import { DEMO_SEED as SEED } from '../demoSeed';
 import { createTestDb } from './testDb';
 
 const NOW = new Date(2026, 10, 2, 7, 0);
@@ -158,8 +158,8 @@ describe('cardio history', () => {
     await setCardioDone(db, '2026-11-02', bike, false);
 
     expect(await cardioHistory(db)).toEqual([
-      { date: '2026-11-02', activities: [{ name: 'Caminar', value: null }] },
-      { date: '2026-10-26', activities: [{ name: 'Caminar', value: null }] },
+      { date: '2026-11-02', activities: [{ name: 'Caminar', value: null, sessionId: null, route: null }] },
+      { date: '2026-10-26', activities: [{ name: 'Caminar', value: null, sessionId: null, route: null }] },
     ]);
   });
 });

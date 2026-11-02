@@ -47,7 +47,26 @@ export function formatCountdown(ms: number): string {
   return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
+/** Running clock: "4:05", "52:10" or "1:02:05". */
+export function formatClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = String(totalSeconds % 60).padStart(2, '0');
+  return hours > 0 ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
+}
+
+/** "850 m" below one kilometre, "5,23 km" above. */
+export function formatMetres(metres: number): string {
+  return metres < 1000 ? `${Math.round(metres)} m` : `${formatNumber(metres / 1000, 2)} km`;
+}
+
+export function formatSpeedKmh(metresPerSecond: number): string {
+  return `${formatNumber(metresPerSecond * 3.6, 1)} km/h`;
+}
+
 export function formatDuration(ms: number): string {
+  if (ms < 59_500) return `${Math.round(ms / 1000)} s`;
   const totalMinutes = Math.round(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;

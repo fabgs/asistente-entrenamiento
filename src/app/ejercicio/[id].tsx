@@ -1,6 +1,6 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper, SwitchRow, TextField } from '@/components/ui';
 import {
   archiveExercise,
@@ -106,7 +106,7 @@ function ExerciseForm({
   };
 
   const archive = () =>
-    Alert.alert('Archivar ejercicio', 'Dejará de salir en el catálogo. Las rutinas que lo usan y su historial no cambian.', [
+    showDialog('Archivar ejercicio', 'Dejará de salir en el catálogo. Las rutinas que lo usan y su historial no cambian.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Archivar',

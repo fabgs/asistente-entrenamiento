@@ -1,8 +1,9 @@
 import { router, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { View } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { RecommendationBox } from '@/components/Recommendation';
-import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper } from '@/components/ui';
+import { AppText, Button, Card, Chip, Loading, Row, Screen, Stat, StatRow, Stepper } from '@/components/ui';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
   deleteFinishedSession,
@@ -20,7 +21,7 @@ import { applyChange, listChangesForSession } from '@/db/repositories/weightChan
 import { formatDuration, formatKg, formatLoad, formatLongDate, formatNumber } from '@/domain/format';
 import { recommend } from '@/domain/progression';
 import { useDb, useLoader } from '@/hooks/data';
-import { colors, spacing } from '@/theme';
+import { spacing } from '@/theme';
 
 export default function SummaryScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
@@ -85,7 +86,7 @@ export default function SummaryScreen() {
   };
 
   const removeSession = () =>
-    Alert.alert('Borrar entrenamiento', 'Se borrarán todas sus series. No se puede deshacer.', [
+    showDialog('Borrar entrenamiento', 'Se borrarán todas sus series. No se puede deshacer.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Borrar',
@@ -108,11 +109,11 @@ export default function SummaryScreen() {
         </AppText>
       </View>
 
-      <Row style={{ justifyContent: 'space-between' }}>
+      <StatRow>
         <Stat label="Duración" value={duration} />
         <Stat label="Series" value={String(sets.length)} />
         <Stat label="Volumen" value={`${formatNumber(volume, 0)} kg`} />
-      </Row>
+      </StatRow>
 
       {finished ? (
         <Button
@@ -132,7 +133,7 @@ export default function SummaryScreen() {
         const change = changes.filter((c) => c.slotId === slot.id && c.status !== 'expired').at(-1);
         return (
           <Card key={slot.id}>
-            <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+            <Row between>
               <AppText variant="heading" style={{ flex: 1 }}>
                 {slot.exerciseName}
               </AppText>
@@ -249,13 +250,3 @@ function SetEditorList({
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <Card style={{ flex: 1, alignItems: 'center' }}>
-      <AppText variant="small">{label}</AppText>
-      <AppText variant="heading" style={{ color: colors.text }}>
-        {value}
-      </AppText>
-    </Card>
-  );
-}

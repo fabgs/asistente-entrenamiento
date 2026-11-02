@@ -1,6 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { AppText, Button, Card, Loading, Row, Screen, TextField, WeekdayPicker } from '@/components/ui';
 import {
   archiveRoutine,
@@ -43,7 +44,7 @@ export default function RoutineEditorScreen() {
   };
 
   const archive = () =>
-    Alert.alert('Archivar rutina', `«${data.routine.name}» dejará de aparecer, pero se guarda su historial.`, [
+    showDialog('Archivar rutina', `«${data.routine.name}» dejará de aparecer, pero se guarda su historial.`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Archivar',

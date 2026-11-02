@@ -6,7 +6,7 @@ App Android personal para entrenar con progresión automática de cargas, descan
 
 - Plan completo, decisiones y hoja de ruta: [PLAN.md](PLAN.md)
 - Instrucciones para agentes: [AGENTS.md](AGENTS.md)
-- Datos iniciales (rutinas, alimentos, dieta) extraídos del Excel original: [data/seed/seed.json](data/seed/seed.json)
+- Una instalación nueva solo trae el catálogo de ejercicios y alimentos ([data/seed/catalog.json](data/seed/catalog.json)); cada uno monta sus rutinas, cardio y dieta. Los datos del Excel original ([data/seed/seed.json](data/seed/seed.json)) son datos de prueba: los usan los tests y el botón «Cargar datos de prueba» de los builds de desarrollo.
 
 Stack: Expo SDK 58 (React Native) + TypeScript · expo-router · expo-sqlite · expo-notifications.
 

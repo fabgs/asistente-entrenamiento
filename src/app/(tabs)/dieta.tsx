@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper, WeekdayPicker } from '@/components/ui';
 import {
   copyDietDay,
@@ -73,8 +74,10 @@ export default function DietScreen() {
         const mealKcal = sumMacros(items.map(itemMacros)).kcal;
         return (
           <Card key={meal.key}>
-            <Row style={{ justifyContent: 'space-between' }}>
-              <AppText variant="heading">{meal.label}</AppText>
+            <Row between>
+              <AppText variant="heading" style={{ flex: 1 }}>
+                {meal.label}
+              </AppText>
               {items.length > 0 ? <AppText variant="muted">{formatNumber(mealKcal, 0)} kcal</AppText> : null}
             </Row>
             {items.map((item) =>
@@ -161,7 +164,7 @@ function CopyDayCard({
   const [chosen, setTargets] = useState<IsoWeekday[]>([]);
 
   const confirm = () =>
-    Alert.alert(
+    showDialog(
       'Copiar día',
       `El plan de ${chosen.map((d) => WEEKDAY_NAMES[d].toLowerCase()).join(', ')} se reemplazará por el del ${WEEKDAY_NAMES[from].toLowerCase()}.`,
       [
@@ -193,8 +196,10 @@ function TotalsCard({ title, totals, targets }: { title: string; totals: Macros;
     <Card>
       <AppText variant="heading">{title}</AppText>
       {rows.map(([label, value, target, unit]) => (
-        <Row key={label} style={{ justifyContent: 'space-between' }}>
-          <AppText variant="muted">{label}</AppText>
+        <Row key={label} between>
+          <AppText variant="muted" style={{ flex: 1 }}>
+            {label}
+          </AppText>
           <View style={{ flexDirection: 'row' }}>
             <AppText style={target ? { color: DEVIATION_COLOR[deviation(value, target)], fontWeight: '700' } : undefined}>
               {formatNumber(value, 0)}

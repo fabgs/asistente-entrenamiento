@@ -3,12 +3,15 @@ import { router, Stack, ThemeProvider, type Href } from 'expo-router';
 import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
+import { DialogHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
 import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
 import { useDb } from '@/hooks/data';
 import { maybeAutoBackup, resetIfNewInstallInDevMode } from '@/services/backup';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
+// Defines the background GPS task as soon as the bundle loads (PLAN.md §6.8).
+import '@/services/gpsTracker';
 import {
   configureNotificationHandler,
   ensureChannels,
@@ -25,9 +28,10 @@ async function initDatabase(db: SQLiteDatabase) {
   await importSeed(db, SEED, new Date());
 }
 
+// navigate, not push: going back to a screen already open must not stack a second copy of it.
 function openFromNotification(response: Notifications.NotificationResponse | null) {
   const url = response?.notification.request.content.data?.url;
-  if (typeof url === 'string') router.push(url as Href);
+  if (typeof url === 'string') router.navigate(url as Href);
 }
 
 /** Channels, permissions, reminders and notification deep links. */
@@ -70,6 +74,7 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="workout/[sessionId]" options={{ title: 'Entrenando' }} />
           <Stack.Screen name="workout/resumen/[sessionId]" options={{ title: 'Resumen' }} />
+          <Stack.Screen name="cardio-sesion/[id]" options={{ title: 'Cardio' }} />
           <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />
           <Stack.Screen name="rutina/[id]" options={{ title: 'Editar rutina' }} />
           <Stack.Screen name="ejercicios" options={{ title: 'Ejercicios' }} />
@@ -80,6 +85,7 @@ export default function RootLayout() {
           <Stack.Screen name="alimento/[id]" options={{ title: 'Alimento' }} />
           <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
         </Stack>
+        <DialogHost />
       </SQLiteProvider>
     </ThemeProvider>
   );

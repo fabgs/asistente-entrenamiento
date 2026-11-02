@@ -1,5 +1,5 @@
 import type { Db, SqlValue } from '../db';
-import { migrate } from '../migrations';
+import { MIGRATIONS, migrate } from '../migrations';
 
 interface NodeStatement {
   run(...params: SqlValue[]): { changes: number | bigint; lastInsertRowid: number | bigint };
@@ -11,8 +11,8 @@ interface NodeDatabase {
   prepare(sql: string): NodeStatement;
 }
 
-/** In-memory database for tests, backed by Node's built-in SQLite. */
-export async function createTestDb(): Promise<Db> {
+/** In-memory database for tests, backed by Node's built-in SQLite; `upTo` stops at an older schema. */
+export async function createTestDb({ upTo }: { upTo?: number } = {}): Promise<Db> {
   // getBuiltinModule bypasses Jest's resolver, which does not know node:sqlite.
   const { DatabaseSync } = process.getBuiltinModule('node:sqlite') as {
     DatabaseSync: new (path: string) => NodeDatabase;
@@ -43,6 +43,13 @@ export async function createTestDb(): Promise<Db> {
       }
     },
   };
-  await migrate(db);
+  if (upTo === undefined) {
+    await migrate(db);
+  } else {
+    for (let version = 0; version < upTo; version++) {
+      await db.execAsync(MIGRATIONS[version]);
+      await db.execAsync(`PRAGMA user_version = ${version + 1}`);
+    }
+  }
   return db;
 }

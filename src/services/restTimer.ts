@@ -47,6 +47,8 @@ export async function cancelRestEnd(sessionId: number): Promise<void> {
 
 export const restDeadline = (seconds: number, now = Date.now()) => now + seconds * 1000;
 
+export const restIsOver = (endsAt: number, now = Date.now()) => endsAt <= now;
+
 /** Moves a running rest by `deltaSeconds`, never into the past. */
 export const shiftDeadline = (endsAt: number, deltaSeconds: number, now = Date.now()) =>
   Math.max(now + 1000, endsAt + deltaSeconds * 1000);

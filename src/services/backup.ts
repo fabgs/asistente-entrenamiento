@@ -8,6 +8,7 @@ import { exportBackup, getMeta, parseBackup, restoreBackup, setMeta, wipeAllData
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
+import type { SeedData } from '@/db/seedTypes';
 import { localDateString } from '@/domain/schedule';
 import { rescheduleDailyReminders } from './dailyReminder';
 import { getRawFile, putFile, type GithubTarget } from './githubBackup';
@@ -43,10 +44,10 @@ export async function resetIfNewInstallInDevMode(db: Db): Promise<boolean> {
   return true;
 }
 
-/** Back to the Excel data, keeping nothing. */
-export async function resetToSeed(db: Db, now = new Date()): Promise<void> {
+/** Back to a fresh install (or to `seed`, e.g. the Excel data in a development build), keeping nothing. */
+export async function resetToSeed(db: Db, now = new Date(), seed: SeedData = SEED): Promise<void> {
   await wipeAllData(db);
-  await importSeed(db, SEED, now);
+  await importSeed(db, seed, now);
   await resetNotifications();
   await rescheduleDailyReminders(db);
 }

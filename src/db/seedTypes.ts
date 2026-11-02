@@ -14,8 +14,8 @@ export interface SeedData {
   profile: {
     sex: Sex;
     birthDate: string | null;
-    heightCm: number;
-    weightKg: number;
+    heightCm: number | null;
+    weightKg: number | null;
     activityFactor: number;
     deficitKcal: number;
     proteinGPerKg: number;

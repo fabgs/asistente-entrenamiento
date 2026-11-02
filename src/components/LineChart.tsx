@@ -22,11 +22,14 @@ export function LineChart({
   title,
   points,
   format,
+  tickFormat = (v) => format(v).replace(' kg', ''),
   height = 170,
 }: {
   title: string;
   points: ChartPoint[];
   format: (value: number) => string;
+  /** Axis labels: only the number, as the unit does not fit in the left margin. */
+  tickFormat?: (value: number) => string;
   height?: number;
 }) {
   const [width, setWidth] = useState(0);
@@ -52,7 +55,7 @@ export function LineChart({
 
   return (
     <View style={{ gap: 4 }}>
-      <Row style={{ justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+      <Row between>
         <AppText variant="small">{title}</AppText>
         <AppText variant="small">
           <AppText style={{ fontWeight: '700' }}>{format(points[active].value)}</AppText> · {points[active].label}
@@ -72,7 +75,7 @@ export function LineChart({
             ))}
             {scale.ticks.map((t) => (
               <SvgText key={`t${t}`} x={PAD.left - 8} y={y(t) + 4} fill={colors.muted} fontSize={11} textAnchor="end">
-                {format(t).replace(' kg', '')}
+                {tickFormat(t)}
               </SvgText>
             ))}
 

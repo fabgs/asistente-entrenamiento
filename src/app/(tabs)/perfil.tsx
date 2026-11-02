@@ -1,6 +1,7 @@
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { LineChart } from '@/components/LineChart';
 import { AppText, Button, Card, Chip, DateField, Loading, Row, Screen, TextField } from '@/components/ui';
 import {
@@ -130,7 +131,7 @@ function WeightCard({ weights, onChanged }: { weights: WeightEntry[]; onChanged:
   const visible = showAll ? weights : weights.slice(0, RECENT_WEIGHTS);
 
   const remove = (w: WeightEntry) =>
-    Alert.alert('Borrar pesaje', `${formatNumber(w.weightKg)} kg del ${formatDateWithYear(w.date)}`, [
+    showDialog('Borrar pesaje', `${formatNumber(w.weightKg)} kg del ${formatDateWithYear(w.date)}`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Borrar',
@@ -179,8 +180,10 @@ function WeightCard({ weights, onChanged }: { weights: WeightEntry[]; onChanged:
 
 function Line({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
-    <Row style={{ justifyContent: 'space-between' }}>
-      <AppText variant={strong ? 'body' : 'muted'}>{label}</AppText>
+    <Row between>
+      <AppText variant={strong ? 'body' : 'muted'} style={{ flex: 1 }}>
+        {label}
+      </AppText>
       <AppText style={strong ? { color: colors.primary, fontWeight: '800' } : undefined}>{value}</AppText>
     </Row>
   );

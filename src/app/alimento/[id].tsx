@@ -1,6 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Alert, View } from 'react-native';
+import { View } from 'react-native';
+import { showDialog } from '@/components/Dialog';
 import { AppText, Button, Card, Loading, Row, Screen, TextField } from '@/components/ui';
 import { archiveFood, createFood, foodNameTaken, getFood, updateFood, type Food } from '@/db/repositories/diet';
 import { formatNumber, parseDecimal } from '@/domain/format';
@@ -60,7 +61,7 @@ function FoodForm({ food, isNew }: { food: Food; isNew: boolean }) {
   };
 
   const archive = () =>
-    Alert.alert('Archivar alimento', 'Dejará de salir en el catálogo; los días del plan que lo usan no cambian.', [
+    showDialog('Archivar alimento', 'Dejará de salir en el catálogo; los días del plan que lo usan no cambian.', [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Archivar',

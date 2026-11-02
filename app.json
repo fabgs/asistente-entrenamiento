@@ -2,13 +2,14 @@
   "expo": {
     "name": "Entreno",
     "slug": "entreno",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "entreno",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.fabgs.entreno",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#0E1116",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -49,7 +50,15 @@
       ],
       "@react-native-community/datetimepicker",
       "expo-sharing",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "isAndroidForegroundServiceEnabled": true,
+          "isAndroidBackgroundLocationEnabled": false,
+          "androidForegroundServiceIcon": "./assets/images/notification-icon.png"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

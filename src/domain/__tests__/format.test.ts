@@ -1,12 +1,16 @@
 import {
+  formatClock,
   formatCountdown,
   formatAgo,
   formatDateWithYear,
+  formatDuration,
   formatEquipment,
   formatKg,
   formatLoad,
   formatLongDate,
+  formatMetres,
   formatShortDate,
+  formatSpeedKmh,
   formatNumber,
   formatTarget,
   normalizeForSearch,
@@ -87,5 +91,21 @@ describe('format', () => {
     expect(formatTarget({ kind: 'range', min: 8, max: 12 }, 'reps', true)).toBe('8–12 reps por lado');
     expect(formatTarget({ kind: 'fixed', reps: 20 }, 'steps', false)).toBe('20 pasos');
     expect(formatTarget({ kind: 'failure', minus: 1 }, 'reps', false)).toBe('Al fallo −1');
+  });
+
+  it('formats cardio clock, distance and speed', () => {
+    expect(formatClock(245_000)).toBe('4:05');
+    expect(formatClock(52 * 60_000 + 10_000)).toBe('52:10');
+    expect(formatClock(3_725_000)).toBe('1:02:05');
+    expect(formatMetres(850.4)).toBe('850 m');
+    expect(formatMetres(5234)).toBe('5,23 km');
+    expect(formatSpeedKmh(1.4)).toBe('5 km/h');
+    expect(formatSpeedKmh(1.5)).toBe('5,4 km/h');
+  });
+
+  it('formats durations, in seconds below a minute', () => {
+    expect(formatDuration(20_000)).toBe('20 s');
+    expect(formatDuration(59_600)).toBe('1 min');
+    expect(formatDuration(100 * 60_000)).toBe('1 h 40 min');
   });
 });

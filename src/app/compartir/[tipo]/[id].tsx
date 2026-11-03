@@ -11,6 +11,7 @@ import { getSession, listSets, setSessionTitle } from '@/db/repositories/session
 import { getSettings } from '@/db/repositories/settings';
 import { formatDuration, formatLoad, formatLongDate, formatNumber, formatTimeRange } from '@/domain/format';
 import { parseLocalDate } from '@/domain/schedule';
+import { volumeOf } from '@/domain/progress';
 import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useLoader } from '@/hooks/data';
 import { canLoadMapTiles } from '@/services/network';
@@ -82,7 +83,7 @@ export default function ShareScreen() {
       const slot = slotId === null ? null : await getSlot(db, slotId);
       if (slot) slots.push(slot);
     }
-    const volume = sets.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0);
+    const volume = slots.reduce((sum, slot) => sum + volumeOf(sets.filter((s) => s.slotId === slot.id), slot.exercisePair), 0);
     return {
       kind: 'workout' as const,
       defaultTitle: session.routineName ?? 'Entreno',
@@ -99,7 +100,7 @@ export default function ShareScreen() {
           name: slot.exerciseName,
           detail: exerciseDetail(
             own.map((s) => s.reps),
-            formatLoad(own[0]?.weightKg ?? null, isBodyweight(slot)),
+            formatLoad(own[0]?.weightKg ?? null, isBodyweight(slot), slot.exercisePair),
           ),
         };
       }),

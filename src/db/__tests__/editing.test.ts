@@ -24,6 +24,7 @@ import {
 import { listSets, logSet, startSession } from '../repositories/sessions';
 import { deleteWeight, latestWeight, listWeights, logWeight } from '../repositories/settings';
 import { listOpenChanges } from '../repositories/weightChanges';
+import { exportBackup, restoreBackup } from '../maintenance';
 import { importSeed } from '../seed';
 import type { SeedData } from '../seedTypes';
 import { createTestDb } from './testDb';
@@ -63,6 +64,7 @@ describe('routine editing', () => {
       equipment: 'barra',
       incrementKg: null,
       notes: null,
+      pair: false,
     });
     const slotId = await addSlot(db, routine.id, { id: exerciseId, type: 'external' });
     const slots = await listSlots(db, routine.id);
@@ -136,7 +138,7 @@ describe('exercise catalog', () => {
 
   it('brings back an archived exercise instead of failing on its name', async () => {
     const db = await seededDb();
-    const id = await createExercise(db, { name: 'Face pull', type: 'external', equipment: null, incrementKg: null, notes: null });
+    const id = await createExercise(db, { name: 'Face pull', type: 'external', equipment: null, incrementKg: null, notes: null, pair: false });
     await archiveExercise(db, id);
     expect((await listExercises(db)).some((e) => e.id === id)).toBe(false);
     const again = await createExercise(db, {
@@ -145,6 +147,7 @@ describe('exercise catalog', () => {
       equipment: 'polea',
       incrementKg: 2.5,
       notes: null,
+      pair: false,
     });
     expect(again).toBe(id);
     expect((await listExercises(db)).find((e) => e.id === id)).toMatchObject({ name: 'face pull', equipment: 'polea' });
@@ -177,5 +180,30 @@ describe('body weight log', () => {
     const [only] = await listWeights(db);
     expect(await deleteWeight(db, only.date)).toBe(false);
     expect(await listWeights(db)).toHaveLength(1);
+  });
+});
+
+describe('two dumbbells', () => {
+  it('marks the exercises whose material is «mancuernas» and keeps it in the slots', async () => {
+    const db = await seededDb();
+    const exercises = await listExercises(db);
+    expect(exercises.find((e) => e.name === 'Sentadilla Búlgara lastrada')?.pair).toBe(true);
+    expect(exercises.find((e) => e.name === 'Elevaciones laterales mancuerna')?.pair).toBe(false);
+    const id = await createExercise(db, { name: 'Press inclinado', type: 'external', equipment: null, incrementKg: null, notes: null, pair: true });
+    expect((await listExercises(db)).find((e) => e.id === id)?.pair).toBe(true);
+  });
+
+  it('marks them too when restoring a backup from before migration 7', async () => {
+    const source = await seededDb();
+    const backup = await exportBackup(source, new Date(2026, 10, 3));
+    // A copy made before migration 7 has no «pair» column at all.
+    const old = {
+      ...backup,
+      schemaVersion: 6,
+      tables: { ...backup.tables, exercise: backup.tables.exercise!.map(({ pair: _, ...row }) => row) },
+    };
+    const db = await createTestDb();
+    await restoreBackup(db, old);
+    expect((await listExercises(db)).find((e) => e.name === 'Sentadilla Búlgara lastrada')?.pair).toBe(true);
   });
 });

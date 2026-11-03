@@ -36,7 +36,7 @@ import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
 import { spacing } from '@/theme';
 
-const EMPTY: Exercise = { id: 0, name: '', type: 'external', equipment: null, incrementKg: null, notes: null };
+const EMPTY: Exercise = { id: 0, name: '', type: 'external', equipment: null, incrementKg: null, notes: null, pair: false };
 
 const TYPES: { value: ExerciseType; label: string }[] = [
   { value: 'external', label: 'Carga externa' },
@@ -55,7 +55,7 @@ export default function ExerciseEditorScreen() {
     const last = exercise && !isNew ? ((await exerciseSessions(db, exercise.id))[0] ?? null) : null;
     return {
       exercise,
-      lastTime: last ? formatSetGroups(last.sets, exercise?.type === 'bodyweight') : null,
+      lastTime: last ? formatSetGroups(last.sets, exercise?.type === 'bodyweight', exercise?.pair) : null,
       defaultIncrement: (await getSettings(db)).defaultIncrementKg,
     };
   });
@@ -107,6 +107,7 @@ function ExerciseForm({
   const [ownIncrement, setOwnIncrement] = useState(exercise.incrementKg !== null);
   const [increment, setIncrement] = useState(exercise.incrementKg ?? defaultIncrement);
   const [notes, setNotes] = useState(exercise.notes ?? '');
+  const [pair, setPair] = useState(exercise.pair);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -116,6 +117,8 @@ function ExerciseForm({
     equipment: equipment.trim() || null,
     incrementKg: ownIncrement ? increment : null,
     notes: notes.trim() || null,
+    // Only weights can be held in two hands.
+    pair: type === 'external' && pair,
   };
   // As the form would save it, so that an untouched exercise is not "changed".
   const initial: ExerciseFields = {
@@ -124,6 +127,7 @@ function ExerciseForm({
     equipment: formatEquipment(exercise.equipment)?.trim() || null,
     incrementKg: exercise.incrementKg,
     notes: exercise.notes?.trim() || null,
+    pair: exercise.type === 'external' && exercise.pair,
   };
   const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
   const canSave = fields.name !== '' && (isNew || dirty);
@@ -230,6 +234,16 @@ function ExerciseForm({
       </View>
 
       <ListGroup>
+        {type === 'external' ? (
+          <FormRow>
+            <SwitchRow
+              label="Dos mancuernas"
+              subtitle="El peso es el de cada una"
+              value={pair}
+              onValueChange={setPair}
+            />
+          </FormRow>
+        ) : null}
         <FormRow>
           <SwitchRow
             label="Incremento propio"

@@ -1,5 +1,5 @@
 import { distanceAlong, distanceM, positionAtDistance, type TrackSample } from '../gps';
-import { distanceTicks, isZoomed, nearestIndex, panRange, percentileRange, trackSeries, zoomRange } from '../trackChart';
+import { chartSummary, distanceTicks, isZoomed, nearestIndex, panRange, percentileRange, trackSeries, zoomRange } from '../trackChart';
 
 const DEG_PER_M = 1 / 111_195;
 const north = (fromM: number, toM: number, step = 100) => {
@@ -122,5 +122,40 @@ describe('axes', () => {
     expect(distanceTicks({ min: 1000, max: 2000 }, 'km').map((t) => t.d)).toEqual([1000, 1200, 1400, 1600, 1800, 2000]);
     expect(distanceTicks({ min: 1000, max: 2000 }, 'km').at(-1)?.label).toBe('2 km');
     expect(distanceTicks({ min: 0, max: 1300 }, 'm').map((t) => t.label)).toEqual(['0', '500', '1000 m']);
+  });
+});
+
+describe('chartSummary', () => {
+  // 2,5 km at a steady 1,25 m/s, but the second km at 2 m/s.
+  const walk: TrackSample[] = [];
+  let d = 0;
+  for (let s = 0; s <= 1800; s += 10) {
+    walk.push({ s, d, a: 100 + (s < 900 ? s / 30 : 60 - (s - 900) / 30) });
+    d += d >= 1000 && d < 2000 ? 20 : 12.5;
+  }
+
+  it('gives the average pace and the fastest full km', () => {
+    const [avg, best] = chartSummary('pace', walk, { distanceM: 3000, activeMs: 2_000_000 });
+    expect(avg).toEqual({ label: 'Ritmo medio', value: 1000 / 1.5 / 60 });
+    expect(best.label).toBe('Mejor km');
+    expect(best.value).toBeCloseTo(1000 / 2 / 60, 1);
+  });
+
+  it('gives no best km before the first full one', () => {
+    expect(chartSummary('pace', walk.slice(0, 20))[1].value).toBeNull();
+  });
+
+  it('gives the average and top speed in km/h', () => {
+    const [avg, top] = chartSummary('speed', walk, { distanceM: 3600, activeMs: 3_600_000 });
+    expect(avg).toEqual({ label: 'Velocidad media', value: 3.6 });
+    expect(top.value).toBeCloseTo(7.2, 1);
+  });
+
+  it('gives what was climbed and descended', () => {
+    const [up, down] = chartSummary('altitude', walk);
+    expect(up.label).toBe('Subida');
+    expect(down.label).toBe('Bajada');
+    expect(up.value).toBeGreaterThan(25);
+    expect(down.value).toBeGreaterThan(25);
   });
 });

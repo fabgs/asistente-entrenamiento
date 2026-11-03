@@ -173,7 +173,7 @@ function SlotRow({ slot, onOpen, suggestion }: { slot: Slot; onOpen?: () => void
           {slot.exerciseName}
         </AppText>
         <AppText variant="rowValue" tabular>
-          {formatLoad(slot.weightKg, isBodyweight(slot))}
+          {formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)}
         </AppText>
         {onOpen ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
       </View>

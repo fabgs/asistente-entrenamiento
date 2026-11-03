@@ -156,7 +156,7 @@ export default function RoutineEditorScreen() {
                 key={slot.id}
                 left={<Position n={i + 1} />}
                 title={slot.exerciseName}
-                subtitle={`${slot.sets} × ${formatTarget(slot.target, slot.unit, slot.perSide)} · ${formatLoad(slot.weightKg, isBodyweight(slot))}`}
+                subtitle={`${slot.sets} × ${formatTarget(slot.target, slot.unit, slot.perSide)} · ${formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)}`}
                 onPress={() => router.push(`/slot/${slot.id}`)}
               />
             ),

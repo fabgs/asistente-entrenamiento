@@ -68,8 +68,10 @@ export default function ExerciseProgressScreen() {
 
   const { exercise, sessions, changes } = data;
   const bodyweight = exercise.type === 'bodyweight';
-  const records = distinctRecords(computeRecords(sessions));
-  const chronological = [...sessions].reverse().map((s) => ({ label: formatShortDate(s.date), ...summarize(s.sets) }));
+  const records = distinctRecords(computeRecords(sessions, exercise.pair));
+  const chronological = [...sessions]
+    .reverse()
+    .map((s) => ({ label: formatShortDate(s.date), ...summarize(s.sets, exercise.pair) }));
   const hasWeight = chronological.some((s) => s.topWeightKg > 0);
   // Bodyweight work without ballast only has reps to show.
   const shown: ChartMetric = hasWeight ? metric : 'reps';
@@ -92,7 +94,7 @@ export default function ExerciseProgressScreen() {
           {shown === 'weight' ? (
             <LineChart
               key="weight"
-              title="Peso de trabajo por sesión"
+              title={exercise.pair ? 'Peso de cada mancuerna por sesión' : 'Peso de trabajo por sesión'}
               points={chronological.map((s) => ({ label: s.label, value: s.topWeightKg }))}
               format={formatKg}
             />
@@ -115,7 +117,7 @@ export default function ExerciseProgressScreen() {
             {records.maxWeight ? (
               <Stat
                 label="Mejor peso"
-                value={formatNumber(records.maxWeight.kg)}
+                value={`${exercise.pair ? `2${NBSP}×${NBSP}` : ''}${formatNumber(records.maxWeight.kg)}`}
                 unit="kg"
                 caption={`× ${records.maxWeight.reps} · ${formatShortDate(records.maxWeight.date)}`}
               />
@@ -150,7 +152,7 @@ export default function ExerciseProgressScreen() {
             {sessions.map((s) => (
               <ListRow
                 key={s.sessionId}
-                title={formatSetGroups(s.sets, bodyweight)}
+                title={formatSetGroups(s.sets, bodyweight, exercise.pair)}
                 subtitle={[capitalize(formatDayMonth(s.date)), s.title ?? s.routineName].filter(Boolean).join(' · ')}
                 right={
                   s.imported ? (

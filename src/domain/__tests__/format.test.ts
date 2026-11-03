@@ -11,6 +11,7 @@ import {
   formatEquipment,
   formatKg,
   formatLoad,
+  isPairEquipment,
   formatLongDate,
   formatMetres,
   formatShortDate,
@@ -46,6 +47,12 @@ describe('format', () => {
     expect(formatLoad(0, true)).toBe('Peso corporal');
     expect(formatLoad(null, true)).toBe('Peso corporal');
     expect(formatLoad(35, false)).toBe('35 kg');
+    expect(formatLoad(10, false, true)).toBe('2 × 10 kg');
+    expect(formatLoad(0, false, true)).toBe('Sin carga');
+    expect(isPairEquipment('mancuernas')).toBe(true);
+    expect(isPairEquipment(' Mancuernas ')).toBe(true);
+    expect(isPairEquipment('mancuerna')).toBe(false);
+    expect(isPairEquipment(null)).toBe(false);
   });
 
   it('formats the rest countdown', () => {
@@ -152,6 +159,7 @@ describe('format', () => {
       ),
     ).toBe('35 kg × 15, 15 · 37,5 kg × 12');
     expect(formatSetGroups([{ weightKg: null, reps: 10 }, { weightKg: 0, reps: 9 }], true)).toBe('Peso corporal × 10, 9');
+    expect(formatSetGroups([{ weightKg: 10, reps: 12 }, { weightKg: 10, reps: 11 }], false, true)).toBe('2 × 10 kg × 12, 11');
     expect(formatMinutes(1000)).toBe('0 min');
     expect(formatTimeRange(new Date(2026, 10, 3, 9, 20).getTime(), new Date(2026, 10, 3, 10, 19).getTime())).toBe('9:20–10:19');
   });

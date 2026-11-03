@@ -19,6 +19,9 @@ export const CARDIO_TRACKING_DEFAULTS = `
     WHERE tracking = 'check' AND name LIKE '%bici%';
 `;
 
+/** Exercises done with two dumbbells (material «mancuernas»): their weight is that of each one. */
+export const EXERCISE_PAIR_DEFAULTS = `UPDATE exercise SET pair = 1 WHERE lower(trim(equipment)) = 'mancuernas';`;
+
 /**
  * Foods of the first catalogue that were written without their accents: [old name, new name].
  * It is migration 6: further fixes go in a new migration, not here.
@@ -257,6 +260,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE settings ADD COLUMN cardio_live_panel TEXT NOT NULL DEFAULT 'map';
   `,
   FOOD_NAME_FIXES,
+  `
+  ALTER TABLE exercise ADD COLUMN pair INTEGER NOT NULL DEFAULT 0;
+  ${EXERCISE_PAIR_DEFAULTS}
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

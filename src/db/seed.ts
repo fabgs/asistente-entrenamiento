@@ -1,3 +1,4 @@
+import { isPairEquipment } from '@/domain/format';
 import { recommend } from '@/domain/progression';
 import { dateOfWeekday, localDateString } from '@/domain/schedule';
 import type { ProgressionSettings } from '@/domain/types';
@@ -57,10 +58,11 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
     const exerciseIds = new Map<string, number>();
     for (const e of seed.exercises) {
       const r = await db.runAsync(
-        'INSERT INTO exercise (name, type, equipment) VALUES (?, ?, ?)',
+        'INSERT INTO exercise (name, type, equipment, pair) VALUES (?, ?, ?, ?)',
         e.name,
         e.type,
         e.equipment,
+        isPairEquipment(e.equipment) ? 1 : 0,
       );
       exerciseIds.set(e.name, r.lastInsertRowId);
     }

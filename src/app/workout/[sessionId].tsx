@@ -2,7 +2,8 @@ import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Redirect, router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { AppState, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Animated, { cancelAnimation, Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
 import Svg, { Circle } from 'react-native-svg';
 import { showActions, showDialog, showSnackbar } from '@/components/Dialog';
 import { SuggestionAction, SuggestionLine } from '@/components/Recommendation';
@@ -22,6 +23,7 @@ import {
   Loading,
   ProgressBar,
   Row,
+  RowIcon,
   Screen,
   Stepper,
   Tag,
@@ -80,6 +82,8 @@ import {
 import { colors, maxFontScale, radius, spacing, type } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'workout';
+/** Dividers of rows with an icon start at the text: 16 + the 40 dp RowIcon + 16. */
+const ROW_ICON_INSET = spacing.lg + 40 + spacing.lg;
 /** The set cells are 48 dp high: their texts grow less with the system font. */
 const CELL_MAX_SCALE = 1.15;
 
@@ -97,7 +101,7 @@ const restSecondsOf = (slot: Slot | undefined, fallback: number) => slot?.restSe
 function describeNext(next: NextStep, slots: Slot[]): string {
   if (next.kind === 'finished') return 'Rutina completada';
   const slot = slots.find((s) => s.id === next.slotId)!;
-  const load = formatLoad(slot.weightKg, isBodyweight(slot));
+  const load = formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair);
   return next.kind === 'next_set'
     ? `Serie ${next.setNumber} de ${slot.sets} · ${slot.exerciseName} · ${load}`
     : `Siguiente ejercicio: ${slot.exerciseName} · ${load}`;
@@ -484,7 +488,7 @@ function ExerciseList({
               subtitle={
                 <View>
                   <AppText variant="secondary" numberOfLines={1}>
-                    {formatLoad(slot.weightKg, isBodyweight(slot))} · {formatTarget(slot.target, slot.unit, slot.perSide)}
+                    {formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)} · {formatTarget(slot.target, slot.unit, slot.perSide)}
                     {warmupCount > 0 ? ` · ${warmupCount} aprox.` : ''}
                   </AppText>
                   {change && done === 0 ? <SuggestionLine change={change} readOnly /> : null}
@@ -536,7 +540,7 @@ function RestBar({ endsAt, totalSeconds, nextLabel, onOpen }: { endsAt: number; 
       accessibilityRole="button"
       accessibilityLabel={over ? 'Descanso terminado' : `Descanso, quedan ${formatCountdown(remaining)}`}
       accessibilityHint="Vuelve al descanso">
-      <Ring size={32} stroke={4} progress={over ? 1 : remaining / Math.max(totalSeconds * 1000, remaining)} color={ink} />
+      <Ring size={32} stroke={4} endsAt={endsAt} totalMs={totalSeconds * 1000} over={over} color={ink} />
       <View style={{ flex: 1 }}>
         <AppText variant="label" style={over ? { color: colors.primary } : undefined}>
           {over ? 'Descanso terminado' : 'Descanso'}
@@ -553,15 +557,62 @@ function RestBar({ endsAt, totalSeconds, nextLabel, onOpen }: { endsAt: number; 
   );
 }
 
-/** A ring that empties clockwise from 12 o'clock, like a clock hand, as time passes. */
-function Ring({ size, stroke, progress, color }: { size: number; stroke: number; progress: number; color: string }) {
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+
+/**
+ * A ring that empties clockwise from 12 o'clock, like a clock hand, until `endsAt`, and is full
+ * once `over`. It moves on the UI thread in one continuous animation, not in the steps of the
+ * countdown; coming back to the app starts it again from where it should be.
+ */
+function Ring({
+  size,
+  stroke,
+  endsAt,
+  totalMs,
+  over,
+  color,
+}: {
+  size: number;
+  stroke: number;
+  endsAt: number;
+  totalMs: number;
+  over: boolean;
+  color: string;
+}) {
   const r = (size - stroke) / 2;
   const length = 2 * Math.PI * r;
-  const p = Math.max(0, Math.min(1, progress));
+  const progress = useSharedValue(1);
+
+  useEffect(() => {
+    const run = () => {
+      cancelAnimation(progress);
+      const left = endsAt - Date.now();
+      if (over || left <= 0) {
+        progress.set(over ? 1 : 0);
+        return;
+      }
+      // +30 s can leave more than the rest planned: the ring then starts full.
+      progress.set(Math.min(1, left / Math.max(totalMs, left)));
+      progress.set(withTiming(0, { duration: left, easing: Easing.linear }));
+    };
+    run();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') run();
+    });
+    return () => {
+      subscription.remove();
+      cancelAnimation(progress);
+    };
+  }, [endsAt, totalMs, over, progress]);
+
+  // The dash pattern repeats every 2 × length: this offset leaves only the last part of the
+  // circle, from the moving end to 12 o'clock.
+  const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: length * (1 + progress.get()) }));
+
   return (
     <Svg width={size} height={size}>
       <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.cardAlt} strokeWidth={stroke} fill="none" />
-      <Circle
+      <AnimatedCircle
         cx={size / 2}
         cy={size / 2}
         r={r}
@@ -570,9 +621,7 @@ function Ring({ size, stroke, progress, color }: { size: number; stroke: number;
         fill="none"
         strokeLinecap="round"
         strokeDasharray={`${length} ${length}`}
-        // The dash pattern repeats every 2 × length: this offset leaves only the last part of the
-        // circle, from the moving end to 12 o'clock.
-        strokeDashoffset={length * (1 + p)}
+        animatedProps={animatedProps}
         transform={`rotate(-90 ${size / 2} ${size / 2})`}
       />
     </Svg>
@@ -682,6 +731,7 @@ function SetView({
   // Same height for «Peso corporal» and a number at any font size.
   const numberLine = type.numberL.lineHeight * Math.min(fontScale, maxFontScale.numberL ?? 1);
   const noLoad = bodyweight && !slot.weightKg;
+  const weightLabel = bodyweight ? 'Lastre' : slot.exercisePair ? 'Cada mancuerna' : 'Peso';
 
   const apply = async () => {
     if (!shown) return;
@@ -801,9 +851,9 @@ function SetView({
               android_ripple={{ color: colors.pressed }}
               style={styles.weightRow}
               accessibilityRole="button"
-              accessibilityLabel={`${bodyweight ? 'Lastre' : 'Peso'}: ${noLoad ? 'peso corporal' : formatKg(slot.weightKg ?? 0)}`}
+              accessibilityLabel={`${weightLabel}: ${noLoad ? 'peso corporal' : formatKg(slot.weightKg ?? 0)}`}
               accessibilityHint={bodyweight ? 'Cambia el lastre' : 'Cambia el peso'}>
-              <AppText variant="label">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
+              <AppText variant="label">{weightLabel}</AppText>
               <View style={[styles.weightLine, { minHeight: numberLine }]}>
                 {noLoad ? (
                   <AppText variant="title" numberOfLines={1} style={{ flex: 1 }}>
@@ -912,7 +962,9 @@ function SetView({
 
       <Sheet visible={sheet?.kind === 'weight'} title={bodyweight ? 'Cambiar lastre' : 'Cambiar peso'} onClose={() => setSheet(null)}>
         <Stepper big decimal value={sheetKg} onChange={setSheetKg} step={increment} format={loadText} typing={false} />
-        <AppText variant="caption">También para las próximas sesiones</AppText>
+        <AppText variant="caption">
+          {slot.exercisePair ? 'De cada mancuerna; también para las próximas sesiones' : 'También para las próximas sesiones'}
+        </AppText>
         <Button
           size="lg"
           title={`Guardar ${loadText(sheetKg)}`}
@@ -1106,7 +1158,6 @@ function RestView({
       : next.kind === 'next_exercise'
         ? 'Siguiente ejercicio'
         : 'Terminar';
-  const total = Math.max(totalSeconds * 1000, remaining);
   const ringSize = 264;
   const ink = over ? colors.primary : colors.text;
 
@@ -1135,7 +1186,7 @@ function RestView({
         </AppText>
         <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
           <View style={StyleSheet.absoluteFill}>
-            <Ring size={ringSize} stroke={10} progress={over ? 1 : remaining / total} color={ink} />
+            <Ring size={ringSize} stroke={10} endsAt={endsAt} totalMs={totalSeconds * 1000} over={over} color={ink} />
           </View>
           <AppText
             variant="countdown"
@@ -1156,45 +1207,50 @@ function RestView({
         </View>
       </View>
 
-      {lastSet && lastSlot ? (
-        <Pressable
-          onPress={() => setCorrecting(lastSet)}
-          android_ripple={{ color: colors.pressed }}
-          style={styles.doneRow}
-          accessibilityRole="button"
-          accessibilityHint="Corrige la serie sin parar el descanso">
-          <Icon name="check" size={16} color={colors.primary} />
-          <AppText variant="bodySm" weight="600" tabular style={{ flex: 1 }} numberOfLines={1}>
-            Serie {lastSet.setIndex} hecha · {formatLoad(lastSet.weightKg, isBodyweight(lastSlot))} × {lastSet.reps}
-          </AppText>
-          <Icon name="pencil-outline" size={20} color={colors.muted} />
-        </Pressable>
-      ) : null}
-
-      {nextSlot ? (
-        <View style={{ gap: 2 }}>
-          <AppText variant="label">Siguiente</AppText>
-          <AppText variant="heading" numberOfLines={2}>
-            {nextSlot.exerciseName}
-          </AppText>
-          <AppText variant="bodySm" style={{ color: colors.muted }}>
-            {next.kind === 'next_set' ? `Serie ${next.setNumber} de ${nextSlot.sets}` : 'Primera serie'}
-            {' · '}
-            {formatLoad(nextSlot.weightKg, isBodyweight(nextSlot))}
-          </AppText>
-        </View>
-      ) : (
-        <AppText variant="heading">Era la última serie</AppText>
-      )}
+      {/* What was done (tap to correct it, without stopping the rest) and what comes next. */}
+      <ListGroup inset={ROW_ICON_INSET}>
+        {lastSet && lastSlot ? (
+          <ListRow
+            onPress={() => setCorrecting(lastSet)}
+            chevron={false}
+            left={<RowIcon name="check" color={colors.primary} tint={colors.primaryTint} />}
+            title={`Serie ${lastSet.setIndex} hecha`}
+            subtitle={`${formatLoad(lastSet.weightKg, isBodyweight(lastSlot), lastSlot.exercisePair)} × ${lastSet.reps}`}
+            right={<Icon name="pencil-outline" size={20} color={colors.muted} />}
+          />
+        ) : null}
+        {nextSlot ? (
+          <ListRow
+            left={<RowIcon name="arrow-right" color={colors.muted} />}
+            title={
+              <View style={{ gap: 2 }}>
+                <AppText variant="label">Siguiente</AppText>
+                <AppText variant="rowTitle" numberOfLines={2}>
+                  {nextSlot.exerciseName}
+                </AppText>
+              </View>
+            }
+            subtitle={`${next.kind === 'next_set' ? `Serie ${next.setNumber} de ${nextSlot.sets}` : 'Primera serie'} · ${formatLoad(
+              nextSlot.weightKg,
+              isBodyweight(nextSlot),
+              nextSlot.exercisePair,
+            )}`}
+          />
+        ) : (
+          <ListRow left={<RowIcon name="flag-checkered" color={colors.muted} />} title="Era la última serie" />
+        )}
+      </ListGroup>
 
       {askOverlay ? (
-        <Row style={{ gap: spacing.sm }}>
-          <AppText variant="caption" style={{ flex: 1 }} numberOfLines={1}>
-            Burbuja con el descanso fuera de la app
-          </AppText>
-          <Button kind="text" title="Dar permiso" onPress={onGrantOverlay} />
-          <IconButton icon="close" label="No, gracias" onPress={onDeclineOverlay} size={20} color={colors.muted} />
-        </Row>
+        <ListGroup>
+          <View style={styles.noticeRow}>
+            <AppText variant="bodySm" style={{ flex: 1 }}>
+              Burbuja con el descanso fuera de la app
+            </AppText>
+            <Button kind="text" title="Dar permiso" onPress={onGrantOverlay} />
+            <IconButton icon="close" label="No, gracias" onPress={onDeclineOverlay} size={20} color={colors.muted} />
+          </View>
+        </ListGroup>
       ) : null}
 
       <SetSheet
@@ -1268,5 +1324,5 @@ const styles = StyleSheet.create({
   noteSide: { justifyContent: 'center' },
   measure: { position: 'absolute', top: 0, left: 0, right: 0, opacity: 0 },
   restTop: { alignItems: 'center', gap: spacing.md, paddingTop: spacing.sm },
-  doneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
+  noticeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56, paddingLeft: spacing.lg, paddingRight: spacing.xs },
 });

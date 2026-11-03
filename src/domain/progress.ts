@@ -25,11 +25,20 @@ export interface SessionSummary {
   bestSetReps: number;
 }
 
-export function summarize(sets: LoggedSet[]): SessionSummary {
+/**
+ * Σ weight × reps. With `pair` (two dumbbells, the weight being that of each one) both count: two
+ * dumbbells of 10 kg for 12 reps move 240 kg.
+ */
+export function volumeOf(sets: LoggedSet[], pair = false): number {
+  return sets.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0) * (pair ? 2 : 1);
+}
+
+/** `topWeightKg` stays that of one dumbbell, as it is entered and shown («2 × 10 kg»). */
+export function summarize(sets: LoggedSet[], pair = false): SessionSummary {
   return {
     topWeightKg: Math.max(0, ...sets.map((s) => s.weightKg ?? 0)),
     totalReps: sets.reduce((sum, s) => sum + s.reps, 0),
-    volumeKg: sets.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0),
+    volumeKg: volumeOf(sets, pair),
     bestSetReps: Math.max(0, ...sets.map((s) => s.reps)),
   };
 }
@@ -43,7 +52,7 @@ export interface Records {
   maxVolume: { kg: number; date: string; sessionId: number } | null;
 }
 
-export function computeRecords(sessions: ExerciseSession[]): Records {
+export function computeRecords(sessions: ExerciseSession[], pair = false): Records {
   const chronological = [...sessions].sort((a, b) => a.startedAt - b.startedAt);
   let maxWeight: Records['maxWeight'] = null;
   let maxReps: Records['maxReps'] = null;
@@ -60,7 +69,7 @@ export function computeRecords(sessions: ExerciseSession[]): Records {
         maxReps = { reps: set.reps, kg, date, sessionId };
       }
     }
-    const volume = summarize(session.sets).volumeKg;
+    const volume = volumeOf(session.sets, pair);
     if (volume > 0 && (!maxVolume || volume > maxVolume.kg)) maxVolume = { kg: volume, date, sessionId };
   }
   return { maxWeight, maxReps, maxVolume };

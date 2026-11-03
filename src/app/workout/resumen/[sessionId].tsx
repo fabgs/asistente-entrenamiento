@@ -43,6 +43,7 @@ import {
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange } from '@/domain/format';
+import { volumeOf } from '@/domain/progress';
 import { recommend } from '@/domain/progression';
 import type { Recommendation } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
@@ -109,7 +110,11 @@ export default function SummaryScreen() {
   // Warm-ups are shown, but never count as series or volume.
   const work = sets.filter((s) => !s.isWarmup);
   const warmupCount = sets.length - work.length;
-  const volume = work.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0);
+  // Each exercise counts its two dumbbells, if it has them; a set whose slot is gone counts once.
+  const volume = work.reduce(
+    (sum, s) => sum + volumeOf([s], slots.find((slot) => slot.id === s.slotId)?.exercisePair),
+    0,
+  );
   const duration = session.finishedAt ? formatDuration(session.finishedAt - session.startedAt) : '—';
 
   const applyAll = run(async () => {
@@ -274,7 +279,7 @@ export default function SummaryScreen() {
                 <>
                   {slotSets.length > 0 ? (
                     <AppText variant="bodySm" tabular>
-                      {formatSetGroups(slotSets, bodyweight)}
+                      {formatSetGroups(slotSets, bodyweight, slot.exercisePair)}
                     </AppText>
                   ) : (
                     <AppText variant="secondary">Sin series</AppText>

@@ -205,7 +205,7 @@ function SlotForm({
   };
 
   const formatWeight = (kg: number) => (kg > 0 ? formatKg(kg) : bodyweight ? 'Peso corporal' : 'Sin carga');
-  const lastTime = last ? formatSetGroups(last.reps.map((reps) => ({ weightKg: last.weightKg, reps })), bodyweight) : null;
+  const lastTime = last ? formatSetGroups(last.reps.map((reps) => ({ weightKg: last.weightKg, reps })), bodyweight, slot.exercisePair) : null;
 
   return (
     <Screen
@@ -234,7 +234,7 @@ function SlotForm({
         {[routine?.name, `${sets} × ${formatTarget(target, unit, perSide)}`].filter(Boolean).join(' · ')}
       </AppText>
 
-      <Section label={bodyweight ? 'Lastre' : 'Peso'}>
+      <Section label={bodyweight ? 'Lastre' : slot.exercisePair ? 'Peso de cada mancuerna' : 'Peso'}>
         <Card>
           <Stepper
             decimal

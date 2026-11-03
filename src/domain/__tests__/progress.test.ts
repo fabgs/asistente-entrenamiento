@@ -10,6 +10,7 @@ import {
   splitUnit,
   summarize,
   thinSegments,
+  volumeOf,
   type ExerciseSession,
 } from '../progress';
 
@@ -195,5 +196,22 @@ describe('history lists', () => {
     ]);
     const short = [[1, 2, 3]];
     expect(thinSegments(short, 100)).toBe(short);
+  });
+});
+
+describe('two dumbbells', () => {
+  const sets = [
+    { weightKg: 10, reps: 12 },
+    { weightKg: 10, reps: 11 },
+  ];
+  it('counts both in the volume but not in the top weight', () => {
+    expect(volumeOf(sets)).toBe(230);
+    expect(volumeOf(sets, true)).toBe(460);
+    expect(summarize(sets, true)).toMatchObject({ topWeightKg: 10, volumeKg: 460, totalReps: 23 });
+  });
+  it('counts both in the volume record', () => {
+    const records = computeRecords([session('2026-11-02', 1, [[10, 12], [10, 11]])], true);
+    expect(records.maxVolume?.kg).toBe(460);
+    expect(records.maxWeight?.kg).toBe(10);
   });
 });

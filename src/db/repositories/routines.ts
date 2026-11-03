@@ -23,6 +23,8 @@ export interface Slot {
   exerciseName: string;
   exerciseType: ExerciseType;
   exerciseIncrementKg: number | null;
+  /** Two dumbbells of `weightKg` each (see Exercise.pair). */
+  exercisePair: boolean;
   position: number;
   weightKg: number | null;
   sets: number;
@@ -43,6 +45,7 @@ interface SlotRow {
   exercise_name: string;
   exercise_type: ExerciseType;
   exercise_increment_kg: number | null;
+  exercise_pair: number;
   position: number;
   weight_kg: number | null;
   sets: number;
@@ -61,7 +64,8 @@ interface SlotRow {
 }
 
 const SLOT_SELECT = `
-  SELECT s.*, e.name AS exercise_name, e.type AS exercise_type, e.increment_kg AS exercise_increment_kg
+  SELECT s.*, e.name AS exercise_name, e.type AS exercise_type, e.increment_kg AS exercise_increment_kg,
+         e.pair AS exercise_pair
   FROM routine_slot s JOIN exercise e ON e.id = s.exercise_id`;
 
 function targetOf(row: SlotRow): RepTarget {
@@ -83,6 +87,7 @@ function toSlot(row: SlotRow): Slot {
     exerciseName: row.exercise_name,
     exerciseType: row.exercise_type,
     exerciseIncrementKg: row.exercise_increment_kg,
+    exercisePair: bool(row.exercise_pair),
     position: row.position,
     weightKg: row.weight_kg,
     sets: row.sets,

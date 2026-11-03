@@ -1292,7 +1292,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   checkDone: { backgroundColor: colors.primary, borderColor: colors.primary },
-  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56 },
+  // The padding keeps a subtitle of two lines (or a big system font) off the edges.
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56, paddingVertical: spacing.sm },
   numberRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56 },
   miniButton: {
     width: 44,

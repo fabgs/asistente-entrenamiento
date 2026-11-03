@@ -1,5 +1,5 @@
 import { formatNumber, NBSP } from './format';
-import { altitudeProfile, speedSeries, type TrackSample } from './gps';
+import { altitudeProfile, elevationChange, kmSplits, speedSeries, type TrackSample } from './gps';
 import { formatDistance, type DistanceUnit } from './walkStats';
 
 export type TrackMetric = 'speed' | 'pace' | 'altitude';
@@ -94,4 +94,56 @@ export function distanceTicks(view: Range, unit: DistanceUnit): { d: number; lab
     const text = unit === 'm' ? formatDistance(d, 'm').value : formatNumber(d / 1000, 1);
     return { d, label: i === ticks.length - 1 ? `${text}${NBSP}${unit}` : text };
   });
+}
+
+/** A figure over the chart: its label and its value in the unit of the metric (null = no data). */
+export interface ChartStat {
+  label: string;
+  value: number | null;
+}
+
+/**
+ * The two figures over the chart with nothing selected: the average pace and the fastest full km,
+ * the average and the top speed (95th percentile, so a GPS jump does not count), or the metres
+ * climbed and descended. `average` (distance and active time) keeps the averages equal to the
+ * figures of the walk; without it they come from the samples.
+ */
+export function chartSummary(
+  metric: TrackMetric,
+  samples: TrackSample[],
+  average?: { distanceM: number; activeMs: number },
+): [ChartStat, ChartStat] {
+  if (metric === 'altitude') {
+    const profile = altitudeProfile(samples);
+    const change = profile.length > 1 ? elevationChange(profile) : null;
+    return [
+      { label: 'Subida', value: change?.gain ?? null },
+      { label: 'Bajada', value: change?.loss ?? null },
+    ];
+  }
+  const last = samples[samples.length - 1];
+  const speedMs = average
+    ? average.activeMs > 0
+      ? average.distanceM / (average.activeMs / 1000)
+      : 0
+    : last && last.s > 0
+      ? last.d / last.s
+      : 0;
+  if (metric === 'speed') {
+    const speeds = trackSeries(samples, 'speed')
+      .map((p) => p.value)
+      .filter((v): v is number => v !== null)
+      .sort((a, b) => a - b);
+    const top = speeds.length === 0 ? null : speeds[Math.max(0, Math.ceil(speeds.length * 0.95) - 1)];
+    return [
+      { label: 'Velocidad media', value: speedMs * 3.6 },
+      { label: 'Máxima', value: top },
+    ];
+  }
+  const fullKms = kmSplits(samples).filter((s) => s.distanceM === 1000);
+  const bestS = fullKms.length > 0 ? Math.min(...fullKms.map((s) => s.seconds)) : null;
+  return [
+    { label: 'Ritmo medio', value: speedMs > 0.3 ? 1000 / speedMs / 60 : null },
+    { label: 'Mejor km', value: bestS === null ? null : bestS / 60 },
+  ];
 }

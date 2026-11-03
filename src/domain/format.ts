@@ -41,12 +41,17 @@ export function formatKg(kg: number): string {
 }
 
 /** Label for the load of a slot: "37,5 kg", "Lastre 15 kg", "Peso corporal" or "Sin carga". */
-export function formatLoad(weightKg: number | null, isBodyweight: boolean): string {
+/** `pair`: two dumbbells of that weight each, «2 × 10 kg». */
+export function formatLoad(weightKg: number | null, isBodyweight: boolean, pair = false): string {
   if (isBodyweight) {
     return weightKg ? `Lastre ${formatKg(weightKg)}` : 'Peso corporal';
   }
-  return weightKg ? formatKg(weightKg) : 'Sin carga';
+  if (!weightKg) return 'Sin carga';
+  return pair ? `2${NBSP}×${NBSP}${formatKg(weightKg)}` : formatKg(weightKg);
 }
+
+/** Material written as «mancuernas» (plural): the weight is that of each of two dumbbells. */
+export const isPairEquipment = (equipment: string | null) => equipment?.trim().toLowerCase() === 'mancuernas';
 
 export function formatCountdown(ms: number): string {
   const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
@@ -152,14 +157,18 @@ export function spokenTarget(target: RepTarget, unit: RepUnit, perSide: boolean)
  * The sets of an exercise in one line, grouping runs at the same weight:
  * "35 kg × 15, 15, 14" or "35 kg × 15, 15 · 37,5 kg × 12".
  */
-export function formatSetGroups(sets: { weightKg: number | null; reps: number }[], isBodyweight: boolean): string {
+export function formatSetGroups(
+  sets: { weightKg: number | null; reps: number }[],
+  isBodyweight: boolean,
+  pair = false,
+): string {
   const groups: { kg: number | null; reps: number[] }[] = [];
   for (const s of sets) {
     const last = groups.at(-1);
     if (last && (last.kg ?? 0) === (s.weightKg ?? 0)) last.reps.push(s.reps);
     else groups.push({ kg: s.weightKg, reps: [s.reps] });
   }
-  return groups.map((g) => `${formatLoad(g.kg, isBodyweight)} × ${g.reps.join(', ')}`).join(' · ');
+  return groups.map((g) => `${formatLoad(g.kg, isBodyweight, pair)} × ${g.reps.join(', ')}`).join(' · ');
 }
 
 /** "Domingo, 1 de noviembre" (with the comma the RAE asks for). */

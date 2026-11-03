@@ -2,9 +2,10 @@ import { useEffect, useRef, useState, type ComponentRef, type ReactNode } from '
 import { StyleSheet, View, type AccessibilityActionEvent, type GestureResponderEvent } from 'react-native';
 import Svg, { Circle, Line, Path, Rect, Text as SvgText } from 'react-native-svg';
 import { formatClock, formatNumber } from '@/domain/format';
-import { altitudeProfile, elevationChange, type TrackSample } from '@/domain/gps';
+import type { TrackSample } from '@/domain/gps';
 import { niceScale } from '@/domain/progress';
 import {
+  chartSummary,
   distanceTicks,
   isZoomed,
   nearestIndex,
@@ -17,7 +18,7 @@ import {
 } from '@/domain/trackChart';
 import { fixed, formatDistance, type DistanceUnit } from '@/domain/walkStats';
 import { colors, radius, spacing, type } from '@/theme';
-import { AppText, FloatingButton, Row, Segmented, Value } from './ui';
+import { AppText, FloatingButton, Segmented, Value } from './ui';
 
 const PAD = { left: 36, right: 12, top: 8 };
 /** Under the plot: the distance labels and, zoomed in, the position bar. */
@@ -56,25 +57,22 @@ function valueTicks(ticks: number[], metric: TrackMetric): number[] {
   return exact.filter((t, i) => exact.findIndex((u) => tick(u) === tick(t)) === i);
 }
 
-/**
- * What the readout shows with nothing selected: the average (the same as the figures above when
- * given, else from the profile), or what was climbed and descended.
- */
-function summaryOf(metric: TrackMetric, samples: TrackSample[], average?: { distanceM: number; activeMs: number }) {
-  const last = samples[samples.length - 1];
-  const speedMs = average
-    ? average.activeMs > 0
-      ? average.distanceM / (average.activeMs / 1000)
-      : 0
-    : last && last.s > 0
-      ? last.d / last.s
-      : 0;
-  if (metric === 'altitude') {
-    const profile = altitudeProfile(samples);
-    return { climb: profile.length > 1 ? elevationChange(profile) : null };
-  }
-  if (metric === 'speed') return { label: 'Media', value: speedMs * 3.6 };
-  return { label: 'Medio', value: speedMs > 0.3 ? 1000 / speedMs / 60 : null };
+/** A figure over the chart: label above, value and unit below (the cells of the board above). */
+interface Cell {
+  label: string;
+  value: string;
+  unit?: string;
+}
+
+function StatCell({ label, value, unit }: Cell) {
+  return (
+    <View style={styles.cell}>
+      <AppText variant="label" numberOfLines={1}>
+        {label}
+      </AppText>
+      <Value value={value} unit={unit} />
+    </View>
+  );
 }
 
 /**
@@ -131,6 +129,9 @@ export function TrackChart({
   const [cursorD, setCursorD] = useState<number | null>(null);
   const [zoom, setZoom] = useState<Range | null>(null);
   const [hintGone, setHintGone] = useState(false);
+  // The accessory (the chevron of the map's sheet) gets an empty twin on the left, so the two
+  // figures stay centred on the sheet.
+  const [accessoryW, setAccessoryW] = useState(0);
   const box = useRef<ComponentRef<typeof View>>(null);
   const origin = useRef({ x: 0, y: 0 });
   const touch = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
@@ -167,18 +168,15 @@ export function TrackChart({
   const lastD = samples[samples.length - 1]?.d ?? 0;
   const fmt = FORMAT[shown];
   const selector = (
-    <View style={{ gap: spacing.xs }}>
-      <Segmented
-        options={available}
-        value={shown}
-        onChange={(m) => {
-          setMetricState(m);
-          onMetric?.(m);
-          clearCursor();
-        }}
-      />
-      {shown === 'altitude' ? <AppText variant="caption">Altitud aproximada (GPS)</AppText> : null}
-    </View>
+    <Segmented
+      options={available}
+      value={shown}
+      onChange={(m) => {
+        setMetricState(m);
+        onMetric?.(m);
+        clearCursor();
+      }}
+    />
   );
 
   if (live && (series.length < 2 || lastD < LIVE_MIN_M)) {
@@ -237,8 +235,31 @@ export function TrackChart({
   const following = live && cursorD === null;
   const active =
     cursorD !== null ? series[nearestIndex(series, cursorD, (p) => p.d)] : following ? series[series.length - 1] : null;
-  const summary = summaryOf(shown, samples, average);
   const xTicks = distanceTicks(view, unit);
+  const text = (value: number | null) => (value === null ? '–' : fmt.value(value));
+  const unitOf = (value: number | null) => (value === null ? undefined : fmt.unit);
+  const summary = chartSummary(shown, samples, average);
+  // With a point chosen, its value and where it is; while recording, the latest one and the
+  // average; else the summary of the walk.
+  const cells: [Cell, Cell] = active && !following
+    ? [
+        { label: METRICS.find((m) => m.value === shown)!.label, value: text(active.value), unit: unitOf(active.value) },
+        {
+          label: 'Punto',
+          ...(unit === 'km'
+            ? { value: formatNumber(active.d / 1000, 2), unit: `km · ${formatClock(active.s * 1000)}` }
+            : { value: formatDistance(active.d, 'm').value, unit: `m · ${formatClock(active.s * 1000)}` }),
+        },
+      ]
+    : active
+      ? [
+          { label: 'Ahora', value: text(active.value), unit: unitOf(active.value) },
+          { label: summary[0].label, value: text(summary[0].value), unit: unitOf(summary[0].value) },
+        ]
+      : [
+          { label: summary[0].label, value: text(summary[0].value), unit: unitOf(summary[0].value) },
+          { label: summary[1].label, value: text(summary[1].value), unit: unitOf(summary[1].value) },
+        ];
 
   function clearCursor() {
     if (release.current) clearTimeout(release.current);
@@ -378,12 +399,9 @@ export function TrackChart({
   };
 
   const metricLabel = METRICS.find((m) => m.value === shown)!.label;
-  const spokenSummary =
-    'climb' in summary
-      ? summary.climb
-        ? `sube ${Math.round(summary.climb.gain)} metros y baja ${Math.round(summary.climb.loss)}`
-        : 'sin datos'
-      : `${summary.label.toLowerCase()} ${summary.value === null ? 'sin datos' : `${fmt.value(summary.value)} ${fmt.unit}`}`;
+  const spokenSummary = summary
+    .map((c) => `${c.label.toLowerCase()} ${c.value === null ? 'sin datos' : `${fmt.value(c.value)} ${fmt.unit}`}`)
+    .join(', ');
   const onAction = (e: AccessibilityActionEvent) => {
     if (e.nativeEvent.actionName === 'zoomIn') zoomIn((view.min + view.max) / 2);
     if (e.nativeEvent.actionName === 'reset') animateTo(full);
@@ -394,38 +412,10 @@ export function TrackChart({
       {selector}
 
       <View style={styles.readout}>
-        {active ? (
-          <Row style={styles.readoutValue}>
-            {following ? (
-              <AppText variant="bodySm" weight="600" style={{ color: colors.muted }}>
-                Ahora
-              </AppText>
-            ) : null}
-            <Value value={active.value === null ? '–' : fmt.value(active.value)} unit={fmt.unit} />
-          </Row>
-        ) : 'climb' in summary ? (
-          <Row style={styles.readoutValue}>
-            <Value value={summary.climb ? `+${Math.round(summary.climb.gain)}` : '–'} unit="m" />
-            <AppText variant="secondary">·</AppText>
-            <Value value={summary.climb ? `−${Math.round(summary.climb.loss)}` : '–'} unit="m" />
-          </Row>
-        ) : (
-          <Row style={styles.readoutValue}>
-            <AppText variant="bodySm" weight="600" style={{ color: colors.muted }}>
-              {summary.label}
-            </AppText>
-            <Value value={summary.value === null ? '–' : fmt.value(summary.value)} unit={fmt.unit} />
-          </Row>
-        )}
-        <Row style={{ gap: spacing.xs }}>
-          {active && !following ? (
-            <AppText variant="label" tabular>
-              {unit === 'km' ? `km ${formatNumber(active.d / 1000, 2)}` : `${formatDistance(active.d, 'm').value} m`} ·{' '}
-              {formatClock(active.s * 1000)}
-            </AppText>
-          ) : null}
-          {accessory}
-        </Row>
+        {accessory ? <View style={{ width: accessoryW }} /> : null}
+        <StatCell {...cells[0]} />
+        <StatCell {...cells[1]} />
+        {accessory ? <View onLayout={(e) => setAccessoryW(e.nativeEvent.layout.width)}>{accessory}</View> : null}
       </View>
 
       {plot ? (
@@ -538,15 +528,16 @@ export function TrackChart({
           ) : null}
         </View>
       ) : null}
+      {plot && shown === 'altitude' ? <AppText variant="caption">Altitud aproximada, del GPS</AppText> : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   waiting: { alignItems: 'center', justifyContent: 'center' },
-  readout: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
-  // One line always: a wrapping row inside this one is measured too narrow and «+91 m · −86 m» breaks.
-  readoutValue: { gap: spacing.sm, flexWrap: 'nowrap', flexShrink: 1 },
+  readout: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  // Each figure centred in its half, so the pair sits symmetric under the selector.
+  cell: { flex: 1, gap: 2, alignItems: 'center' },
   hint: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   hintBox: {
     backgroundColor: colors.hintBox,

@@ -2,7 +2,7 @@ import { DEFAULT_PLANS } from '@/domain/cardioPlan';
 import { decodeRoute } from '@/domain/gps';
 import type { Db } from '../db';
 import { exportBackup, restoreBackup } from '../maintenance';
-import { migrate } from '../migrations';
+import { MIGRATIONS, migrate } from '../migrations';
 import { cardioLogOn, listCardio, setCardioDone, updateCardio, type CardioActivity } from '../repositories/cardio';
 import {
   addTrackPoints,
@@ -110,7 +110,7 @@ describe('cardio tracking', () => {
     expect(await getActiveCardioSession(db)).toBeNull();
 
     // 15 min minus a 5 min pause.
-    expect((await cardioLogOn(db, '2026-11-02')).get(caminar.id)).toEqual({ value: '840 m · 10 min', sessionId: id });
+    expect((await cardioLogOn(db, '2026-11-02')).get(caminar.id)).toEqual({ value: '840 m · 10 min', sessionId: id });
   });
 
   it('ignores cached fixes from before the start', async () => {
@@ -127,7 +127,7 @@ describe('cardio tracking', () => {
     expect((await getCardioSession(db, id))!.plan).toEqual(DEFAULT_PLANS.miss);
 
     await finishCardioSession(db, id, T0 + 30 * 60_000);
-    expect((await cardioLogOn(db, '2026-11-02')).get(bici.id)?.value).toBe('30 min');
+    expect((await cardioLogOn(db, '2026-11-02')).get(bici.id)?.value).toBe('30 min');
   });
 
   it('finishing while paused ends at the pause', async () => {
@@ -137,7 +137,7 @@ describe('cardio tracking', () => {
     await pauseCardioSession(db, id, T0 + 20 * 60_000);
     await finishCardioSession(db, id, T0 + 60 * 60_000);
     expect((await getCardioSession(db, id))!.finishedAt).toBe(T0 + 20 * 60_000);
-    expect((await cardioLogOn(db, '2026-11-02')).get(bici.id)?.value).toBe('20 min');
+    expect((await cardioLogOn(db, '2026-11-02')).get(bici.id)?.value).toBe('20 min');
   });
 
   it('lists every session in the history, even two walks on the same day', async () => {
@@ -157,8 +157,8 @@ describe('cardio tracking', () => {
     expect(today.date).toBe('2026-11-02');
     expect(today.activities.map((a) => [a.name, a.value, a.sessionId])).toEqual([
       ['Bici estática', null, null],
-      ['Caminar', '420 m · 5 min', morning],
-      ['Caminar', '168 m · 2 min', evening],
+      ['Caminar', '420 m · 5 min', morning],
+      ['Caminar', '168 m · 2 min', evening],
     ]);
     expect(today.activities[1].route).not.toBeNull();
     // Today's log points at the latest walk.
@@ -223,5 +223,5 @@ describe('routines done today', () => {
 it('migrates cleanly twice', async () => {
   const db = await createTestDb();
   await migrate(db);
-  expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))!.user_version).toBe(4);
+  expect((await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))!.user_version).toBe(MIGRATIONS.length);
 });

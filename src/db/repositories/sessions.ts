@@ -1,4 +1,5 @@
 import { recommend } from '@/domain/progression';
+import { slotToOpen } from '@/domain/workoutMachine';
 import { localDateString } from '@/domain/schedule';
 import type { ProgressionSettings, SessionPerformance } from '@/domain/types';
 import { bool, type Db } from '../db';
@@ -11,6 +12,8 @@ export interface Session {
   id: number;
   routineId: number | null;
   routineName: string | null;
+  /** Given by the user (e.g. when sharing); null shows the routine name. */
+  title: string | null;
   date: string;
   startedAt: number;
   finishedAt: number | null;
@@ -31,6 +34,8 @@ export interface SetLog {
   weightKg: number | null;
   reps: number;
   isExtra: boolean;
+  /** Warm-up set: logged with its own weight, never counts for sets, volume, records or progression. */
+  isWarmup: boolean;
   completedAt: number;
 }
 
@@ -38,6 +43,7 @@ interface SessionRow {
   id: number;
   routine_id: number | null;
   routine_name: string | null;
+  title: string | null;
   date: string;
   started_at: number;
   finished_at: number | null;
@@ -58,6 +64,7 @@ function toSession(row: SessionRow): Session {
     id: row.id,
     routineId: row.routine_id,
     routineName: row.routine_name,
+    title: row.title,
     date: row.date,
     startedAt: row.started_at,
     finishedAt: row.finished_at,
@@ -126,11 +133,11 @@ export async function updateSessionState(
 
 const SET_SELECT = `
   SELECT id, session_id AS sessionId, slot_id AS slotId, exercise_id AS exerciseId, set_index AS setIndex,
-         weight_kg AS weightKg, reps, is_extra AS isExtra, completed_at AS completedAt
+         weight_kg AS weightKg, reps, is_extra AS isExtra, is_warmup AS isWarmup, completed_at AS completedAt
   FROM set_log`;
 
-type SetRow = Omit<SetLog, 'isExtra'> & { isExtra: number };
-const toSet = (row: SetRow): SetLog => ({ ...row, isExtra: bool(row.isExtra) });
+type SetRow = Omit<SetLog, 'isExtra' | 'isWarmup'> & { isExtra: number; isWarmup: number };
+const toSet = (row: SetRow): SetLog => ({ ...row, isExtra: bool(row.isExtra), isWarmup: bool(row.isWarmup) });
 
 export async function listSets(db: Db, sessionId: number): Promise<SetLog[]> {
   const rows = await db.getAllAsync<SetRow>(
@@ -149,7 +156,7 @@ export async function logSet(
   now = Date.now(),
 ): Promise<number> {
   const row = await db.getFirstAsync<{ n: number }>(
-    'SELECT COUNT(*) AS n FROM set_log WHERE session_id = ? AND slot_id = ?',
+    'SELECT COUNT(*) AS n FROM set_log WHERE session_id = ? AND slot_id = ? AND is_warmup = 0',
     sessionId,
     slot.id,
   );
@@ -169,23 +176,80 @@ export async function logSet(
   return result.lastInsertRowId;
 }
 
+/** Records a warm-up set of a slot, with the weight actually used. */
+export async function logWarmupSet(
+  db: Db,
+  sessionId: number,
+  slot: Slot,
+  weightKg: number | null,
+  reps: number,
+  now = Date.now(),
+): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    'SELECT COUNT(*) AS n FROM set_log WHERE session_id = ? AND slot_id = ? AND is_warmup = 1',
+    sessionId,
+    slot.id,
+  );
+  const result = await db.runAsync(
+    `INSERT INTO set_log (session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)`,
+    sessionId,
+    slot.id,
+    slot.exerciseId,
+    (row?.n ?? 0) + 1,
+    weightKg,
+    reps,
+    now,
+  );
+  return result.lastInsertRowId;
+}
+
 export async function updateSetReps(db: Db, setId: number, reps: number): Promise<void> {
   await db.runAsync('UPDATE set_log SET reps = ? WHERE id = ?', reps, setId);
 }
 
 export async function deleteSet(db: Db, setId: number): Promise<void> {
-  const set = await db.getFirstAsync<{ session_id: number; slot_id: number | null }>(
-    'SELECT session_id, slot_id FROM set_log WHERE id = ?',
+  const set = await db.getFirstAsync<{ session_id: number; slot_id: number | null; is_warmup: number }>(
+    'SELECT session_id, slot_id, is_warmup FROM set_log WHERE id = ?',
     setId,
   );
   if (!set) return;
   await db.runAsync('DELETE FROM set_log WHERE id = ?', setId);
+  // Warm-ups and working sets are numbered apart.
   const remaining = await db.getAllAsync<{ id: number }>(
-    'SELECT id FROM set_log WHERE session_id = ? AND slot_id IS ? ORDER BY completed_at, id',
+    'SELECT id FROM set_log WHERE session_id = ? AND slot_id IS ? AND is_warmup = ? ORDER BY completed_at, id',
     set.session_id,
     set.slot_id,
+    set.is_warmup,
   );
   for (const [i, s] of remaining.entries()) {
+    await db.runAsync('UPDATE set_log SET set_index = ? WHERE id = ?', i + 1, s.id);
+  }
+}
+
+/** Puts a deleted set back exactly as it was («Deshacer»), numbering its siblings again. */
+export async function restoreSet(db: Db, set: SetLog): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO set_log (id, session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    set.id,
+    set.sessionId,
+    set.slotId,
+    set.exerciseId,
+    set.setIndex,
+    set.weightKg,
+    set.reps,
+    set.isExtra ? 1 : 0,
+    set.isWarmup ? 1 : 0,
+    set.completedAt,
+  );
+  const siblings = await db.getAllAsync<{ id: number }>(
+    'SELECT id FROM set_log WHERE session_id = ? AND slot_id IS ? AND is_warmup = ? ORDER BY completed_at, id',
+    set.sessionId,
+    set.slotId,
+    set.isWarmup ? 1 : 0,
+  );
+  for (const [i, s] of siblings.entries()) {
     await db.runAsync('UPDATE set_log SET set_index = ? WHERE id = ?', i + 1, s.id);
   }
 }
@@ -199,10 +263,10 @@ export async function slotHistory(db: Db, slotId: number, limit = 6): Promise<Sl
   const rows = await db.getAllAsync<{ session_id: number; weight_kg: number | null; reps: number }>(
     `SELECT sl.session_id, sl.weight_kg, sl.reps
      FROM set_log sl JOIN workout_session ws ON ws.id = sl.session_id
-     WHERE sl.slot_id = ? AND ws.status = 'finished'
+     WHERE sl.slot_id = ? AND ws.status = 'finished' AND sl.is_warmup = 0
        AND sl.session_id IN (
          SELECT DISTINCT s2.session_id FROM set_log s2 JOIN workout_session w2 ON w2.id = s2.session_id
-         WHERE s2.slot_id = ? AND w2.status = 'finished'
+         WHERE s2.slot_id = ? AND w2.status = 'finished' AND s2.is_warmup = 0
          ORDER BY w2.started_at DESC LIMIT ?)
      ORDER BY ws.started_at DESC, sl.set_index`,
     slotId,
@@ -218,15 +282,25 @@ export async function slotHistory(db: Db, slotId: number, limit = 6): Promise<Sl
   return [...bySession.values()];
 }
 
+/** Warm-ups of the latest finished session of a slot that had any, in order: proposed again. */
+export async function lastWarmups(db: Db, slotId: number): Promise<{ weightKg: number | null; reps: number }[]> {
+  return db.getAllAsync<{ weightKg: number | null; reps: number }>(
+    `SELECT sl.weight_kg AS weightKg, sl.reps FROM set_log sl
+     WHERE sl.slot_id = ? AND sl.is_warmup = 1 AND sl.session_id = (
+       SELECT s2.session_id FROM set_log s2 JOIN workout_session w2 ON w2.id = s2.session_id
+       WHERE s2.slot_id = ? AND s2.is_warmup = 1 AND w2.status = 'finished'
+       ORDER BY w2.started_at DESC LIMIT 1)
+     ORDER BY sl.set_index`,
+    slotId,
+    slotId,
+  );
+}
+
 /** Reps of the latest finished session of a slot, to prefill the inputs. */
 export async function lastReps(db: Db, slotId: number): Promise<number[]> {
   return (await slotHistory(db, slotId, 1))[0]?.reps ?? [];
 }
 
-/**
- * Closes the session and stores one pending recommendation per trained slot.
- * Slot weights are never changed here (PLAN.md §6.2).
- */
 /** Proposes the next load for a slot from its history; never changes the slot weight. */
 async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: ProgressionSettings, now: number) {
   const history = await slotHistory(db, slot.id);
@@ -246,10 +320,10 @@ async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: P
   }
 }
 
-/** Active routine slots that have sets in the session. */
+/** Active routine slots that have working sets (not just warm-ups) in the session. */
 async function trainedSlots(db: Db, session: Session): Promise<Slot[]> {
   if (!session.routineId) return [];
-  const sets = await listSets(db, session.id);
+  const sets = (await listSets(db, session.id)).filter((s) => !s.isWarmup);
   return (await listSlots(db, session.routineId)).filter((slot) => sets.some((s) => s.slotId === slot.id));
 }
 
@@ -295,7 +369,7 @@ export async function refreshRecommendations(
   await db.runAsync(
     `UPDATE weight_change SET status = 'expired', decided_at = ?
      WHERE session_id = ? AND status IN ('pending', 'dismissed')
-       AND slot_id NOT IN (SELECT slot_id FROM set_log WHERE session_id = ? AND slot_id IS NOT NULL)`,
+       AND slot_id NOT IN (SELECT slot_id FROM set_log WHERE session_id = ? AND slot_id IS NOT NULL AND is_warmup = 0)`,
     now,
     sessionId,
     sessionId,
@@ -331,6 +405,11 @@ export async function updateSetWeight(db: Db, setId: number, weightKg: number | 
   await db.runAsync('UPDATE set_log SET weight_kg = ? WHERE id = ?', weightKg, setId);
 }
 
+/** An empty title goes back to the routine name. */
+export async function setSessionTitle(db: Db, sessionId: number, title: string): Promise<void> {
+  await db.runAsync('UPDATE workout_session SET title = ? WHERE id = ?', title.trim() || null, sessionId);
+}
+
 export async function discardSession(db: Db, sessionId: number): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM set_log WHERE session_id = ?', sessionId);
@@ -342,6 +421,7 @@ export interface SessionSummaryRow {
   id: number;
   date: string;
   routineName: string | null;
+  title: string | null;
   startedAt: number;
   finishedAt: number | null;
   imported: boolean;
@@ -350,8 +430,8 @@ export interface SessionSummaryRow {
 
 export async function listFinishedSessions(db: Db, limit = 100): Promise<SessionSummaryRow[]> {
   const rows = await db.getAllAsync<Omit<SessionSummaryRow, 'imported'> & { imported: number }>(
-    `SELECT ws.id, ws.date, r.name AS routineName, ws.started_at AS startedAt, ws.finished_at AS finishedAt,
-            ws.imported, (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id) AS setCount
+    `SELECT ws.id, ws.date, r.name AS routineName, ws.title, ws.started_at AS startedAt, ws.finished_at AS finishedAt,
+            ws.imported, (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id AND sl.is_warmup = 0) AS setCount
      FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id
      WHERE ws.status = 'finished'
      ORDER BY ws.started_at DESC LIMIT ?`,
@@ -363,13 +443,29 @@ export async function listFinishedSessions(db: Db, limit = 100): Promise<Session
 /** Routines finished on a date, with the session to open its summary. */
 export async function finishedRoutinesOn(db: Db, date: string): Promise<Map<number, SessionSummaryRow>> {
   const rows = await db.getAllAsync<Omit<SessionSummaryRow, 'imported'> & { imported: number; routineId: number }>(
-    `SELECT ws.id, ws.routine_id AS routineId, ws.date, r.name AS routineName, ws.started_at AS startedAt,
+    `SELECT ws.id, ws.routine_id AS routineId, ws.date, r.name AS routineName, ws.title, ws.started_at AS startedAt,
             ws.finished_at AS finishedAt, ws.imported,
-            (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id) AS setCount
+            (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id AND sl.is_warmup = 0) AS setCount
      FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id
      WHERE ws.status = 'finished' AND ws.imported = 0 AND ws.date = ? AND ws.routine_id IS NOT NULL
      ORDER BY ws.started_at`,
     date,
   );
   return new Map(rows.map(({ routineId, ...r }) => [routineId, { ...r, imported: bool(r.imported) }]));
+}
+
+/** Starting or continuing a workout goes straight to the set to do next (see slotToOpen). */
+export async function openNextSet(db: Db, sessionId: number): Promise<void> {
+  const session = await getSession(db, sessionId);
+  if (!session || session.status !== 'in_progress' || session.routineId === null) return;
+  const slots = await listSlots(db, session.routineId);
+  const sets = await listSets(db, sessionId);
+  const slotId = slotToOpen(
+    slots.map((s) => ({ slotId: s.id, sets: s.sets })),
+    sets,
+    session.skippedSlotIds,
+    session.currentSlotId,
+    session.restEndsAt !== null,
+  );
+  if (slotId !== null && slotId !== session.currentSlotId) await updateSessionState(db, sessionId, { currentSlotId: slotId });
 }

@@ -1,40 +1,52 @@
-import { router, Stack, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
-import { AppText, Button, Card, Loading, Row, Screen, TextField } from '@/components/ui';
+import { StyleSheet, View } from 'react-native';
+import { showActions, showDialog } from '@/components/Dialog';
+import {
+  AppText,
+  BottomBar,
+  Button,
+  EmptyState,
+  HeaderButton,
+  Icon,
+  ListGroup,
+  ListRow,
+  Loading,
+  Screen,
+  Section,
+  TextField,
+  Value,
+} from '@/components/ui';
 import { archiveFood, createFood, foodNameTaken, getFood, updateFood, type Food } from '@/db/repositories/diet';
 import { formatNumber, parseDecimal } from '@/domain/format';
 import { kcalOf } from '@/domain/nutrition';
 import { useDb, useLoader } from '@/hooks/data';
-import { colors } from '@/theme';
+import { colors, spacing } from '@/theme';
 
 const EMPTY: Food = { id: 0, name: '', fatPer100g: 0, carbsPer100g: 0, proteinPer100g: 0 };
 
-/** Create (`id = nuevo`) or edit a food of the catalog. */
+/** Create (`id = nuevo`, optionally with the `nombre` searched for) or edit a food of the catalog. */
 export default function FoodEditorScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, nombre } = useLocalSearchParams<{ id: string; nombre?: string }>();
   const isNew = id === 'nuevo';
-  const { data } = useLoader(async (db) => (isNew ? EMPTY : await getFood(db, Number(id))));
+  const { data } = useLoader(async (db) => (isNew ? { ...EMPTY, name: nombre ?? '' } : await getFood(db, Number(id))));
 
   if (data === undefined) return <Loading />;
   if (data === null) {
     return (
       <Screen>
-        <AppText>No se encontró el alimento.</AppText>
+        <EmptyState icon="food-apple-outline" title="No se encontró el alimento" />
       </Screen>
     );
   }
-
-  return (
-    <Screen>
-      <Stack.Screen options={{ title: isNew ? 'Nuevo alimento' : 'Editar alimento' }} />
-      <FoodForm food={data} isNew={isNew} />
-    </Screen>
-  );
+  return <FoodForm key={data.id} food={data} isNew={isNew} />;
 }
 
 const asText = (n: number) => (n ? formatNumber(n, 2) : '');
+/** Empty counts as 0; null while the text is not a number. */
+const asNumber = (text: string) => (text.trim() ? parseDecimal(text) : 0);
+
+type Field = 'name' | 'protein' | 'fat' | 'carbs' | 'total';
 
 function FoodForm({ food, isNew }: { food: Food; isNew: boolean }) {
   const db = useDb();
@@ -42,60 +54,164 @@ function FoodForm({ food, isNew }: { food: Food; isNew: boolean }) {
   const [protein, setProtein] = useState(asText(food.proteinPer100g));
   const [fat, setFat] = useState(asText(food.fatPer100g));
   const [carbs, setCarbs] = useState(asText(food.carbsPer100g));
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ field: Field; text: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
-  const values = [protein, fat, carbs].map((t) => (t.trim() ? parseDecimal(t) : 0));
-  const [p, f, c] = values.map((v) => v ?? 0);
-  const invalid = values.some((v) => v === null);
+  const p = asNumber(protein);
+  const f = asNumber(fat);
+  const c = asNumber(carbs);
+  const changed =
+    name.trim() !== food.name ||
+    p !== food.proteinPer100g ||
+    f !== food.fatPer100g ||
+    c !== food.carbsPer100g;
+  // A new food can be saved as soon as it has a name (it may come from the search).
+  const canSave = !saving && (isNew ? name.trim() !== '' : changed);
 
-  const save = async () => {
+  /** Validates and writes; false (with the error on its field) if something is wrong. */
+  const persist = async (): Promise<boolean> => {
     const trimmed = name.trim();
-    if (!trimmed) return setError('Ponle un nombre');
-    if (invalid) return setError('Revisa los números (usa coma o punto para los decimales)');
-    if (p + f + c > 100) return setError('Los macros no pueden sumar más de 100 g por cada 100 g');
-    if (await foodNameTaken(db, trimmed, isNew ? undefined : food.id)) return setError('Ya hay un alimento con ese nombre');
+    if (!trimmed) return fail('name', 'Ponle un nombre');
+    if (p === null) return fail('protein', 'No es un número');
+    if (f === null) return fail('fat', 'No es un número');
+    if (c === null) return fail('carbs', 'No es un número');
+    if (p + f + c > 100) return fail('total', 'Los macros no pueden sumar más de 100 g por cada 100 g');
+    if (await foodNameTaken(db, trimmed, isNew ? undefined : food.id)) return fail('name', 'Ya hay un alimento con ese nombre');
     const fields = { name: trimmed, proteinPer100g: p, fatPer100g: f, carbsPer100g: c };
-    if (isNew) await createFood(db, fields);
-    else await updateFood(db, food.id, fields);
+    setSaving(true);
+    try {
+      if (isNew) await createFood(db, fields);
+      else await updateFood(db, food.id, fields);
+      return true;
+    } catch {
+      // Only possible clash left: an archived food with that exact name.
+      return fail('name', 'Ya hay un alimento con ese nombre');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  function fail(field: Field, text: string): false {
+    setError({ field, text });
+    return false;
+  }
+
+  const disableLeaveCheck = usePreventRemove(changed && !leaving, ({ repeat }) =>
+    showDialog('¿Guardar los cambios?', undefined, [
+      {
+        text: 'Guardar',
+        onPress: async () => {
+          if (!(await persist())) return;
+          setLeaving(true);
+          repeat();
+        },
+      },
+      {
+        text: 'Descartar',
+        style: 'destructive',
+        onPress: () => {
+          setLeaving(true);
+          repeat();
+        },
+      },
+      { text: 'Seguir editando', style: 'cancel' },
+    ]),
+  );
+
+  const leave = () => {
+    setLeaving(true);
+    disableLeaveCheck();
     router.back();
   };
 
-  const archive = () =>
-    showDialog('Archivar alimento', 'Dejará de salir en el catálogo; los días del plan que lo usan no cambian.', [
+  const save = async () => {
+    setError(null);
+    if (await persist()) leave();
+  };
+
+  const remove = () =>
+    showDialog('¿Borrar el alimento?', 'Desaparece del catálogo. Los días de la dieta que lo usan no cambian.', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Archivar',
+        text: 'Borrar',
         style: 'destructive',
         onPress: async () => {
           await archiveFood(db, food.id);
-          router.back();
+          leave();
         },
       },
     ]);
 
+  const edit = (set: (text: string) => void) => (text: string) => {
+    set(text);
+    if (error) setError(null);
+  };
+  const errorFor = (field: Field) => (error?.field === field ? error.text : undefined);
+  const kcal = p === null || f === null || c === null ? null : kcalOf(f, c, p);
+
   return (
-    <>
-      <Card>
-        <TextField label="Nombre" value={name} onChangeText={setName} placeholder="Copos de avena" />
-        <AppText variant="small">Por cada 100 g</AppText>
-        <Row style={{ flexWrap: 'nowrap' }}>
-          {(
-            [
-              ['Proteína (g)', protein, setProtein],
-              ['Grasa (g)', fat, setFat],
-              ['Carbohidratos (g)', carbs, setCarbs],
-            ] as const
-          ).map(([label, value, set]) => (
-            <View key={label} style={{ flex: 1 }}>
-              <TextField label={label} value={value} onChangeText={set} keyboard="decimal" placeholder="0" />
-            </View>
-          ))}
-        </Row>
-        <AppText>{invalid ? '—' : `${formatNumber(kcalOf(f, c, p), 0)} kcal por 100 g`}</AppText>
-        {error ? <AppText style={{ color: colors.danger }}>{error}</AppText> : null}
-        <Button title="Guardar" onPress={save} />
-      </Card>
-      {!isNew ? <Button kind="danger" title="Archivar alimento" onPress={archive} /> : null}
-    </>
+    <Screen
+      footer={
+        <BottomBar>
+          <Button size="lg" title="Guardar" disabled={!canSave} onPress={save} style={{ flex: 1 }} />
+        </BottomBar>
+      }>
+      <Stack.Screen
+        options={{
+          title: isNew ? 'Nuevo alimento' : 'Alimento',
+          headerRight: isNew
+            ? undefined
+            : () => (
+                <HeaderButton
+                  icon="dots-vertical"
+                  label="Más acciones"
+                  onPress={() =>
+                    showActions([{ text: 'Borrar alimento', icon: 'trash-can-outline', destructive: true, onPress: remove }])
+                  }
+                />
+              ),
+        }}
+      />
+      <TextField
+        label="Nombre"
+        value={name}
+        onChangeText={edit(setName)}
+        placeholder="Copos de avena"
+        error={errorFor('name')}
+        autoFocus={isNew && !food.name}
+      />
+
+      <Section label="Macros por 100 gramos">
+        <View style={styles.macros}>
+          <View style={styles.macro}>
+            <TextField label="Proteína" value={protein} onChangeText={edit(setProtein)} keyboard="decimal" placeholder="0" suffix="g" error={errorFor('protein')} />
+          </View>
+          <View style={styles.macro}>
+            <TextField label="Grasa" value={fat} onChangeText={edit(setFat)} keyboard="decimal" placeholder="0" suffix="g" error={errorFor('fat')} />
+          </View>
+          <View style={styles.macro}>
+            <TextField label="Hidratos" value={carbs} onChangeText={edit(setCarbs)} keyboard="decimal" placeholder="0" suffix="g" error={errorFor('carbs')} />
+          </View>
+        </View>
+        {error?.field === 'total' ? (
+          <View style={styles.totalError}>
+            <Icon name="alert-circle" size={16} color={colors.danger} />
+            <AppText variant="caption" style={{ flex: 1, color: colors.danger }}>
+              {error.text}
+            </AppText>
+          </View>
+        ) : null}
+        <ListGroup>
+          <ListRow title="Calorías" right={kcal === null ? '–' : <Value value={formatNumber(kcal, 0)} unit="kcal" size="rowValue" />} />
+        </ListGroup>
+      </Section>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  macros: { flexDirection: 'row', gap: spacing.sm },
+  macro: { flex: 1 },
+  totalError: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+});

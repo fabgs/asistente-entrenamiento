@@ -1,6 +1,12 @@
 import { ageOn, computeTargets, type NutritionTargets, type Sex } from '@/domain/nutrition';
 import type { ProgressionMode, ProgressionSettings } from '@/domain/types';
+import type { TrackMetric } from '@/domain/trackChart';
+import { isWalkMetric, type DistanceUnit, type WalkMetric } from '@/domain/walkStats';
 import { bool, int, type Db } from '../db';
+
+export type LivePanel = 'map' | 'chart' | 'splits';
+const LIVE_PANELS: LivePanel[] = ['map', 'chart', 'splits'];
+const TRACK_METRICS: TrackMetric[] = ['pace', 'speed', 'altitude'];
 
 export interface Settings {
   restSecondsDefault: number;
@@ -17,6 +23,13 @@ export interface Settings {
   backupPath: string | null;
   lastBackupAt: number | null;
   lastBackupError: string | null;
+  /** Figure shown big on a walk's screen. */
+  cardioHero: WalkMetric;
+  distanceUnit: DistanceUnit;
+  /** Metric last chosen in a walk's chart. */
+  cardioChart: TrackMetric;
+  /** Panel last chosen under the figures of a walk being recorded. */
+  cardioLivePanel: LivePanel;
 }
 
 interface SettingsRow {
@@ -34,6 +47,10 @@ interface SettingsRow {
   backup_path: string | null;
   last_backup_at: number | null;
   last_backup_error: string | null;
+  cardio_hero: string;
+  distance_unit: string;
+  cardio_chart: string;
+  cardio_live_panel: string;
 }
 
 export async function getSettings(db: Db): Promise<Settings> {
@@ -54,6 +71,10 @@ export async function getSettings(db: Db): Promise<Settings> {
     backupPath: row.backup_path,
     lastBackupAt: row.last_backup_at,
     lastBackupError: row.last_backup_error,
+    cardioHero: isWalkMetric(row.cardio_hero) ? row.cardio_hero : 'distance',
+    distanceUnit: row.distance_unit === 'm' ? 'm' : 'km',
+    cardioChart: TRACK_METRICS.find((m) => m === row.cardio_chart) ?? 'pace',
+    cardioLivePanel: LIVE_PANELS.find((p) => p === row.cardio_live_panel) ?? 'map',
   };
 }
 
@@ -73,6 +94,10 @@ export async function updateSettings(db: Db, patch: Partial<Settings>): Promise<
     backupPath: 'backup_path',
     lastBackupAt: 'last_backup_at',
     lastBackupError: 'last_backup_error',
+    cardioHero: 'cardio_hero',
+    distanceUnit: 'distance_unit',
+    cardioChart: 'cardio_chart',
+    cardioLivePanel: 'cardio_live_panel',
   };
   for (const [key, value] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     const sqlValue = typeof value === 'boolean' ? int(value) : value;
@@ -165,8 +190,11 @@ export async function latestWeight(db: Db): Promise<number | null> {
 
 /** Daily targets from the profile and latest weight, or null while the profile is incomplete. */
 export async function loadNutritionTargets(db: Db, today: string): Promise<NutritionTargets | null> {
-  const profile = await getProfile(db);
-  const weightKg = await latestWeight(db);
+  return nutritionTargetsOf(await getProfile(db), await latestWeight(db), today);
+}
+
+/** Same as loadNutritionTargets, for a profile being edited on screen. */
+export function nutritionTargetsOf(profile: Profile, weightKg: number | null, today: string): NutritionTargets | null {
   if (!profile.birthDate || !profile.heightCm || !weightKg) return null;
   return computeTargets({
     sex: profile.sex,

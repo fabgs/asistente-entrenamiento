@@ -122,10 +122,55 @@ export async function deleteDietItem(db: Db, id: number): Promise<void> {
   await db.runAsync('DELETE FROM diet_item WHERE id = ?', id);
 }
 
-/** Replaces the plan of each target day with a copy of `from`. */
-export async function copyDietDay(db: Db, from: IsoWeekday, to: IsoWeekday[]): Promise<void> {
+/** A row of the plan as stored, to put it back exactly as it was («Deshacer»). */
+export interface StoredDietItem {
+  id: number;
+  weekday: IsoWeekday;
+  meal: Meal;
+  foodId: number;
+  grams: number;
+  position: number;
+}
+
+const STORED_SELECT = 'SELECT id, weekday, meal, food_id AS foodId, grams, position FROM diet_item';
+
+/** Removes an item and returns it, so «Deshacer» can bring it back with its grams. */
+export async function removeDietItem(db: Db, id: number): Promise<StoredDietItem | null> {
+  const item = await db.getFirstAsync<StoredDietItem>(`${STORED_SELECT} WHERE id = ?`, id);
+  if (item) await deleteDietItem(db, id);
+  return item;
+}
+
+async function insertStored(db: Db, item: StoredDietItem): Promise<void> {
+  // Same id and position, so it reappears in its place; ignored if it is somehow back already.
+  await db.runAsync(
+    'INSERT OR IGNORE INTO diet_item (id, weekday, meal, food_id, grams, position) VALUES (?, ?, ?, ?, ?, ?)',
+    item.id,
+    item.weekday,
+    item.meal,
+    item.foodId,
+    item.grams,
+    item.position,
+  );
+}
+
+export async function restoreDietItem(db: Db, item: StoredDietItem): Promise<void> {
+  await insertStored(db, item);
+}
+
+/**
+ * Replaces the plan of each target day with a copy of `from`. Returns the items it replaced, for
+ * restoreDietDays.
+ */
+export async function copyDietDay(db: Db, from: IsoWeekday, to: IsoWeekday[]): Promise<StoredDietItem[]> {
   const targets = to.filter((d) => d !== from);
+  if (targets.length === 0) return [];
+  let replaced: StoredDietItem[] = [];
   await db.withTransactionAsync(async () => {
+    replaced = await db.getAllAsync<StoredDietItem>(
+      `${STORED_SELECT} WHERE weekday IN (${targets.map(() => '?').join(', ')}) ORDER BY weekday, position, id`,
+      ...targets,
+    );
     for (const day of targets) {
       await db.runAsync('DELETE FROM diet_item WHERE weekday = ?', day);
       await db.runAsync(
@@ -135,5 +180,14 @@ export async function copyDietDay(db: Db, from: IsoWeekday, to: IsoWeekday[]): P
         from,
       );
     }
+  });
+  return replaced;
+}
+
+/** Undoes copyDietDay: `days` get back exactly the items they had. */
+export async function restoreDietDays(db: Db, days: IsoWeekday[], items: StoredDietItem[]): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    for (const day of days) await db.runAsync('DELETE FROM diet_item WHERE weekday = ?', day);
+    for (const item of items) await insertStored(db, item);
   });
 }

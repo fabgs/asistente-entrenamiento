@@ -119,13 +119,13 @@
       "proteinPer100g": 3.9
     },
     {
-      "name": "Proteina",
+      "name": "Proteína",
       "fatPer100g": 3.3,
       "carbsPer100g": 6.6,
       "proteinPer100g": 77
     },
     {
-      "name": "Colageno",
+      "name": "Colágeno",
       "fatPer100g": 0,
       "carbsPer100g": 0,
       "proteinPer100g": 0
@@ -167,13 +167,13 @@
       "proteinPer100g": 0
     },
     {
-      "name": "Yogurt griego",
+      "name": "Yogur griego",
       "fatPer100g": 2,
       "carbsPer100g": 3.9,
       "proteinPer100g": 5.5
     },
     {
-      "name": "Platano",
+      "name": "Plátano",
       "fatPer100g": 0.33,
       "carbsPer100g": 22.84,
       "proteinPer100g": 1.09
@@ -185,7 +185,7 @@
       "proteinPer100g": 1.14
     },
     {
-      "name": "Arandanos",
+      "name": "Arándanos",
       "fatPer100g": 0.33,
       "carbsPer100g": 14.49,
       "proteinPer100g": 0.74
@@ -221,13 +221,13 @@
       "proteinPer100g": 21.7
     },
     {
-      "name": "Higado de ternera",
+      "name": "Hígado de ternera",
       "fatPer100g": 4.85,
       "carbsPer100g": 2.91,
       "proteinPer100g": 19.93
     },
     {
-      "name": "Salmon",
+      "name": "Salmón",
       "fatPer100g": 5.93,
       "carbsPer100g": 0,
       "proteinPer100g": 21.62
@@ -269,13 +269,13 @@
       "proteinPer100g": 2.71
     },
     {
-      "name": "Ragu",
+      "name": "Ragú",
       "fatPer100g": 15,
       "carbsPer100g": 4.5,
       "proteinPer100g": 3.4
     },
     {
-      "name": "Atun lata",
+      "name": "Atún en lata",
       "fatPer100g": 1.2,
       "carbsPer100g": 0.9,
       "proteinPer100g": 21

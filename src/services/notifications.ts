@@ -2,7 +2,7 @@ import Constants from 'expo-constants';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { canDrawOverlays, stopRestCountdown } from '../../modules/rest-timer';
+import { canDrawOverlays, isIgnoringBatteryOptimizations, stopRestCountdown } from '../../modules/rest-timer';
 
 // Android channels are immutable once created: bump the suffix when changing sound or importance.
 export const REST_CHANNEL_ID = 'rest-timer-v1';
@@ -48,13 +48,20 @@ export interface PermissionState {
   notifications: boolean;
   exactAlarms: boolean;
   overlay: boolean;
+  /** The app is out of battery optimization; null if this build cannot tell. */
+  batteryUnrestricted: boolean | null;
 }
 
 export async function getPermissionState(): Promise<PermissionState> {
+  const android = Platform.OS === 'android';
   const notifications = (await Notifications.getPermissionsAsync()).granted;
-  const exactAlarms =
-    Platform.OS === 'android' ? (await Notifications.getExactAlarmPermissionsAsync()).granted : true;
-  return { notifications, exactAlarms, overlay: canDrawOverlays() };
+  const exactAlarms = android ? (await Notifications.getExactAlarmPermissionsAsync()).granted : true;
+  return {
+    notifications,
+    exactAlarms,
+    overlay: canDrawOverlays(),
+    batteryUnrestricted: android ? isIgnoringBatteryOptimizations() : true,
+  };
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {

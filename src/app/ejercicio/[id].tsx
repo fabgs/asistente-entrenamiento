@@ -1,7 +1,23 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { showDialog } from '@/components/Dialog';
-import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper, SwitchRow, TextField } from '@/components/ui';
+import { StyleSheet, View } from 'react-native';
+import { showActions, showDialog } from '@/components/Dialog';
+import { FormRow } from '@/components/FormRow';
+import {
+  AppText,
+  BottomBar,
+  Button,
+  EmptyState,
+  HeaderButton,
+  ListGroup,
+  ListRow,
+  Loading,
+  NumberRow,
+  Screen,
+  Segmented,
+  SwitchRow,
+  TextField,
+} from '@/components/ui';
 import {
   archiveExercise,
   createExercise,
@@ -9,56 +25,78 @@ import {
   getExercise,
   updateExercise,
   type Exercise,
+  type ExerciseFields,
 } from '@/db/repositories/exercises';
+import { exerciseSessions } from '@/db/repositories/progress';
 import { addSlot } from '@/db/repositories/routines';
 import { getSettings } from '@/db/repositories/settings';
-import { EXERCISE_TYPE_LABEL, formatEquipment, formatKg } from '@/domain/format';
+import { formatEquipment, formatKg, formatSetGroups } from '@/domain/format';
 import type { ExerciseType } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
-import { rescheduleDailyReminders } from '@/services/dailyReminder';
-import { colors } from '@/theme';
+import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
+import { spacing } from '@/theme';
 
 const EMPTY: Exercise = { id: 0, name: '', type: 'external', equipment: null, incrementKg: null, notes: null };
 
-/** Create (`id = nuevo`) or edit an exercise of the catalog. */
-export default function ExerciseEditorScreen() {
-  const { id, pickFor } = useLocalSearchParams<{ id: string; pickFor?: string }>();
-  const isNew = id === 'nuevo';
-  const { data } = useLoader(async (db) => ({
-    exercise: isNew ? EMPTY : await getExercise(db, Number(id)),
-    defaultIncrement: (await getSettings(db)).defaultIncrementKg,
-  }));
+const TYPES: { value: ExerciseType; label: string }[] = [
+  { value: 'external', label: 'Carga externa' },
+  { value: 'bodyweight', label: 'Peso corporal' },
+];
 
-  if (!data) return <Loading />;
+/**
+ * Create (`id = nuevo`, optionally with `nombre`) or edit an exercise of the catalog. With `pickFor`
+ * (a routine id), the new exercise is also added to that routine.
+ */
+export default function ExerciseEditorScreen() {
+  const { id, pickFor, nombre } = useLocalSearchParams<{ id: string; pickFor?: string; nombre?: string }>();
+  const isNew = id === 'nuevo';
+  const { data } = useLoader(async (db) => {
+    const exercise = isNew ? { ...EMPTY, name: nombre ?? '' } : await getExercise(db, Number(id));
+    const last = exercise && !isNew ? ((await exerciseSessions(db, exercise.id))[0] ?? null) : null;
+    return {
+      exercise,
+      lastTime: last ? formatSetGroups(last.sets, exercise?.type === 'bodyweight') : null,
+      defaultIncrement: (await getSettings(db)).defaultIncrementKg,
+    };
+  });
+
+  if (!data) {
+    return (
+      <>
+        <Stack.Screen options={{ title: isNew ? 'Nuevo ejercicio' : 'Editar ejercicio' }} />
+        <Loading />
+      </>
+    );
+  }
   if (!data.exercise) {
     return (
       <Screen>
-        <AppText>No se encontró el ejercicio.</AppText>
+        <EmptyState icon="dumbbell" title="Este ejercicio ya no existe" />
       </Screen>
     );
   }
-
   return (
-    <Screen>
-      <Stack.Screen options={{ title: isNew ? 'Nuevo ejercicio' : 'Editar ejercicio' }} />
-      <ExerciseForm
-        exercise={data.exercise}
-        isNew={isNew}
-        defaultIncrement={data.defaultIncrement}
-        pickFor={pickFor ? Number(pickFor) : null}
-      />
-    </Screen>
+    <ExerciseForm
+      key={data.exercise.id}
+      exercise={data.exercise}
+      isNew={isNew}
+      lastTime={data.lastTime}
+      defaultIncrement={data.defaultIncrement}
+      pickFor={pickFor ? Number(pickFor) : null}
+    />
   );
 }
 
 function ExerciseForm({
   exercise,
   isNew,
+  lastTime,
   defaultIncrement,
   pickFor,
 }: {
   exercise: Exercise;
   isNew: boolean;
+  lastTime: string | null;
   defaultIncrement: number;
   pickFor: number | null;
 }) {
@@ -70,81 +108,160 @@ function ExerciseForm({
   const [increment, setIncrement] = useState(exercise.incrementKg ?? defaultIncrement);
   const [notes, setNotes] = useState(exercise.notes ?? '');
   const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const save = async () => {
-    const trimmed = name.trim();
-    if (!trimmed) return setError('Ponle un nombre');
-    if (await exerciseNameTaken(db, trimmed, isNew ? undefined : exercise.id)) {
-      return setError('Ya hay un ejercicio con ese nombre');
+  const fields: ExerciseFields = {
+    name: name.trim(),
+    type,
+    equipment: equipment.trim() || null,
+    incrementKg: ownIncrement ? increment : null,
+    notes: notes.trim() || null,
+  };
+  // As the form would save it, so that an untouched exercise is not "changed".
+  const initial: ExerciseFields = {
+    name: exercise.name.trim(),
+    type: exercise.type,
+    equipment: formatEquipment(exercise.equipment)?.trim() || null,
+    incrementKg: exercise.incrementKg,
+    notes: exercise.notes?.trim() || null,
+  };
+  const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
+  const canSave = fields.name !== '' && (isNew || dirty);
+
+  /** Saves; for a new exercise picked for a routine, also adds it and returns its slot. */
+  const save = async (): Promise<number | boolean> => {
+    if (!fields.name) {
+      setError('Ponle un nombre');
+      return false;
     }
-    const fields = {
-      name: trimmed,
-      type,
-      equipment: equipment.trim() || null,
-      incrementKg: ownIncrement ? increment : null,
-      notes: notes.trim() || null,
-    };
+    if (await exerciseNameTaken(db, fields.name, isNew ? undefined : exercise.id)) {
+      setError('Ya hay un ejercicio con ese nombre');
+      return false;
+    }
     try {
-      if (!isNew) {
-        await updateExercise(db, exercise.id, fields);
-        router.back();
-        return;
-      }
-      const id = await createExercise(db, fields);
-      if (pickFor === null) {
-        router.back();
-        return;
-      }
-      const slotId = await addSlot(db, pickFor, { id, type });
-      await rescheduleDailyReminders(db);
-      // Leave the picker behind: back to whoever asked for the exercise, then straight into its settings.
-      router.back();
-      router.replace(`/slot/${slotId}`);
+      return await queueWrite(async () => {
+        if (!isNew) {
+          await updateExercise(db, exercise.id, fields);
+          return true;
+        }
+        const id = await createExercise(db, fields);
+        return pickFor === null ? true : addSlot(db, pickFor, { id, type });
+      });
     } catch {
-      setError('No se pudo guardar: ese nombre lo usa un ejercicio archivado');
+      setError('No se pudo guardar: prueba con otro nombre');
+      return false;
+    } finally {
+      if (isNew && pickFor !== null) reschedule(db);
+    }
+  };
+  const leave = useSaveGuard(dirty, async () => (await save()) !== false);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const saved = await save();
+      if (saved === false) return;
+      leave();
+      // Picked for a routine: straight into its settings, leaving the picker behind.
+      if (typeof saved === 'number') router.replace(`/slot/${saved}`);
+    } finally {
+      setSaving(false);
     }
   };
 
-  const archive = () =>
-    showDialog('Archivar ejercicio', 'Dejará de salir en el catálogo. Las rutinas que lo usan y su historial no cambian.', [
+  const remove = () =>
+    showDialog('¿Borrar el ejercicio?', 'Desaparece del catálogo. Las rutinas que lo usan y su historial no cambian.', [
       { text: 'Cancelar', style: 'cancel' },
       {
-        text: 'Archivar',
+        text: 'Borrar',
         style: 'destructive',
         onPress: async () => {
-          await archiveExercise(db, exercise.id);
-          router.back();
+          await queueWrite(() => archiveExercise(db, exercise.id));
+          leave();
         },
       },
     ]);
 
   return (
-    <>
-      <Card>
-        <TextField label="Nombre" value={name} onChangeText={setName} placeholder="Press militar" />
-        <AppText variant="small">Tipo</AppText>
-        <Row>
-          {(['external', 'bodyweight'] as const).map((t) => (
-            <Chip key={t} label={EXERCISE_TYPE_LABEL[t]} selected={type === t} onPress={() => setType(t)} />
-          ))}
-        </Row>
-        <TextField label="Material (opcional)" value={equipment} onChangeText={setEquipment} placeholder="barra, mancuernas…" />
-        <SwitchRow
-          label={`Incremento propio (por defecto ${formatKg(defaultIncrement)})`}
-          value={ownIncrement}
-          onValueChange={setOwnIncrement}
+    <Screen
+      footer={
+        <BottomBar>
+          <Button
+            size="lg"
+            title={isNew && pickFor !== null ? 'Añadir a la rutina' : 'Guardar'}
+            disabled={!canSave || saving}
+            onPress={submit}
+            style={styles.flex}
+          />
+        </BottomBar>
+      }>
+      <Stack.Screen
+        options={{
+          title: isNew ? 'Nuevo ejercicio' : 'Editar ejercicio',
+          headerRight: isNew
+            ? undefined
+            : () => (
+                <HeaderButton
+                  icon="dots-vertical"
+                  label="Más acciones"
+                  onPress={() =>
+                    showActions([{ text: 'Borrar ejercicio', icon: 'trash-can-outline', destructive: true, onPress: remove }])
+                  }
+                />
+              ),
+        }}
+      />
+      <View style={styles.fields}>
+        <TextField
+          label="Nombre"
+          value={name}
+          onChangeText={(text) => {
+            setName(text);
+            setError(null);
+          }}
+          placeholder="Press militar"
+          error={error ?? undefined}
         />
+        <View style={styles.field}>
+          <AppText variant="label">Tipo</AppText>
+          <Segmented options={TYPES} value={type} onChange={setType} />
+        </View>
+        <TextField label="Material" value={equipment} onChangeText={setEquipment} placeholder="Barra, mancuernas…" />
+      </View>
+
+      <ListGroup>
+        <FormRow>
+          <SwitchRow
+            label="Incremento propio"
+            subtitle={`Por defecto ${formatKg(defaultIncrement)}`}
+            value={ownIncrement}
+            onValueChange={setOwnIncrement}
+          />
+        </FormRow>
         {ownIncrement ? (
-          <Stepper decimal value={increment} onChange={setIncrement} step={0.5} min={0.25} format={formatKg} />
+          <FormRow>
+            <NumberRow label="Incremento" value={increment} onChange={setIncrement} step={0.5} min={0.5} format={formatKg} />
+          </FormRow>
         ) : null}
-        <TextField label="Notas (opcional)" value={notes} onChangeText={setNotes} multiline />
-        {error ? <AppText style={{ color: colors.danger }}>{error}</AppText> : null}
-        <Button title={isNew && pickFor !== null ? 'Crear y añadir a la rutina' : 'Guardar'} onPress={save} />
-      </Card>
-      {!isNew ? (
-        <Button kind="secondary" title="Ver progreso" onPress={() => router.push(`/progreso/${exercise.id}`)} />
+      </ListGroup>
+
+      <TextField label="Notas" value={notes} onChangeText={setNotes} multiline />
+
+      {lastTime ? (
+        <ListGroup>
+          <ListRow
+            title="Últimas sesiones"
+            subtitle={lastTime}
+            onPress={() => router.push(`/progreso/${exercise.id}`)}
+          />
+        </ListGroup>
       ) : null}
-      {!isNew ? <Button kind="danger" title="Archivar ejercicio" onPress={archive} /> : null}
-    </>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  fields: { gap: spacing.lg },
+  field: { gap: 6 },
+});

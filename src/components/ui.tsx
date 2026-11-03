@@ -1,8 +1,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
-import { useState, type ComponentProps, type ReactNode } from 'react';
+import * as Haptics from 'expo-haptics';
+import { Children, Fragment, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Animated,
+  KeyboardAvoidingView,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -12,30 +15,90 @@ import {
   View,
   type StyleProp,
   type TextProps,
+  type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { formatCountdown, formatDateWithYear, formatNumber, parseDecimal, parseDuration } from '@/domain/format';
-import { ISO_WEEKDAYS, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { formatCountdown, formatDateWithYear, formatNumber, parseDecimal } from '@/domain/format';
+import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
-import { colors, radius, spacing } from '@/theme';
+import { colors, maxFontScale, quietTypes, radius, spacing, type, unitSize, weight, type TypeName } from '@/theme';
+import { setBottomBarHeight } from './layers';
 
-type TextVariant = 'title' | 'heading' | 'body' | 'muted' | 'small' | 'huge';
+/** Names from before the type scale, still accepted: muted = secondary, small = caption, huge = display. */
+const ALIASES = { muted: 'secondary', small: 'caption', huge: 'display' } as const satisfies Record<string, TypeName>;
+type TextVariant = TypeName | keyof typeof ALIASES;
 
-export function AppText({ variant = 'body', style, ...rest }: TextProps & { variant?: TextVariant }) {
-  return <Text style={[textStyles[variant], style]} {...rest} />;
-}
-
-export function Screen({ children, scroll = true }: { children: ReactNode; scroll?: boolean }) {
-  if (!scroll) return <View style={styles.screen}>{children}</View>;
+/**
+ * Every text of the app. `variant` is a step of the type scale (theme.ts); quiet variants (secondary,
+ * label, caption, overline, axis) are grey. `weight` adjusts body, bodySm and label, and rowValue at
+ * 700 to single out one figure.
+ */
+export function AppText({
+  variant = 'body',
+  tabular = false,
+  weight,
+  style,
+  ...rest
+}: TextProps & { variant?: TextVariant; tabular?: boolean; weight?: '500' | '600' | '700' }) {
+  const name: TypeName = variant in ALIASES ? ALIASES[variant as keyof typeof ALIASES] : (variant as TypeName);
   return (
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.screen} keyboardShouldPersistTaps="handled">
-      {children}
-    </ScrollView>
+    <Text
+      maxFontSizeMultiplier={maxFontScale[name]}
+      style={[
+        type[name],
+        { color: quietTypes.includes(name) ? colors.muted : colors.text },
+        (type[name].fontSize ?? 0) >= 36 && styles.noFontPadding,
+        tabular && styles.tabular,
+        weight && { fontWeight: weight },
+        style,
+      ]}
+      {...rest}
+    />
   );
 }
 
-export function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
-  return <View style={[styles.card, style]}>{children}</View>;
+/**
+ * A scrolling screen. `footer` (a BottomBar with the main action) stays below the scroll, never on
+ * top of it, so the action is always in the same place; the keyboard pushes both up.
+ */
+export function Screen({
+  children,
+  scroll = true,
+  footer,
+  tight = false,
+}: {
+  children: ReactNode;
+  scroll?: boolean;
+  footer?: ReactNode;
+  /** 16 between sections instead of 24 (set, rest and live walk). */
+  tight?: boolean;
+}) {
+  const content = [styles.screen, { gap: tight ? spacing.lg : spacing.xl }, footer ? { paddingBottom: spacing.lg } : null];
+  const body = scroll ? (
+    <ScrollView style={styles.scroll} contentContainerStyle={content} keyboardShouldPersistTaps="handled">
+      {children}
+    </ScrollView>
+  ) : (
+    <View style={[content, { flex: 1 }]}>{children}</View>
+  );
+  if (!footer) return body;
+  return (
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: colors.bg }}>
+      {body}
+      {footer}
+    </KeyboardAvoidingView>
+  );
+}
+
+/** One level of container: never a card inside a card (inside, use dividers or a Block). */
+export function Card({ children, style, flush = false }: { children: ReactNode; style?: StyleProp<ViewStyle>; flush?: boolean }) {
+  return <View style={[styles.card, flush && styles.flush, style]}>{children}</View>;
+}
+
+/** A sub-block inside a card: something to decide or a notice. */
+export function Block({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <View style={[styles.block, style]}>{children}</View>;
 }
 
 /**
@@ -54,68 +117,294 @@ export function Row({
   return <View style={[styles.row, between && styles.rowBetween, style]}>{children}</View>;
 }
 
-type ButtonKind = 'primary' | 'secondary' | 'ghost' | 'danger';
+type ButtonKind = 'primary' | 'secondary' | 'tonal' | 'tonalDanger' | 'text' | 'danger' | 'ghost' | 'destructive';
+type ButtonSize = 'md' | 'lg' | 'xl';
+const KIND_ALIASES: Partial<Record<ButtonKind, ButtonKind>> = { ghost: 'text', destructive: 'tonalDanger' };
 
+/**
+ * One primary per view. `text` is an action in the text colour (never blue links), flush with the
+ * edge it is aligned to; `danger` (red text) only in sheets, menus and rows; `tonalDanger` only to
+ * confirm a deletion in a dialog.
+ */
 export function Button({
   title,
   onPress,
-  kind = 'primary',
+  kind: rawKind = 'primary',
   big = false,
+  size = big ? 'lg' : 'md',
   disabled = false,
   icon,
   style,
+  accessibilityLabel,
 }: {
   title: string;
   onPress: () => void;
   kind?: ButtonKind;
+  /** Same as size="lg". */
   big?: boolean;
+  size?: ButtonSize;
   disabled?: boolean;
   icon?: IconName;
   style?: StyleProp<ViewStyle>;
+  /** When the title alone is not enough out of context («Aproximación» → «Añadir aproximación»). */
+  accessibilityLabel?: string;
 }) {
+  const kind = KIND_ALIASES[rawKind] ?? rawKind;
+  const flat = kind === 'text' || kind === 'danger';
+  const color = disabled ? colors.disabledText : buttonText[kind];
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ disabled }}
       disabled={disabled}
       onPress={onPress}
-      hitSlop={kind === 'ghost' ? { left: spacing.md, right: spacing.md } : undefined}
+      android_ripple={flat ? undefined : { color: colors.ripple }}
+      hitSlop={flat ? 12 : undefined}
       style={({ pressed }) => [
         styles.button,
+        { minHeight: flat ? 44 : BUTTON_HEIGHT[size], paddingHorizontal: flat ? 0 : size === 'xl' ? 20 : spacing.lg },
         buttonStyles[kind],
-        big && styles.buttonBig,
-        (pressed || disabled) && { opacity: disabled ? 0.4 : 0.75 },
+        disabled && !flat && styles.buttonDisabled,
+        pressed && flat && { opacity: 0.6 },
         style,
       ]}>
-      {icon ? <Icon name={icon} size={big ? 24 : 20} color={buttonText[kind]} /> : null}
-      <Text style={[styles.buttonText, { color: buttonText[kind] }, big && styles.buttonTextBig]}>{title}</Text>
+      {icon ? <Icon name={icon} size={size === 'xl' ? 24 : 20} color={color} /> : null}
+      <Text
+        maxFontSizeMultiplier={size === 'xl' ? 1.15 : undefined}
+        style={[styles.buttonText, { color }, size === 'xl' && styles.buttonTextXl]}
+        numberOfLines={1}
+        // With a big system font, a little smaller before cutting it («Termi…»).
+        adjustsFontSizeToFit
+        minimumFontScale={0.8}>
+        {title}
+      </Text>
     </Pressable>
   );
 }
 
+const BUTTON_HEIGHT: Record<ButtonSize, number> = { md: 48, lg: 56, xl: 64 };
+
+/** Round icon button: header actions (share, ⋮), editing in a row, closing a notice. */
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  size = 24,
+  color = colors.text,
+  disabled = false,
+}: {
+  icon: IconName;
+  label: string;
+  onPress: () => void;
+  size?: number;
+  color?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      android_ripple={{ color: colors.ripple, borderless: true, radius: 24 }}
+      style={styles.iconButton}>
+      <Icon name={icon} size={size} color={disabled ? colors.disabledText : color} />
+    </Pressable>
+  );
+}
+
+/** Header action (share, ⋮…): same button, aligned with the 16 dp margin. */
+export const HeaderButton = (props: { icon: IconName; label: string; onPress: () => void }) => (
+  <View style={{ marginRight: -12 }}>
+    <IconButton {...props} />
+  </View>
+);
+
+/** The same in the header of a tab, which has no margin of its own on the right. */
+export const TabHeaderButton = (props: { icon: IconName; label: string; onPress: () => void }) => (
+  <View style={{ marginRight: spacing.xs }}>
+    <IconButton {...props} />
+  </View>
+);
+
+/** Up to two header icons (share-variant, dots-vertical), for <Stack.Screen options={{ headerRight }}>. */
+export function HeaderActions({ children }: { children: ReactNode }) {
+  return <View style={styles.headerActions}>{children}</View>;
+}
+
+/**
+ * Control floating over a map or a chart: round 44 dp with an icon or a short text, or a 32 dp pill
+ * with an icon and a word («Ver todo», «Recentrar»).
+ */
+export function FloatingButton({
+  icon,
+  text,
+  label,
+  onPress,
+  pill = false,
+  disabled = false,
+}: {
+  icon?: IconName;
+  text?: string;
+  label: string;
+  onPress: () => void;
+  pill?: boolean;
+  disabled?: boolean;
+}) {
+  const color = disabled ? colors.disabledText : colors.text;
+  return (
+    <Pressable
+      onPress={onPress}
+      disabled={disabled}
+      hitSlop={pill ? 8 : 2}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled }}
+      style={({ pressed }) => [pill ? styles.floatingPill : styles.floating, pressed && { opacity: 0.75 }]}>
+      {icon ? <Icon name={icon} size={pill ? 16 : 22} color={color} /> : null}
+      {text ? <Text style={[pill ? styles.floatingPillText : styles.floatingText, { color }]}>{text}</Text> : null}
+    </Pressable>
+  );
+}
+
+/** Shortcut chip for a value (rest 1:30, 2:00…); selected in a green tint. */
 export function Chip({
   label,
   selected = false,
   onPress,
   color,
+  style,
 }: {
   label: string;
   selected?: boolean;
   onPress?: () => void;
   color?: string;
+  style?: StyleProp<ViewStyle>;
 }) {
   return (
     <Pressable
       onPress={onPress}
       disabled={!onPress}
-      style={[styles.chip, selected && { backgroundColor: colors.primary, borderColor: colors.primary }]}>
-      <Text style={[styles.chipText, { color: selected ? colors.onPrimary : (color ?? colors.text) }]}>{label}</Text>
+      hitSlop={4}
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={{ selected }}
+      style={({ pressed }) => [styles.chip, selected && styles.chipOn, pressed && { opacity: 0.75 }, style]}>
+      <Text style={[styles.chipText, { color: selected ? colors.primary : (color ?? colors.text) }]}>{label}</Text>
     </Pressable>
   );
 }
 
+/** Small label that cannot be tapped: a state or a category. */
+export function Tag({ label, tone = 'neutral', icon }: { label: string; tone?: TagTone; icon?: IconName }) {
+  const { bg, fg } = TAG_TONES[tone];
+  return (
+    <View style={[styles.tag, { backgroundColor: bg }]} accessible accessibilityLabel={label}>
+      {icon ? <Icon name={icon} size={14} color={fg} /> : null}
+      <Text style={[styles.tagText, { color: fg }]} numberOfLines={1}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+export type TagTone = 'neutral' | 'success' | 'warning' | 'info' | 'danger';
+const TAG_TONES: Record<TagTone, { bg: string; fg: string }> = {
+  neutral: { bg: colors.cardAlt, fg: colors.muted },
+  success: { bg: colors.primaryTint, fg: colors.primary },
+  warning: { bg: colors.warningTint, fg: colors.warning },
+  info: { bg: colors.accentTint, fg: colors.accent },
+  danger: { bg: colors.dangerTint, fg: colors.danger },
+};
+
 /**
- * Big − value + control, usable with sweaty hands. Tapping the value opens the keyboard to type it;
- * every valid keystroke is applied at once, so a button pressed with the keyboard open sees it.
+ * One choice among a few (2–4), all in view and in one line. `onMap` is the same control over a map
+ * (see-through track, fixed width).
+ */
+export function Segmented<T extends string>({
+  options,
+  value,
+  onChange,
+  style,
+  onMap = false,
+}: {
+  options: { value: T; label: string; disabled?: boolean }[];
+  value: T;
+  onChange: (value: T) => void;
+  style?: StyleProp<ViewStyle>;
+  onMap?: boolean;
+}) {
+  return (
+    <View style={[styles.segmented, onMap && styles.segmentedOnMap, style]} accessibilityRole="radiogroup">
+      {options.map((o) => {
+        const on = o.value === value;
+        return (
+          <Pressable
+            key={o.value}
+            disabled={o.disabled}
+            onPress={() => {
+              if (on) return;
+              Haptics.selectionAsync();
+              onChange(o.value);
+            }}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: on, disabled: o.disabled }}
+            style={[styles.segment, on && (onMap ? styles.segmentOnMap : styles.segmentOn)]}>
+            <Text
+              style={[styles.segmentText, on && styles.segmentTextOn, o.disabled && { color: colors.disabledText }]}
+              numberOfLines={1}>
+              {o.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+}
+
+/** A number with its unit smaller and grey, never split across lines. */
+export function Value({
+  value,
+  unit,
+  size = 'metricSm',
+  color = colors.text,
+  align,
+  tabular = true,
+  fit = false,
+  maxScale,
+  style,
+}: {
+  value: string;
+  unit?: string;
+  size?: TypeName;
+  color?: string;
+  align?: TextStyle['textAlign'];
+  tabular?: boolean;
+  /** Shrink to fit (only big figures, never in grids). */
+  fit?: boolean;
+  /** How much it may grow with the system font size (by default, that of its size). */
+  maxScale?: number;
+  style?: StyleProp<TextStyle>;
+}) {
+  return (
+    <Text
+      maxFontSizeMultiplier={maxScale ?? maxFontScale[size]}
+      style={[type[size], { color, textAlign: align }, tabular && styles.tabular, (type[size].fontSize ?? 0) >= 36 && styles.noFontPadding, style]}
+      numberOfLines={1}
+      adjustsFontSizeToFit={fit}
+      minimumFontScale={0.6}>
+      {value}
+      {unit ? (
+        <Text style={[styles.unit, { fontSize: unitSize[size] ?? 13 }]}>{` ${unit}`}</Text>
+      ) : null}
+    </Text>
+  );
+}
+
+/**
+ * Big − value + control, usable with sweaty hands. Tapping the value opens the keyboard to type it
+ * (not inside sheets: `typing={false}`); every valid keystroke is applied at once.
  */
 export function Stepper({
   value,
@@ -125,6 +414,7 @@ export function Stepper({
   format = String,
   big = false,
   decimal = false,
+  typing = true,
   parse = parseDecimal,
   toText = (v: number) => formatNumber(v),
 }: {
@@ -135,61 +425,72 @@ export function Stepper({
   format?: (value: number) => string;
   big?: boolean;
   decimal?: boolean;
+  typing?: boolean;
   parse?: (text: string) => number | null;
   toText?: (value: number) => string;
 }) {
   const [typed, setTyped] = useState<string | null>(null);
   const set = (next: number) => onChange(Math.max(min, Math.round(next * 100) / 100));
   const change = (delta: number) => {
+    Haptics.selectionAsync();
     setTyped(null);
     set(value + delta);
   };
-  const type = (text: string) => {
+  const typeText = (text: string) => {
     setTyped(text);
     const parsed = parse(text);
     if (parsed !== null) set(parsed);
   };
+  const valueStyle = big ? styles.stepperValueBig : styles.stepperValue;
 
   return (
     <View style={styles.stepper}>
-      <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(-step)}>
-        <Text style={styles.stepperSign}>−</Text>
+      <Pressable
+        style={[styles.stepperButton, big && styles.stepperButtonBig]}
+        android_ripple={{ color: colors.ripple }}
+        onPress={() => change(-step)}
+        accessibilityRole="button"
+        accessibilityLabel="Menos">
+        <Icon name="minus" size={big ? 36 : 28} />
       </Pressable>
       {typed !== null ? (
         <TextInput
           autoFocus
           selectTextOnFocus
           value={typed}
-          onChangeText={type}
+          onChangeText={typeText}
           onBlur={() => setTyped(null)}
           onSubmitEditing={() => setTyped(null)}
           keyboardType={decimal ? 'decimal-pad' : 'number-pad'}
           returnKeyType="done"
-          style={[styles.stepperValue, styles.stepperInput, big && textStyles.huge]}
+          maxFontSizeMultiplier={1}
+          style={[valueStyle, styles.stepperInput]}
         />
       ) : (
         <Pressable
           style={styles.stepperValueBox}
+          disabled={!typing}
           onPress={() => setTyped(toText(value))}
-          accessibilityRole="button"
-          accessibilityHint="Toca para escribir el valor">
-          <Text
-            style={[styles.stepperValue, big && textStyles.huge]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-            minimumFontScale={0.4}>
+          accessibilityRole={typing ? 'button' : 'text'}
+          accessibilityHint={typing ? 'Toca para escribir el valor' : undefined}>
+          <Text style={valueStyle} maxFontSizeMultiplier={big ? 1 : 1.15} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.6}>
             {format(value)}
           </Text>
         </Pressable>
       )}
-      <Pressable style={[styles.stepperButton, big && styles.stepperButtonBig]} onPress={() => change(step)}>
-        <Text style={styles.stepperSign}>+</Text>
+      <Pressable
+        style={[styles.stepperButton, big && styles.stepperButtonBig]}
+        android_ripple={{ color: colors.ripple }}
+        onPress={() => change(step)}
+        accessibilityRole="button"
+        accessibilityLabel="Más">
+        <Icon name="plus" size={big ? 36 : 28} />
       </Pressable>
     </View>
   );
 }
 
-const KEYBOARDS = { text: 'default', decimal: 'decimal-pad' } as const;
+const KEYBOARDS = { text: 'default', decimal: 'decimal-pad', number: 'number-pad' } as const;
 
 export function TextField({
   label,
@@ -199,30 +500,73 @@ export function TextField({
   placeholder,
   multiline = false,
   secure = false,
+  suffix,
+  maxLength,
+  error,
+  help,
+  autoFocus = false,
+  autoCapitalize,
 }: {
-  label: string;
+  label?: string;
   value: string;
   onChangeText: (text: string) => void;
   keyboard?: keyof typeof KEYBOARDS;
   placeholder?: string;
   multiline?: boolean;
   secure?: boolean;
+  /** Unit written inside the field, on the right ("cm"). */
+  suffix?: string;
+  /** Shows a counter ("18/40"). */
+  maxLength?: number;
+  error?: string;
+  /** One line of help under the field. */
+  help?: string;
+  autoFocus?: boolean;
+  /** 'none' for names that tell capitals apart (a repository, a file path). */
+  autoCapitalize?: 'none' | 'sentences' | 'words';
 }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <View style={{ gap: spacing.xs }}>
-      <AppText variant="small">{label}</AppText>
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={KEYBOARDS[keyboard]}
-        secureTextEntry={secure}
-        autoCapitalize={secure ? 'none' : undefined}
-        autoCorrect={!secure}
-        placeholder={placeholder}
-        placeholderTextColor={colors.muted}
-        multiline={multiline}
-        style={[styles.input, multiline && styles.inputMultiline]}
-      />
+    <View style={{ gap: 6 }}>
+      {label ? <AppText variant="label">{label}</AppText> : null}
+      <View
+        style={[
+          styles.input,
+          multiline && styles.inputMultiline,
+          focused && styles.inputFocused,
+          !!error && styles.inputError,
+        ]}>
+        <TextInput
+          value={value}
+          onChangeText={onChangeText}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
+          keyboardType={KEYBOARDS[keyboard]}
+          secureTextEntry={secure}
+          autoCapitalize={secure ? 'none' : autoCapitalize}
+          autoCorrect={!secure}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          placeholderTextColor={colors.muted}
+          multiline={multiline}
+          maxLength={maxLength}
+          style={[styles.inputText, multiline && { textAlignVertical: 'top', alignSelf: 'stretch' }]}
+        />
+        {suffix ? <AppText style={{ color: colors.muted }}>{suffix}</AppText> : null}
+      </View>
+      {error || help || maxLength ? (
+        <View style={styles.fieldFoot}>
+          {error ? <Icon name="alert-circle" size={16} color={colors.danger} /> : null}
+          <AppText variant="caption" style={[{ flex: 1 }, error ? { color: colors.danger } : null]}>
+            {error ?? help ?? ''}
+          </AppText>
+          {maxLength ? (
+            <AppText variant="caption" tabular>
+              {value.length}/{maxLength}
+            </AppText>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -252,54 +596,96 @@ export function DateField({
     });
 
   return (
-    <View style={{ gap: spacing.xs }}>
-      <AppText variant="small">{label}</AppText>
+    <View style={{ gap: 6 }}>
+      <AppText variant="label">{label}</AppText>
       <Pressable onPress={open} style={styles.input} accessibilityRole="button" accessibilityHint="Abre el calendario">
-        <AppText style={value ? undefined : { color: colors.muted }}>
+        <AppText style={[{ flex: 1 }, value ? undefined : { color: colors.muted }]}>
           {value ? formatDateWithYear(value) : placeholder}
         </AppText>
+        <Icon name="calendar-month-outline" size={20} color={colors.muted} />
       </Pressable>
     </View>
   );
 }
 
+/** A setting that switches on and off: the whole row toggles. */
 export function SwitchRow({
   label,
+  subtitle,
   value,
   onValueChange,
 }: {
   label: string;
+  subtitle?: string;
   value: boolean;
   onValueChange: (value: boolean) => void;
 }) {
   return (
-    <Row between>
-      <AppText style={{ flex: 1 }}>{label}</AppText>
-      <Switch value={value} onValueChange={onValueChange} trackColor={{ true: colors.primary }} />
-    </Row>
+    <Pressable
+      onPress={() => onValueChange(!value)}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: value }}
+      style={styles.switchRow}>
+      <View style={{ flex: 1, gap: 2 }}>
+        <AppText variant="rowTitle">{label}</AppText>
+        {subtitle ? <AppText variant="secondary">{subtitle}</AppText> : null}
+      </View>
+      <Switch
+        value={value}
+        onValueChange={onValueChange}
+        thumbColor={value ? colors.text : colors.muted}
+        trackColor={{ false: colors.border, true: colors.primary }}
+      />
+    </Pressable>
   );
 }
 
-/** Multi-select Monday…Sunday chips; days in `hide` are not offered. */
-export function WeekdayPicker({
+/**
+ * The seven days in one row (Lun…Dom) with a dot under today. `multiple` lets several be chosen
+ * (routines, "Copiar a…"); otherwise one (Dieta). Days in `hide` are not offered.
+ */
+export function DayPicker({
   value,
   onChange,
+  multiple = true,
   hide = [],
 }: {
   value: IsoWeekday[];
   onChange: (days: IsoWeekday[]) => void;
+  multiple?: boolean;
   hide?: IsoWeekday[];
 }) {
-  const toggle = (day: IsoWeekday) =>
-    onChange(value.includes(day) ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b));
+  const todayIso = isoWeekdayOf(new Date());
+  const toggle = (day: IsoWeekday) => {
+    Haptics.selectionAsync();
+    if (!multiple) onChange([day]);
+    else onChange(value.includes(day) ? value.filter((d) => d !== day) : [...value, day].sort((a, b) => a - b));
+  };
   return (
-    <Row>
-      {ISO_WEEKDAYS.filter((day) => !hide.includes(day)).map((day) => (
-        <Chip key={day} label={WEEKDAY_NAMES[day].slice(0, 3)} selected={value.includes(day)} onPress={() => toggle(day)} />
-      ))}
-    </Row>
+    <View style={styles.days} accessibilityRole={multiple ? undefined : 'radiogroup'}>
+      {ISO_WEEKDAYS.filter((day) => !hide.includes(day)).map((day) => {
+        const on = value.includes(day);
+        return (
+          <Pressable
+            key={day}
+            onPress={() => toggle(day)}
+            accessibilityRole={multiple ? 'checkbox' : 'radio'}
+            accessibilityState={multiple ? { checked: on } : { selected: on }}
+            accessibilityLabel={WEEKDAY_NAMES[day]}
+            style={[styles.day, on && styles.dayOn]}>
+            <Text style={[styles.dayText, on && { color: colors.primary }]}>{WEEKDAY_NAMES[day].slice(0, 3)}</Text>
+            {day === todayIso ? <View style={[styles.todayDot, on && { backgroundColor: colors.primary }]} /> : null}
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
+
+/** Several days at once (kept for the routine editor): see DayPicker. */
+export const WeekdayPicker = (props: { value: IsoWeekday[]; onChange: (days: IsoWeekday[]) => void; hide?: IsoWeekday[] }) => (
+  <DayPicker {...props} multiple />
+);
 
 export type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -307,12 +693,182 @@ export function Icon({ name, size = 22, color = colors.text }: { name: IconName;
   return <MaterialCommunityIcons name={name} size={size} color={color} />;
 }
 
-/** Small upper-case label that separates groups on a screen. */
-export function SectionLabel({ children }: { children: ReactNode }) {
-  return <Text style={styles.sectionLabel}>{children}</Text>;
+/** A page title with a pencil: tapping it calls `onEdit` (which opens the title dialog). */
+export function EditableTitle({ value, onEdit }: { value: string; onEdit: () => void }) {
+  return (
+    <Pressable onPress={onEdit} style={styles.titleRow} accessibilityRole="button" accessibilityHint="Cambia el título">
+      <AppText variant="title" style={{ flexShrink: 1 }}>
+        {value}
+      </AppText>
+      <Icon name="pencil-outline" size={18} color={colors.muted} />
+    </Pressable>
+  );
 }
 
-/** Square check like a to-do list; filled when done. */
+/**
+ * Actions pinned to the bottom of a screen, under the thumb (pass it as `<Screen footer>`). When
+ * `actionKey` changes (a new action takes the place of another), taps are ignored for 600 ms and the
+ * bar fades in, so a double tap does not hit the next action.
+ */
+export function BottomBar({
+  children,
+  style,
+  actionKey,
+}: {
+  children: ReactNode;
+  style?: StyleProp<ViewStyle>;
+  actionKey?: string | number;
+}) {
+  const insets = useSafeAreaInsets();
+  const [fade] = useState(() => new Animated.Value(1));
+  const guarded = !useArmed(actionKey);
+  useEffect(() => {
+    if (actionKey === undefined) return;
+    fade.setValue(0.4);
+    Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true }).start();
+  }, [actionKey, fade]);
+  useEffect(() => () => setBottomBarHeight(0), []);
+
+  return (
+    <Animated.View
+      onLayout={(e) => setBottomBarHeight(e.nativeEvent.layout.height)}
+      pointerEvents={guarded ? 'none' : 'auto'}
+      style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md), opacity: fade }, style]}>
+      {children}
+    </Animated.View>
+  );
+}
+
+/**
+ * False for 600 ms after mounting and after `key` changes, so a double tap meant for what was there
+ * does not hit what replaces it (BottomBar, the weight suggestion). Without a key, always true.
+ */
+export function useArmed(key: string | number | undefined, delay = 600): boolean {
+  const [armedKey, setArmedKey] = useState<string | number | undefined>(undefined);
+  useEffect(() => {
+    if (key === undefined) return;
+    const timer = setTimeout(() => setArmedKey(key), delay);
+    return () => clearTimeout(timer);
+  }, [key, delay]);
+  return armedKey === key;
+}
+
+/** Rows of a list on one surface, separated by hairlines (instead of a card per item). */
+export function ListGroup({ children, style, inset = spacing.lg }: { children: ReactNode; style?: StyleProp<ViewStyle>; inset?: number }) {
+  const rows = Children.toArray(children).filter(Boolean);
+  return (
+    <View style={[styles.group, style]}>
+      {rows.map((row, i) => (
+        <Fragment key={i}>
+          {i > 0 ? <View style={[styles.separator, { marginLeft: inset }]} /> : null}
+          {row}
+        </Fragment>
+      ))}
+    </View>
+  );
+}
+
+/** Every row that opens something has a chevron; an editable one shows its value. */
+export function ListRow({
+  title,
+  subtitle,
+  left,
+  right,
+  onPress,
+  chevron = !!onPress,
+  onLongPress,
+  titleLines = 2,
+  disabled = false,
+}: {
+  title: ReactNode;
+  subtitle?: ReactNode;
+  left?: ReactNode;
+  right?: ReactNode;
+  onPress?: () => void;
+  chevron?: boolean;
+  onLongPress?: () => void;
+  titleLines?: number;
+  disabled?: boolean;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      disabled={disabled || (!onPress && !onLongPress)}
+      accessibilityRole={onPress ? 'button' : undefined}
+      android_ripple={onPress || onLongPress ? { color: colors.pressed } : undefined}
+      style={[styles.listRow, subtitle ? { minHeight: 72 } : null]}>
+      {left}
+      <View style={{ flex: 1, gap: 2 }}>
+        {typeof title === 'string' ? (
+          <AppText variant="rowTitle" numberOfLines={titleLines} style={disabled ? { color: colors.disabledText } : undefined}>
+            {title}
+          </AppText>
+        ) : (
+          title
+        )}
+        {typeof subtitle === 'string' ? (
+          <AppText variant="secondary" numberOfLines={1} style={disabled ? { color: colors.disabledText } : undefined}>
+            {subtitle}
+          </AppText>
+        ) : (
+          subtitle
+        )}
+      </View>
+      {typeof right === 'string' ? (
+        <AppText variant="rowValue" tabular>
+          {right}
+        </AppText>
+      ) : right ? (
+        // A Tag (alignSelf flex-start) stays centred in the row too.
+        <View style={{ alignItems: 'flex-end' }}>{right}</View>
+      ) : null}
+      {chevron ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
+    </Pressable>
+  );
+}
+
+/** Icon in a 40 dp circle, for the start of a row. */
+export function RowIcon({ name, color = colors.text, tint, size = 24 }: { name: IconName; color?: string; tint?: string; size?: number }) {
+  return (
+    <View style={[styles.rowIcon, tint ? { backgroundColor: tint } : null]}>
+      <Icon name={name} size={size} color={color} />
+    </View>
+  );
+}
+
+/** The last row of a group, which adds an item to it. */
+export function AddRow({ title, onPress }: { title: string; onPress: () => void }) {
+  return <ListRow title={title} onPress={onPress} chevron={false} left={<RowIcon name="plus" size={22} />} />;
+}
+
+/** Upper-case label above a group of a screen, with an optional value or action on the right. */
+export function SectionLabel({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <View style={styles.sectionRow}>
+      <Text style={[styles.sectionLabel, { flex: 1 }]}>{children}</Text>
+      {typeof right === 'string' ? (
+        <AppText variant="label" tabular weight="600">
+          {right}
+        </AppText>
+      ) : (
+        right
+      )}
+    </View>
+  );
+}
+
+/** A labelled group: the label sits 8 dp above its content. */
+export function Section({ label, right, children }: { label: string; right?: ReactNode; children: ReactNode }) {
+  return (
+    <View style={{ gap: spacing.sm }}>
+      <SectionLabel right={right}>{label}</SectionLabel>
+      {children}
+    </View>
+  );
+}
+
+/** Square check like a to-do list; filled when done. Only for what is ticked by hand. */
 export function CheckMark({ done, onPress }: { done: boolean; onPress?: () => void }) {
   return (
     <Pressable
@@ -322,7 +878,7 @@ export function CheckMark({ done, onPress }: { done: boolean; onPress?: () => vo
       accessibilityRole="checkbox"
       accessibilityState={{ checked: done }}
       style={[styles.check, done && styles.checkDone]}>
-      {done ? <Icon name="check-bold" size={18} color={colors.onPrimary} /> : null}
+      {done ? <Icon name="check-bold" size={20} color={colors.onPrimary} /> : null}
     </Pressable>
   );
 }
@@ -343,19 +899,19 @@ export function TimeField({ label, value, onChange }: { label: string; value: st
     });
   };
   return (
-    <Pressable
+    <ListRow
       onPress={open}
-      style={({ pressed }) => [styles.fieldRow, pressed && { opacity: 0.75 }]}
-      accessibilityRole="button"
-      accessibilityHint="Abre el reloj para elegir la hora">
-      <AppText style={{ flex: 1 }}>{label}</AppText>
-      <Text style={styles.fieldValue}>{value}</Text>
-      <Icon name="clock-outline" size={20} color={colors.muted} />
-    </Pressable>
+      title={label}
+      right={
+        <AppText variant="rowValue" tabular>
+          {value}
+        </AppText>
+      }
+    />
   );
 }
 
-/** Rest or interval length: quick picks plus − / + and typing ("2:30" or seconds). */
+/** Rest or interval length: quick picks plus an "Otro" row (− / + by 15 s, or typing "2:30"). */
 export function DurationField({
   value,
   onChange,
@@ -371,24 +927,25 @@ export function DurationField({
 }) {
   const label = (s: number) => formatCountdown(s * 1000);
   return (
-    <View style={{ gap: spacing.sm }}>
-      <Row>
+    <View style={{ gap: spacing.md }}>
+      <View style={{ flexDirection: 'row', gap: spacing.sm }}>
         {presets.map((s) => (
-          <Chip key={s} label={label(s)} selected={value === s} onPress={() => onChange(s)} />
+          <Chip key={s} label={label(s)} selected={value === s} onPress={() => onChange(s)} style={{ flex: 1 }} />
         ))}
-      </Row>
-      <Stepper value={value} onChange={onChange} step={step} min={min} format={label} parse={parseDuration} toText={String} />
+      </View>
+      <NumberRow label="Otro" value={value} onChange={onChange} step={step} min={min} format={label} />
     </View>
   );
 }
 
-/** Label on the left and a small − value + on the right, for forms with several numbers. */
+/** Label on the left and a small − value + on the right: any number of a form. */
 export function NumberRow({
   label,
   value,
   onChange,
   step = 1,
   min = 0,
+  max = Infinity,
   format = String,
 }: {
   label: string;
@@ -396,113 +953,253 @@ export function NumberRow({
   onChange: (value: number) => void;
   step?: number;
   min?: number;
+  max?: number;
   format?: (value: number) => string;
 }) {
+  const change = (next: number) => {
+    Haptics.selectionAsync();
+    onChange(Math.min(max, Math.max(min, Math.round(next * 100) / 100)));
+  };
   return (
-    <Row between>
+    <View style={styles.numberRow}>
       {/* One line: on narrow screens the label shrinks instead of breaking a word. */}
-      <AppText style={{ flex: 1 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>
+      <AppText style={{ flex: 1 }} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>
         {label}
       </AppText>
-      <Pressable style={styles.miniButton} onPress={() => onChange(Math.max(min, value - step))} hitSlop={4}>
+      <Pressable style={styles.miniButton} onPress={() => change(value - step)} hitSlop={4} accessibilityLabel={`Menos ${label}`}>
         <Icon name="minus" size={20} />
       </Pressable>
-      <Text style={styles.miniValue}>{format(value)}</Text>
-      <Pressable style={styles.miniButton} onPress={() => onChange(value + step)} hitSlop={4}>
+      <Text style={styles.miniValue} maxFontSizeMultiplier={1.15}>
+        {format(value)}
+      </Text>
+      <Pressable style={styles.miniButton} onPress={() => change(value + step)} hitSlop={4} accessibilityLabel={`Más ${label}`}>
         <Icon name="plus" size={20} />
       </Pressable>
-    </Row>
+    </View>
   );
 }
 
-/** Boxes of a StatRow keep the same height: long values shrink to one line instead of wrapping. */
+/** Static figures side by side in one card, left aligned and split by hairlines (StatGrid). */
 export function StatRow({ children }: { children: ReactNode }) {
-  return <View style={styles.statRow}>{children}</View>;
+  const cells = Children.toArray(children).filter(Boolean);
+  return (
+    <View style={styles.statRow}>
+      {cells.map((cell, i) => (
+        <Fragment key={i}>
+          {i > 0 ? <View style={styles.statDivider} /> : null}
+          {cell}
+        </Fragment>
+      ))}
+    </View>
+  );
 }
 
-export function Stat({ label, value, big = false }: { label: string; value: string; big?: boolean }) {
+/** A figure of a StatRow, with its unit smaller and an optional caption under it. */
+export function Stat({ label, value, unit, caption, big = false }: { label: string; value: string; unit?: string; caption?: string; big?: boolean }) {
   return (
     <View style={styles.stat}>
-      <AppText variant="small" numberOfLines={1}>
+      <AppText variant="label" numberOfLines={1}>
         {label}
       </AppText>
-      <Text style={[styles.statValue, big && styles.statValueBig]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.5}>
-        {value}
-      </Text>
+      <Value value={value} unit={unit} size={big ? 'metric' : 'metricSm'} />
+      {caption ? <AppText variant="caption">{caption}</AppText> : null}
+    </View>
+  );
+}
+
+/** Thin bar of how much is done. */
+export function ProgressBar({ progress, color = colors.primary, height = 4 }: { progress: number; color?: string; height?: number }) {
+  return (
+    <View style={[styles.progressTrack, { height }]}>
+      <View style={{ height, width: `${Math.max(0, Math.min(1, progress)) * 100}%`, backgroundColor: color, borderRadius: radius.pill }} />
     </View>
   );
 }
 
 export function Loading() {
+  const [slow, setSlow] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), 1000);
+    return () => clearTimeout(timer);
+  }, []);
   return (
-    <View style={[styles.screen, { flex: 1, justifyContent: 'center' }]}>
+    <View style={[styles.screen, { flex: 1, justifyContent: 'center', alignItems: 'center', gap: spacing.sm }]}>
       <ActivityIndicator color={colors.primary} size="large" />
+      {slow ? <AppText variant="caption">Preparando…</AppText> : null}
     </View>
   );
 }
 
-export function Divider() {
-  return <View style={styles.divider} />;
+/** Nothing to show yet: an icon, what is missing and, if there is one, the way to add it. */
+export function EmptyState({
+  icon,
+  title,
+  text,
+  action,
+}: {
+  icon: IconName;
+  title: string;
+  text?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <View style={styles.empty}>
+      <Icon name={icon} size={40} color={colors.muted} />
+      <AppText variant="heading" style={{ textAlign: 'center' }}>
+        {title}
+      </AppText>
+      {text ? (
+        <AppText variant="secondary" style={{ textAlign: 'center' }}>
+          {text}
+        </AppText>
+      ) : null}
+      {action}
+    </View>
+  );
 }
 
-const textStyles = StyleSheet.create({
-  title: { color: colors.text, fontSize: 26, fontWeight: '700' },
-  heading: { color: colors.text, fontSize: 18, fontWeight: '700' },
-  body: { color: colors.text, fontSize: 16 },
-  muted: { color: colors.muted, fontSize: 15 },
-  small: { color: colors.muted, fontSize: 13 },
-  huge: { color: colors.text, fontSize: 64, fontWeight: '800', fontVariant: ['tabular-nums'] },
-});
+/** Something failed: one line and «Reintentar». */
+export function ErrorState({ text, onRetry }: { text: string; onRetry?: () => void }) {
+  return (
+    <View style={styles.empty}>
+      <Icon name="alert-circle" size={22} color={colors.danger} />
+      <AppText variant="bodySm" style={{ textAlign: 'center' }}>
+        {text}
+      </AppText>
+      {onRetry ? <Button kind="secondary" title="Reintentar" onPress={onRetry} /> : null}
+    </View>
+  );
+}
+
+export function Divider({ inset = 0 }: { inset?: number }) {
+  return <View style={[styles.divider, { marginLeft: inset }]} />;
+}
+
+/** Remembers whether something stays mounted (for one-time effects that must not repeat on re-render). */
+export function useOnce(): () => boolean {
+  const done = useRef(false);
+  return () => {
+    if (done.current) return false;
+    done.current = true;
+    return true;
+  };
+}
 
 const buttonStyles = StyleSheet.create({
   primary: { backgroundColor: colors.primary },
   secondary: { backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border },
-  // No side padding: a text button sits flush with the edge it is aligned to, like the text around it.
-  ghost: { backgroundColor: 'transparent', paddingHorizontal: 0 },
-  danger: { backgroundColor: 'transparent', borderWidth: 1, borderColor: colors.danger },
+  tonal: { backgroundColor: colors.primaryTint },
+  tonalDanger: { backgroundColor: colors.dangerTint },
+  text: { backgroundColor: 'transparent' },
+  danger: { backgroundColor: 'transparent' },
+  ghost: { backgroundColor: 'transparent' },
+  destructive: { backgroundColor: colors.dangerTint },
 });
 
 const buttonText: Record<ButtonKind, string> = {
   primary: colors.onPrimary,
   secondary: colors.text,
-  ghost: colors.accent,
+  tonal: colors.primary,
+  tonalDanger: colors.danger,
+  text: colors.text,
   danger: colors.danger,
+  ghost: colors.text,
+  destructive: colors.danger,
 };
 
 const styles = StyleSheet.create({
   scroll: { flex: 1, backgroundColor: colors.bg },
-  screen: { padding: spacing.lg, gap: spacing.lg, backgroundColor: colors.bg, flexGrow: 1 },
-  card: {
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+  screen: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xxl,
+    backgroundColor: colors.bg,
+    flexGrow: 1,
   },
+  noFontPadding: { includeFontPadding: false },
+  tabular: { fontVariant: ['tabular-nums'] },
+  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  flush: { padding: 0, gap: 0, overflow: 'hidden' },
+  block: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
   rowBetween: { justifyContent: 'space-between', flexWrap: 'nowrap' },
   button: {
     borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
     flexDirection: 'row',
     gap: spacing.sm,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  buttonBig: { paddingVertical: spacing.lg + 4 },
-  buttonText: { fontSize: 16, fontWeight: '700' },
-  buttonTextBig: { fontSize: 20 },
-  chip: {
+  buttonDisabled: { backgroundColor: colors.cardAlt, borderWidth: 0 },
+  buttonText: { ...type.rowValue, flexShrink: 1 },
+  buttonTextXl: type.buttonXl,
+  iconButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
+  headerActions: { flexDirection: 'row', marginRight: -12 },
+  floating: {
+    minWidth: 44,
+    height: 44,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.pill,
+    backgroundColor: colors.overlay,
+    borderWidth: 1,
+    borderColor: colors.overlayBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingText: { ...type.control },
+  floatingPill: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    height: 32,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.overlay,
+    borderWidth: 1,
+    borderColor: colors.overlayBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatingPillText: { ...type.label, fontWeight: weight.semibold },
+  chip: {
+    minHeight: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: 6,
-    paddingHorizontal: spacing.md,
+    paddingHorizontal: 14,
     backgroundColor: colors.cardAlt,
   },
-  chipText: { fontSize: 14, fontWeight: '600' },
+  chipOn: { backgroundColor: colors.primaryTint, borderColor: 'transparent' },
+  chipText: { ...type.control, fontVariant: ['tabular-nums'] },
+  tag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    minHeight: 22,
+    borderRadius: radius.xs,
+    paddingHorizontal: spacing.sm,
+  },
+  tagText: { ...type.tag },
+  segmented: {
+    flexDirection: 'row',
+    minHeight: 40,
+    backgroundColor: colors.cardAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: 3,
+    gap: 3,
+  },
+  segmentedOnMap: { width: 96, backgroundColor: colors.overlay, borderColor: colors.overlayBorder },
+  segment: { flex: 1, borderRadius: 9, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  segmentOn: { backgroundColor: colors.primaryTint },
+  segmentOnMap: { backgroundColor: colors.primaryTintOnMap },
+  segmentText: { ...type.control, fontWeight: weight.medium, color: colors.muted },
+  segmentTextOn: { color: colors.primary, fontWeight: weight.semibold },
+  unit: { color: colors.muted, fontWeight: weight.semibold },
   stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md },
   stepperButton: {
     width: 56,
@@ -513,90 +1210,98 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
-  stepperButtonBig: { width: 80, height: 80, borderRadius: radius.lg },
-  stepperSign: { color: colors.text, fontSize: 32, fontWeight: '600' },
+  stepperButtonBig: { width: 80, height: 80 },
   stepperValueBox: { flex: 1, alignSelf: 'stretch', justifyContent: 'center' },
-  stepperValue: { color: colors.text, fontSize: 28, fontWeight: '700', textAlign: 'center' },
-  stepperInput: {
+  stepperValue: { color: colors.text, ...type.metric, textAlign: 'center', fontVariant: ['tabular-nums'] },
+  stepperValueBig: { color: colors.text, ...type.display, textAlign: 'center', fontVariant: ['tabular-nums'], includeFontPadding: false },
+  stepperInput: { flex: 1, padding: 0, borderBottomWidth: 2, borderBottomColor: colors.primary },
+  days: { flexDirection: 'row', gap: spacing.xs },
+  day: {
     flex: 1,
-    padding: 0,
-    borderBottomWidth: 2,
-    borderBottomColor: colors.primary,
-  },
-  divider: { height: 1, backgroundColor: colors.border },
-  statRow: { flexDirection: 'row', alignItems: 'stretch', gap: spacing.sm },
-  stat: {
-    flex: 1,
+    minHeight: 44,
+    borderRadius: radius.sm,
+    backgroundColor: colors.cardAlt,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
   },
-  statValue: { color: colors.text, fontSize: 20, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  statValueBig: { fontSize: 30, fontWeight: '800' },
-  sectionLabel: {
-    color: colors.muted,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginBottom: -spacing.sm,
-  },
+  dayOn: { backgroundColor: colors.primaryTint },
+  dayText: { ...type.control, color: colors.muted },
+  todayDot: { position: 'absolute', bottom: 4, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.muted },
+  divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  statRow: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden' },
+  statDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  stat: { flex: 1, minHeight: 72, gap: 2, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
+  sectionLabel: { color: colors.muted, ...type.overline },
+  sectionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 20 },
   check: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
     borderWidth: 2,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkDone: { backgroundColor: colors.primary, borderColor: colors.primary },
-  fieldRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    backgroundColor: colors.cardAlt,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-  },
-  fieldValue: { color: colors.text, fontSize: 28, fontWeight: '700', fontVariant: ['tabular-nums'] },
+  switchRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56 },
+  numberRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 56 },
   miniButton: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.sm,
+    width: 44,
+    height: 44,
+    borderRadius: radius.md,
     backgroundColor: colors.cardAlt,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  miniValue: {
-    color: colors.text,
-    fontSize: 18,
-    fontWeight: '700',
-    minWidth: 64,
-    textAlign: 'center',
-    fontVariant: ['tabular-nums'],
-  },
+  miniValue: { color: colors.text, ...type.metricSm, minWidth: 64, textAlign: 'center', fontVariant: ['tabular-nums'] },
   input: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    minHeight: 56,
     backgroundColor: colors.cardAlt,
     borderColor: colors.border,
     borderWidth: 1,
-    borderRadius: radius.sm,
-    color: colors.text,
-    fontSize: 16,
+    borderRadius: radius.md,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
   },
-  inputMultiline: { minHeight: 80, textAlignVertical: 'top' },
+  inputText: { flex: 1, color: colors.text, ...type.body, paddingVertical: spacing.sm },
+  inputFocused: { borderColor: colors.primary, borderWidth: 2, margin: -1 },
+  inputError: { borderColor: colors.danger, borderWidth: 2, margin: -1 },
+  inputMultiline: { minHeight: 96, alignItems: 'flex-start', paddingVertical: spacing.xs },
+  fieldFoot: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  bottomBar: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    backgroundColor: colors.bg,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  group: { backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden' },
+  separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
+    minHeight: 56,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  rowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressTrack: { backgroundColor: colors.cardAlt, borderRadius: radius.pill, overflow: 'hidden' },
+  empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl, paddingHorizontal: spacing.lg },
 });

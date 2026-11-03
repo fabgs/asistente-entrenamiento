@@ -1,6 +1,7 @@
 package expo.modules.resttimer
 
 import android.content.Context
+import android.os.PowerManager
 import expo.modules.kotlin.exception.Exceptions
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
@@ -22,6 +23,12 @@ class RestTimerModule : Module() {
 
     Function("canDrawOverlays") {
       RestTimerService.canDrawOverlays(context)
+    }
+
+    // False while battery optimization can delay the alarms and stop the countdown service.
+    Function("isIgnoringBatteryOptimizations") {
+      val power = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+      power.isIgnoringBatteryOptimizations(context.packageName)
     }
 
     OnActivityEntersForeground {

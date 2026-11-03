@@ -185,6 +185,15 @@ export async function setRoutineWeekdays(db: Db, routineId: number, weekdays: Is
   });
 }
 
+/** Puts a routine on one weekday or takes it off, without touching its other days (editor of a day). */
+export async function setRoutineOnWeekday(db: Db, routineId: number, weekday: IsoWeekday, on: boolean): Promise<void> {
+  if (on) {
+    await db.runAsync('INSERT OR IGNORE INTO routine_weekday (routine_id, weekday) VALUES (?, ?)', routineId, weekday);
+  } else {
+    await db.runAsync('DELETE FROM routine_weekday WHERE routine_id = ? AND weekday = ?', routineId, weekday);
+  }
+}
+
 /** Hides the routine; its sessions and history stay. */
 export async function archiveRoutine(db: Db, routineId: number): Promise<void> {
   await db.withTransactionAsync(async () => {
@@ -224,6 +233,41 @@ export interface SlotPrescription {
   incrementKg: number | null;
   restSeconds: number | null;
   note: string | null;
+}
+
+/** What `updateSlotPrescription` writes, as the slot has it now: the starting point of its editor. */
+export function prescriptionOf(slot: Slot): SlotPrescription {
+  return {
+    sets: slot.sets,
+    target: slot.target,
+    perSide: slot.perSide,
+    unit: slot.unit,
+    progression: slot.progression,
+    allowDecrease: slot.allowDecrease,
+    incrementKg: slot.incrementKg,
+    restSeconds: slot.restSeconds,
+    note: slot.note,
+  };
+}
+
+/**
+ * True when both prescriptions save the same (the editor's «Guardar» stays off until they differ).
+ * Notes are compared as the editor saves them: trimmed, and empty as none.
+ */
+export function samePrescription(a: SlotPrescription, b: SlotPrescription): boolean {
+  const key = (p: SlotPrescription) =>
+    JSON.stringify([
+      p.sets,
+      targetColumns(p.target),
+      p.perSide,
+      p.unit,
+      p.progression,
+      p.allowDecrease,
+      p.incrementKg,
+      p.restSeconds,
+      p.note?.trim() || null,
+    ]);
+  return key(a) === key(b);
 }
 
 /** Everything about a slot except its weight, which changes through weightChanges. */

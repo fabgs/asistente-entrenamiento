@@ -1,6 +1,14 @@
 import type { Db } from '../db';
 import { setCardioDone, cardioForWeekday } from '../repositories/cardio';
-import { cardioHistory, exerciseSessions, exercisesWithHistory, exerciseWeightChanges } from '../repositories/progress';
+import { addTrackPoints, finishCardioSession, startCardioSession, type NewPoint } from '../repositories/cardioSessions';
+import {
+  cardioEntries,
+  cardioHistory,
+  exerciseSessions,
+  exercisesWithHistory,
+  exerciseWeightChanges,
+  workoutHistory,
+} from '../repositories/progress';
 import { listRoutines, listSlots, type Slot } from '../repositories/routines';
 import {
   deleteFinishedSession,
@@ -10,6 +18,7 @@ import {
   listSets,
   logSet,
   refreshRecommendations,
+  setSessionTitle,
   startSession,
   updateSetReps,
   updateSetWeight,
@@ -148,6 +157,35 @@ describe('editing a finished session', () => {
   });
 });
 
+describe('workout history', () => {
+  it('lists every finished workout newest first, with its title and sets', async () => {
+    const db = await seededDb();
+    const sessionId = await trainRemo(db, [11, 11, 10], NOW);
+    await setSessionTitle(db, sessionId, 'Remo con Ana');
+
+    const history = await workoutHistory(db);
+    expect(history[0]).toMatchObject({
+      id: sessionId,
+      title: 'Remo con Ana',
+      routineName: 'Día 1: Torso (Empuje Pesado + Tirón Volumen)',
+      imported: false,
+      setCount: 3,
+    });
+    expect(history.slice(1).every((s) => s.imported)).toBe(true);
+    expect(history.map((s) => s.startedAt)).toEqual([...history.map((s) => s.startedAt)].sort((a, b) => b - a));
+    expect((await exerciseSessions(db, (await remoSlot(db)).exerciseId))[0].title).toBe('Remo con Ana');
+  });
+});
+
+/** Fixes walking north at 1.4 m/s every 3 s. */
+function walkPoints(t0: number, seconds: number): NewPoint[] {
+  const points: NewPoint[] = [];
+  for (let s = 0; s <= seconds; s += 3) {
+    points.push({ t: t0 + s * 1000, lat: 40.4 + (s * 1.4) / 111_195, lon: -3.7, accuracy: 5, speed: 1.4, altitude: 650 });
+  }
+  return points;
+}
+
 describe('cardio history', () => {
   it('groups the activities done per day, newest first', async () => {
     const db = await seededDb();
@@ -157,9 +195,36 @@ describe('cardio history', () => {
     await setCardioDone(db, '2026-11-02', bike, true);
     await setCardioDone(db, '2026-11-02', bike, false);
 
-    expect(await cardioHistory(db)).toEqual([
-      { date: '2026-11-02', activities: [{ name: 'Caminar', value: null, sessionId: null, route: null }] },
-      { date: '2026-10-26', activities: [{ name: 'Caminar', value: null, sessionId: null, route: null }] },
+    const checked = { name: 'Caminar', kind: 'check', value: null, sessionId: null, route: null, startedAt: null, activeMs: null };
+    expect(await cardioHistory(db)).toMatchObject([
+      { date: '2026-11-02', activities: [checked] },
+      { date: '2026-10-26', activities: [checked] },
     ]);
+  });
+
+  it('lists each walk with its start, distance and active time, the latest first', async () => {
+    const db = await seededDb();
+    const [walk, bike] = await cardioForWeekday(db, 1);
+    const t0 = NOW.getTime();
+    const morning = await startCardioSession(db, walk, t0);
+    await addTrackPoints(db, walkPoints(t0, 300));
+    await finishCardioSession(db, morning, t0 + 300_000);
+    const evening = await startCardioSession(db, walk, t0 + 36_000_000);
+    await addTrackPoints(db, walkPoints(t0 + 36_000_000, 120));
+    await finishCardioSession(db, evening, t0 + 36_120_000);
+    await setCardioDone(db, '2026-11-02', bike, true);
+    await setCardioDone(db, '2026-10-26', walk, true);
+
+    const entries = await cardioEntries(db);
+    expect(entries.map((e) => [e.date, e.name, e.kind, e.sessionId])).toEqual([
+      ['2026-11-02', 'Caminar', 'gps', evening],
+      ['2026-11-02', 'Caminar', 'gps', morning],
+      ['2026-11-02', 'Bici estática', 'check', null],
+      ['2026-10-26', 'Caminar', 'check', null],
+    ]);
+    expect(entries[1]).toMatchObject({ startedAt: t0, activeMs: 300_000, key: `s${morning}` });
+    expect(entries[1].distanceM).toBeCloseTo(420, -1);
+    expect(entries[1].route).not.toBeNull();
+    expect(new Set(entries.map((e) => e.key)).size).toBe(entries.length);
   });
 });

@@ -1,5 +1,5 @@
 import type { Db, SqlValue } from './db';
-import { CARDIO_TRACKING_DEFAULTS } from './migrations';
+import { CARDIO_TRACKING_DEFAULTS, FOOD_NAME_FIXES } from './migrations';
 import { importSeed } from './seed';
 import type { SeedData } from './seedTypes';
 
@@ -51,7 +51,7 @@ export function parseBackup(text: string): Backup {
   try {
     data = JSON.parse(text);
   } catch {
-    throw new BackupError('El fichero no es una copia de seguridad válida (no es JSON).');
+    throw new BackupError('El fichero no es una copia de seguridad válida: no es JSON.');
   }
   const backup = data as Partial<Backup>;
   if (backup?.app !== 'entreno' || typeof backup.schemaVersion !== 'number' || typeof backup.tables !== 'object') {
@@ -59,7 +59,7 @@ export function parseBackup(text: string): Backup {
   }
   // Without these single rows the app cannot start, so such a file is never applied.
   if (backup.tables.profile?.length !== 1 || backup.tables.settings?.length !== 1) {
-    throw new BackupError('La copia está incompleta (le falta el perfil o los ajustes).');
+    throw new BackupError('La copia está incompleta: le falta el perfil o los ajustes.');
   }
   return backup as Backup;
 }
@@ -95,6 +95,8 @@ export async function resetData(db: Db, seed: SeedData, now: Date): Promise<void
   );
   await wipeAllData(db);
   await importSeed(db, seed, now);
+  // The Excel test data keeps the food names of before migration 6.
+  await db.execAsync(FOOD_NAME_FIXES);
   if (kept) {
     await db.runAsync(
       `UPDATE settings SET ${KEPT_ON_RESET.map((c) => `${c} = ?`).join(', ')} WHERE id = 1`,
@@ -131,6 +133,8 @@ export async function restoreBackup(db: Db, backup: Backup): Promise<void> {
       }
     }
     if (backup.schemaVersion < 4) await db.execAsync(CARDIO_TRACKING_DEFAULTS);
+    // Migrations do not run on restored rows: same accent fixes as migration 6.
+    if (backup.schemaVersion < 6) await db.execAsync(FOOD_NAME_FIXES);
     // Restored data is real data: developer mode must not wipe it on the next install.
     await db.runAsync('UPDATE settings SET dev_mode = 0 WHERE id = 1');
   });

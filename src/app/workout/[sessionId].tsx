@@ -1,11 +1,32 @@
 import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Redirect, router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
-import { RecommendationBox, SuggestionLine } from '@/components/Recommendation';
-import { AppText, Button, Card, Chip, Icon, Loading, Row, Screen, Stepper } from '@/components/ui';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
+import Svg, { Circle } from 'react-native-svg';
+import { showActions, showDialog, showSnackbar } from '@/components/Dialog';
+import { SuggestionAction, SuggestionLine } from '@/components/Recommendation';
+import { Sheet } from '@/components/Sheet';
+import {
+  AddRow,
+  AppText,
+  BottomBar,
+  Button,
+  Card,
+  EmptyState,
+  HeaderActions,
+  Icon,
+  IconButton,
+  ListGroup,
+  ListRow,
+  Loading,
+  ProgressBar,
+  Row,
+  Screen,
+  Stepper,
+  Tag,
+  Value,
+} from '@/components/ui';
 import { isBodyweight, listSlots, type Slot } from '@/db/repositories/routines';
 import {
   deleteSet,
@@ -13,17 +34,37 @@ import {
   finishSession,
   getSession,
   lastReps,
+  lastWarmups,
   listSets,
   logSet,
+  logWarmupSet,
+  restoreSet,
   updateSessionState,
   updateSetReps,
+  updateSetWeight,
   type Session,
   type SetLog,
 } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings, updateSettings } from '@/db/repositories/settings';
-import { listOpenChanges, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatCountdown, formatDuration, formatKg, formatLoad, formatTarget } from '@/domain/format';
+import {
+  applyChange,
+  listOpenChanges,
+  setSlotWeightManually,
+  undoChange,
+  type WeightChange,
+} from '@/db/repositories/weightChanges';
+import {
+  capitalizeFirst,
+  formatCountdown,
+  formatKg,
+  formatLoad,
+  formatMinutes,
+  formatNumber,
+  formatTarget,
+  spokenTarget,
+} from '@/domain/format';
 import type { RepTarget } from '@/domain/types';
+import { warmupProposal, type WarmupSet } from '@/domain/warmup';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
 import { useDb, useLoader, useNow } from '@/hooks/data';
 import { maybeAutoBackup } from '@/services/backup';
@@ -36,9 +77,11 @@ import {
   scheduleRestEnd,
   shiftDeadline,
 } from '@/services/restTimer';
-import { colors, radius, spacing } from '@/theme';
+import { colors, maxFontScale, radius, spacing, type } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'workout';
+/** The set cells are 48 dp high: their texts grow less with the system font. */
+const CELL_MAX_SCALE = 1.15;
 
 const setsLabel = (n: number) => (n === 1 ? '1 serie' : `${n} series`);
 
@@ -48,12 +91,15 @@ function defaultReps(target: RepTarget): number {
   return 10;
 }
 
+const restSecondsOf = (slot: Slot | undefined, fallback: number) => slot?.restSeconds ?? fallback;
+
+/** What comes next, for the rest notification and the bar of the list: "Serie 2 de 3 · Remo con barra · 37,5 kg". */
 function describeNext(next: NextStep, slots: Slot[]): string {
   if (next.kind === 'finished') return 'Rutina completada';
   const slot = slots.find((s) => s.id === next.slotId)!;
   const load = formatLoad(slot.weightKg, isBodyweight(slot));
   return next.kind === 'next_set'
-    ? `Serie ${next.setNumber}/${slot.sets} · ${slot.exerciseName} · ${load}`
+    ? `Serie ${next.setNumber} de ${slot.sets} · ${slot.exerciseName} · ${load}`
     : `Siguiente ejercicio: ${slot.exerciseName} · ${load}`;
 }
 
@@ -61,7 +107,6 @@ export default function WorkoutScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const id = Number(sessionId);
   const db = useDb();
-  const [later, setLater] = useState<number[]>([]);
   // Looking at the exercise list while the rest keeps counting.
   const [browsing, setBrowsing] = useState(false);
 
@@ -70,11 +115,16 @@ export default function WorkoutScreen() {
     if (!session) return null;
     const slots = session.routineId ? await listSlots(db, session.routineId) : [];
     const lastBySlot = new Map<number, number[]>();
-    for (const s of slots) lastBySlot.set(s.id, await lastReps(db, s.id));
+    const warmupsBySlot = new Map<number, WarmupSet[]>();
+    for (const s of slots) {
+      lastBySlot.set(s.id, await lastReps(db, s.id));
+      warmupsBySlot.set(s.id, await lastWarmups(db, s.id));
+    }
     return {
       session,
       slots,
       lastBySlot,
+      warmupsBySlot,
       sets: await listSets(db, id),
       settings: await getSettings(db),
       overlayAllowed: canDrawOverlays(),
@@ -101,11 +151,7 @@ export default function WorkoutScreen() {
 
   if (data === undefined) return <Loading />;
   if (data === null) {
-    return (
-      <Screen>
-        <AppText>No se encontró este entrenamiento.</AppText>
-      </Screen>
-    );
+    return <EmptyState icon="dumbbell" title="No se encontró este entreno" text="Puede que se descartara." />;
   }
 
   const { session, slots, sets, settings } = data;
@@ -123,7 +169,7 @@ export default function WorkoutScreen() {
   const finish = async () => {
     await cancelRestEnd(id);
     await finishSession(db, id, toProgressionSettings(settings));
-    router.replace(`/workout/resumen/${id}`);
+    router.replace(`/workout/resumen/${id}?nuevo=1`);
     maybeAutoBackup(db);
   };
 
@@ -135,17 +181,16 @@ export default function WorkoutScreen() {
     }
     showDialog(
       '¿Terminar ya?',
-      `Te ${left === 1 ? 'queda 1 ejercicio' : `quedan ${left} ejercicios`} sin hacer. Las series que has hecho se guardan igual.`,
+      `Te ${left === 1 ? 'queda 1 ejercicio' : `quedan ${left} ejercicios`} sin hacer. Las series hechas se guardan igual.`,
       [
-        { text: 'Seguir entrenando', style: 'cancel' },
         { text: 'Terminar', onPress: finish },
+        { text: 'Seguir entrenando', style: 'cancel' },
       ],
     );
   };
 
   const discard = () =>
-    showDialog('¿Descartar el entrenamiento?', 'Se borrarán todas las series de hoy. No se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
+    showDialog('¿Descartar el entreno?', 'Se borran todas las series de hoy y no se puede deshacer.', [
       {
         text: 'Descartar',
         style: 'destructive',
@@ -155,6 +200,7 @@ export default function WorkoutScreen() {
           router.replace('/');
         },
       },
+      { text: 'Cancelar', style: 'cancel' },
     ]);
 
   const chooseSlot = async (slotId: number) => {
@@ -182,7 +228,7 @@ export default function WorkoutScreen() {
       await update({ currentSlotId: null, restEndsAt: null });
       return;
     }
-    const endsAt = restDeadline(slot.restSeconds ?? settings.restSecondsDefault);
+    const endsAt = restDeadline(restSecondsOf(slot, settings.restSecondsDefault));
     let notificationId: string | null = null;
     try {
       notificationId = await scheduleRestEnd(id, endsAt, describeNext(next, slots), settings.restOverlay);
@@ -209,8 +255,6 @@ export default function WorkoutScreen() {
     });
   };
 
-  const header = <Stack.Screen options={{ title: session.routineName ?? 'Entrenando' }} />;
-
   const restNext = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
   const continueAfterRest = () => {
     setBrowsing(false);
@@ -219,18 +263,44 @@ export default function WorkoutScreen() {
     else endRest(null).then(confirmFinish);
   };
 
+  // Corrections never touch the rest: its countdown and alarm go on.
+  const correctSet = async (set: SetLog, reps: number, weightKg?: number | null) => {
+    await updateSetReps(db, set.id, reps);
+    if (weightKg !== undefined) await updateSetWeight(db, set.id, weightKg);
+    reload();
+  };
+  const removeSet = async (set: SetLog) => {
+    await deleteSet(db, set.id);
+    reload();
+    showSnackbar(set.isWarmup ? 'Aproximación borrada' : 'Serie borrada', {
+      label: 'Deshacer',
+      onPress: async () => {
+        await restoreSet(db, set);
+        reload();
+      },
+    });
+  };
+
+  const title = session.routineName ?? 'Entreno';
+
   if (session.restEndsAt && !browsing) {
-    const next = restNext;
+    const restSlot = slots.find((s) => s.id === session.currentSlotId);
+    const nextSlot = restNext.kind === 'finished' ? null : (slots.find((s) => s.id === restNext.slotId) ?? null);
+    const lastSet = sets.filter((s) => !s.isWarmup).reduce<SetLog | null>((a, b) => (a && a.completedAt > b.completedAt ? a : b), null);
     return (
       <>
-        {header}
+        <Stack.Screen options={{ title, headerRight: undefined }} />
         <RestView
           endsAt={session.restEndsAt}
-          next={next}
-          nextLabel={describeNext(next, slots)}
+          totalSeconds={restSecondsOf(restSlot, settings.restSecondsDefault)}
+          next={restNext}
+          nextSlot={nextSlot}
+          lastSet={lastSet}
+          lastSlot={lastSet ? slots.find((s) => s.id === lastSet.slotId) : undefined}
+          onCorrect={correctSet}
+          onDelete={removeSet}
           onAdjust={adjustRest}
           onContinue={continueAfterRest}
-          onChoose={() => setBrowsing(true)}
           askOverlay={settings.restOverlay && !data.overlayAllowed}
           onGrantOverlay={openOverlaySettings}
           onDeclineOverlay={async () => {
@@ -243,39 +313,62 @@ export default function WorkoutScreen() {
   }
 
   if (current && !session.restEndsAt) {
-    const change = data.openChanges.find((c) => c.slotId === current.id);
-    const slotSets = sets.filter((s) => s.slotId === current.id);
+    const slotSets = sets.filter((s) => s.slotId === current.id && !s.isWarmup);
+    const warmups = sets.filter((s) => s.slotId === current.id && s.isWarmup);
+    const skip = async () => {
+      await update({ currentSlotId: null, skippedSlotIds: [...skipped, current.id] });
+      showSnackbar('Ejercicio saltado', {
+        label: 'Deshacer',
+        onPress: () => update({ currentSlotId: current.id, skippedSlotIds: skipped.filter((s) => s !== current.id) }),
+      });
+    };
     return (
-      <>
-        {header}
-        <SetView
-          key={`${current.id}-${slotSets.length}`}
-          slot={current}
-          slotSets={slotSets}
-          last={data.lastBySlot.get(current.id) ?? []}
-          change={change}
-          askNow={change?.status === 'pending' && slotSets.length === 0 && !later.includes(current.id)}
-          onLater={() => setLater([...later, current.id])}
-          onChanged={reload}
-          onComplete={(reps) => completeSet(current, reps)}
-          onUpdateSet={async (setId, reps) => {
-            await updateSetReps(db, setId, reps);
-            reload();
-          }}
-          onDeleteSet={async (setId) => {
-            await deleteSet(db, setId);
-            reload();
-          }}
-          onBack={() => update({ currentSlotId: null })}
-          onSkip={() => update({ currentSlotId: null, skippedSlotIds: [...skipped, current.id] })}
-        />
-      </>
+      <SetView
+        key={`${current.id}-${slotSets.length}`}
+        title={title}
+        slot={current}
+        slotSets={slotSets}
+        warmups={warmups}
+        lastWarmups={data.warmupsBySlot.get(current.id) ?? []}
+        increment={current.incrementKg ?? current.exerciseIncrementKg ?? settings.defaultIncrementKg}
+        last={data.lastBySlot.get(current.id) ?? []}
+        change={data.openChanges.find((c) => c.slotId === current.id)}
+        onChanged={reload}
+        onComplete={(reps) => completeSet(current, reps)}
+        onWarmup={async (weightKg, reps) => {
+          await logWarmupSet(db, id, current, weightKg, reps);
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          reload();
+        }}
+        onCorrect={correctSet}
+        onDelete={removeSet}
+        onWeight={async (kg) => {
+          await setSlotWeightManually(db, current.id, kg);
+          reload();
+        }}
+        onSkip={skip}
+      />
     );
   }
 
   return (
     <>
-      {header}
+      <Stack.Screen
+        options={{
+          title,
+          headerRight: () => (
+            <HeaderActions>
+              <IconButton
+                icon="dots-vertical"
+                label="Más acciones"
+                onPress={() =>
+                  showActions([{ text: 'Descartar entreno', icon: 'trash-can-outline', destructive: true, onPress: discard }])
+                }
+              />
+            </HeaderActions>
+          ),
+        }}
+      />
       <ExerciseList
         session={session}
         slots={slots}
@@ -285,15 +378,14 @@ export default function WorkoutScreen() {
           session.restEndsAt
             ? {
                 endsAt: session.restEndsAt,
+                totalSeconds: restSecondsOf(slots.find((s) => s.id === session.currentSlotId), settings.restSecondsDefault),
                 nextLabel: describeNext(restNext, slots),
-                nextSlotId: restNext.kind === 'finished' ? null : restNext.slotId,
                 onOpen: () => setBrowsing(false),
               }
             : null
         }
         onChoose={chooseSlot}
         onFinish={confirmFinish}
-        onDiscard={discard}
       />
     </>
   );
@@ -307,148 +399,317 @@ function ExerciseList({
   rest,
   onChoose,
   onFinish,
-  onDiscard,
 }: {
   session: Session;
   slots: Slot[];
   sets: SetLog[];
   openChanges: WeightChange[];
-  rest: { endsAt: number; nextLabel: string; nextSlotId: number | null; onOpen: () => void } | null;
+  rest: { endsAt: number; totalSeconds: number; nextLabel: string; onOpen: () => void } | null;
   onChoose: (slotId: number) => void;
   onFinish: () => void;
-  onDiscard: () => void;
 }) {
   const planned = slots.map((s) => ({ slotId: s.id, sets: s.sets }));
-  const pendingId = nextPendingSlot(planned, sets, session.skippedSlotIds, null);
-  const allDone = pendingId === null && sets.length > 0;
-  const nextId = rest ? rest.nextSlotId : pendingId;
+  const nextId = nextPendingSlot(planned, sets, session.skippedSlotIds, null);
+  const working = sets.filter((s) => !s.isWarmup).length;
+  const allDone = nextId === null && working > 0;
   const elapsed = useNow(30_000) - session.startedAt;
   const doneCount = slots.filter((s) => setsDone(s.id, sets) >= s.sets).length;
+  const totalSets = slots.reduce((sum, s) => sum + s.sets, 0);
+  const nextSlot = slots.find((s) => s.id === nextId);
+
+  const footer = (
+    <BottomBar actionKey={rest ? 'rest' : allDone ? 'done' : nextSlot ? `next-${nextSlot.id}` : 'finish'}>
+      {rest ? (
+        <RestBar {...rest} />
+      ) : allDone ? (
+        <Button size="xl" icon="flag-checkered" title="Terminar y ver resumen" onPress={onFinish} style={{ flex: 1 }} />
+      ) : nextSlot ? (
+        <Button
+          size="xl"
+          icon="play"
+          title={`${setsDone(nextSlot.id, sets) > 0 ? 'Seguir' : 'Empezar'} · ${nextSlot.exerciseName}`}
+          onPress={() => onChoose(nextSlot.id)}
+          style={{ flex: 1 }}
+        />
+      ) : (
+        <Button size="xl" icon="flag-checkered" title="Terminar entreno" onPress={onFinish} style={{ flex: 1 }} />
+      )}
+    </BottomBar>
+  );
 
   return (
-    <Screen>
-      {rest ? <RestBanner endsAt={rest.endsAt} nextLabel={rest.nextLabel} onOpen={rest.onOpen} /> : null}
-
+    <Screen footer={footer}>
       {allDone ? (
         <Card style={styles.completed}>
           <View style={styles.completedIcon}>
             <Icon name="check-bold" size={34} color={colors.onPrimary} />
           </View>
           <AppText variant="title">Rutina completada</AppText>
-          <AppText variant="muted" style={{ textAlign: 'center' }}>
-            {doneCount} {doneCount === 1 ? 'ejercicio' : 'ejercicios'} · {setsLabel(sets.length)} · {formatDuration(elapsed)}
-          </AppText>
-          <Button big title="Terminar y ver resumen" onPress={onFinish} style={{ alignSelf: 'stretch' }} />
-          <AppText variant="small" style={{ textAlign: 'center' }}>
-            ¿Te falta algo? Toca un ejercicio para hacer una serie extra.
+          <AppText variant="secondary" style={{ textAlign: 'center' }}>
+            {doneCount} {doneCount === 1 ? 'ejercicio' : 'ejercicios'} · {setsLabel(working)} · {formatMinutes(elapsed)}
           </AppText>
         </Card>
       ) : (
-        <AppText variant="muted">
-          {formatDuration(elapsed)} · {sets.length === 1 ? '1 serie hecha' : `${sets.length} series hechas`}
-        </AppText>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="bodySm" tabular style={{ color: colors.muted }}>
+            {formatMinutes(elapsed)} · {working} de {totalSets} series
+          </AppText>
+          <ProgressBar progress={working / Math.max(1, totalSets)} />
+        </View>
       )}
 
-      {slots.map((slot) => {
-        const done = setsDone(slot.id, sets);
-        const complete = done >= slot.sets;
-        const skippedSlot = session.skippedSlotIds.includes(slot.id);
-        const isNext = slot.id === nextId;
-        const change = openChanges.find((c) => c.slotId === slot.id);
-        return (
-          <Pressable key={slot.id} onPress={() => onChoose(slot.id)}>
-            <Card style={[isNext && { borderColor: colors.primary, borderWidth: 2 }, (complete || skippedSlot) && { opacity: 0.6 }]}>
-              <Row between>
-                {complete ? <Icon name="check-circle" size={22} color={colors.primary} /> : null}
-                <AppText variant="heading" style={{ flex: 1 }}>
-                  {slot.exerciseName}
-                </AppText>
-                <Chip label={skippedSlot ? 'Saltado' : `${done}/${slot.sets}`} selected={complete} />
-              </Row>
-              <AppText variant="muted">
-                {formatLoad(slot.weightKg, isBodyweight(slot))} · {formatTarget(slot.target, slot.unit, slot.perSide)}
-              </AppText>
-              {change && done === 0 ? <SuggestedWeight change={change} /> : null}
-            </Card>
-          </Pressable>
-        );
-      })}
-      {session.routineId !== null ? (
-        <Button
-          kind="ghost"
-          title="+ Añadir ejercicio a la rutina"
-          onPress={() => router.push({ pathname: '/ejercicios', params: { pickFor: String(session.routineId) } })}
-        />
-      ) : null}
-      {!allDone ? <Button big kind="secondary" title="Terminar entrenamiento" onPress={onFinish} /> : null}
-      <Button kind="danger" title="Descartar entrenamiento" onPress={onDiscard} />
+      <ListGroup>
+        {slots.map((slot) => {
+          const done = setsDone(slot.id, sets);
+          const complete = done >= slot.sets;
+          const skippedSlot = session.skippedSlotIds.includes(slot.id);
+          const warmupCount = sets.filter((s) => s.slotId === slot.id && s.isWarmup).length;
+          const change = openChanges.find((c) => c.slotId === slot.id);
+          const quiet = complete || skippedSlot;
+          return (
+            <ListRow
+              key={slot.id}
+              onPress={() => onChoose(slot.id)}
+              chevron={false}
+              left={complete ? <Icon name="check-circle" size={22} color={colors.primary} /> : null}
+              title={
+                <View style={styles.rowTitle}>
+                  <AppText variant="rowTitle" style={[{ flexShrink: 1 }, quiet && { color: colors.muted }]} numberOfLines={2}>
+                    {slot.exerciseName}
+                  </AppText>
+                  {slot.id === nextId && !rest ? <Tag label="Siguiente" tone="success" /> : null}
+                  {skippedSlot ? <Tag label="Saltado" /> : null}
+                </View>
+              }
+              subtitle={
+                <View>
+                  <AppText variant="secondary" numberOfLines={1}>
+                    {formatLoad(slot.weightKg, isBodyweight(slot))} · {formatTarget(slot.target, slot.unit, slot.perSide)}
+                    {warmupCount > 0 ? ` · ${warmupCount} aprox.` : ''}
+                  </AppText>
+                  {change && done === 0 ? <SuggestionLine change={change} readOnly /> : null}
+                </View>
+              }
+              right={<SetDots done={done} total={slot.sets} />}
+            />
+          );
+        })}
+        {session.routineId !== null ? (
+          <AddRow
+            title="Añadir ejercicio"
+            onPress={() => router.push({ pathname: '/ejercicios', params: { pickFor: String(session.routineId) } })}
+          />
+        ) : null}
+      </ListGroup>
+      {!allDone && working > 0 ? <Button size="lg" kind="secondary" title="Terminar entreno" onPress={onFinish} /> : null}
     </Screen>
   );
 }
 
-/** "Sugerido: ↑ 35 kg → 37,5 kg", so the change can be judged without opening the exercise. */
-function SuggestedWeight({ change }: { change: WeightChange }) {
-  const up = (change.toKg ?? 0) > (change.fromKg ?? 0);
-  return (
-    <Row style={{ gap: spacing.xs }}>
-      <Icon name={up ? 'arrow-up-bold' : 'arrow-down-bold'} size={16} color={up ? colors.up : colors.down} />
-      <AppText variant="small" style={{ color: up ? colors.up : colors.down, fontWeight: '700' }}>
-        Sugerido: {formatKg(change.fromKg ?? 0)} → {formatKg(change.toKg ?? 0)}
+/** One dot per set (filled when done); with more than five, "2/3". */
+function SetDots({ done, total }: { done: number; total: number }) {
+  if (total > 5 || done > total) {
+    return (
+      <AppText variant="control" tabular weight="600">
+        {`${done}/${total}`}
       </AppText>
-    </Row>
+    );
+  }
+  return (
+    <View style={styles.dots} accessible accessibilityLabel={`${done} de ${total} series`}>
+      {Array.from({ length: total }, (_, i) => (
+        <View key={i} style={[styles.dot, i < done && styles.dotDone]} />
+      ))}
+    </View>
   );
 }
 
 /** The rest still counting while the list is open; tapping it goes back to the timer. */
-function RestBanner({ endsAt, nextLabel, onOpen }: { endsAt: number; nextLabel: string; onOpen: () => void }) {
+function RestBar({ endsAt, totalSeconds, nextLabel, onOpen }: { endsAt: number; totalSeconds: number; nextLabel: string; onOpen: () => void }) {
   const remaining = endsAt - useNow(250);
   const over = remaining <= 0;
+  const ink = over ? colors.primary : colors.text;
   return (
-    <Pressable onPress={onOpen} style={[styles.restBanner, over && { borderColor: colors.primary }]}>
-      <Icon name={over ? 'bell-ring-outline' : 'timer-sand'} size={26} color={over ? colors.primary : colors.text} />
+    <Pressable
+      onPress={onOpen}
+      style={[styles.restBar, over && { backgroundColor: colors.primaryTint }]}
+      accessibilityRole="button"
+      accessibilityLabel={over ? 'Descanso terminado' : `Descanso, quedan ${formatCountdown(remaining)}`}
+      accessibilityHint="Vuelve al descanso">
+      <Ring size={32} stroke={4} progress={over ? 1 : remaining / Math.max(totalSeconds * 1000, remaining)} color={ink} />
       <View style={{ flex: 1 }}>
-        <AppText variant="small">{over ? '¡Descanso terminado!' : 'Descansando'}</AppText>
-        <AppText numberOfLines={1}>{nextLabel}</AppText>
+        <AppText variant="label" style={over ? { color: colors.primary } : undefined}>
+          {over ? 'Descanso terminado' : 'Descanso'}
+        </AppText>
+        <AppText variant="bodySm" numberOfLines={1}>
+          {nextLabel}
+        </AppText>
       </View>
-      <AppText style={[styles.bannerClock, over && { color: colors.primary }]}>{formatCountdown(remaining)}</AppText>
-      <Icon name="chevron-right" size={24} color={colors.muted} />
+      <AppText variant="metric" tabular style={{ color: ink }}>
+        {formatCountdown(remaining)}
+      </AppText>
+      <Icon name="chevron-right" size={20} color={colors.muted} />
     </Pressable>
   );
 }
 
+/** A ring that empties clockwise from 12 o'clock, like a clock hand, as time passes. */
+function Ring({ size, stroke, progress, color }: { size: number; stroke: number; progress: number; color: string }) {
+  const r = (size - stroke) / 2;
+  const length = 2 * Math.PI * r;
+  const p = Math.max(0, Math.min(1, progress));
+  return (
+    <Svg width={size} height={size}>
+      <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.cardAlt} strokeWidth={stroke} fill="none" />
+      <Circle
+        cx={size / 2}
+        cy={size / 2}
+        r={r}
+        stroke={color}
+        strokeWidth={stroke}
+        fill="none"
+        strokeLinecap="round"
+        strokeDasharray={`${length} ${length}`}
+        // The dash pattern repeats every 2 × length: this offset leaves only the last part of the
+        // circle, from the moving end to 12 o'clock.
+        strokeDashoffset={length * (1 + p)}
+        transform={`rotate(-90 ${size / 2} ${size / 2})`}
+      />
+    </Svg>
+  );
+}
+
+/** Correcting a set already done: its reps (and its weight, in the summary). «Borrar» undoes from a Snackbar. */
+function SetSheet({
+  set,
+  label,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  set: SetLog | null;
+  label: string;
+  onClose: () => void;
+  onSave: (set: SetLog, reps: number) => void;
+  onDelete: (set: SetLog) => void;
+}) {
+  const [reps, setReps] = useState(set?.reps ?? 0);
+  return (
+    <Sheet
+      visible={set !== null}
+      title={set ? `Serie ${set.setIndex}` : ''}
+      onClose={onClose}
+      action={
+        set ? (
+          <Button
+            kind="danger"
+            icon="trash-can-outline"
+            title="Borrar"
+            onPress={() => {
+              onClose();
+              onDelete(set);
+            }}
+          />
+        ) : null
+      }>
+      <AppText variant="label">{label}</AppText>
+      <Stepper value={reps} onChange={setReps} min={1} typing={false} />
+      <Button
+        size="lg"
+        title="Guardar"
+        disabled={!set || reps <= 0 || reps === set.reps}
+        onPress={() => {
+          if (set) onSave(set, reps);
+          onClose();
+        }}
+      />
+    </Sheet>
+  );
+}
+
+type SheetState = { kind: 'set'; set: SetLog } | { kind: 'warmup'; set: SetLog | null } | { kind: 'weight' } | null;
+
 function SetView({
+  title,
   slot,
   slotSets,
+  warmups,
+  lastWarmups,
+  increment,
   last,
   change,
-  askNow,
-  onLater,
   onChanged,
   onComplete,
-  onUpdateSet,
-  onDeleteSet,
-  onBack,
+  onWarmup,
+  onCorrect,
+  onDelete,
+  onWeight,
   onSkip,
 }: {
+  title: string;
   slot: Slot;
   slotSets: SetLog[];
+  warmups: SetLog[];
+  lastWarmups: WarmupSet[];
+  increment: number;
   last: number[];
   change?: WeightChange;
-  askNow: boolean;
-  onLater: () => void;
   onChanged: () => void;
-  onComplete: (reps: number) => void;
-  onUpdateSet: (setId: number, reps: number) => void;
-  onDeleteSet: (setId: number) => void;
-  onBack: () => void;
+  onComplete: (reps: number) => Promise<void>;
+  onWarmup: (weightKg: number | null, reps: number) => Promise<void>;
+  onCorrect: (set: SetLog, reps: number, weightKg?: number | null) => void;
+  onDelete: (set: SetLog) => void;
+  onWeight: (kg: number | null) => Promise<void>;
   onSkip: () => void;
 }) {
+  const db = useDb();
   const done = slotSets.length;
   const setNumber = done + 1;
+  const extra = setNumber > slot.sets;
+  const bodyweight = isBodyweight(slot);
+  const repsLabel = `Repeticiones${slot.perSide ? ' por lado' : ''}`;
   const [reps, setReps] = useState(last[done] ?? last[last.length - 1] ?? defaultReps(slot.target));
-  const [editing, setEditing] = useState<SetLog | null>(null);
-  const [editReps, setEditReps] = useState(0);
+  const [sheet, setSheet] = useState<SheetState>(null);
+  const [sheetReps, setSheetReps] = useState(0);
+  const [sheetKg, setSheetKg] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [appliedChange, setAppliedChange] = useState<WeightChange | null>(null);
+  // Decided once per set (it remounts after each one): the wide action only before the first set
+  // and for a pending suggestion; otherwise the quiet line.
+  const [prominent] = useState(() => done === 0 && change?.status === 'pending');
+  const shown = appliedChange ?? change ?? null;
+  const { fontScale } = useWindowDimensions();
+  // Same height for «Peso corporal» and a number at any font size.
+  const numberLine = type.numberL.lineHeight * Math.min(fontScale, maxFontScale.numberL ?? 1);
+  const noLoad = bodyweight && !slot.weightKg;
+
+  const apply = async () => {
+    if (!shown) return;
+    Haptics.selectionAsync();
+    await applyChange(db, shown.id);
+    setAppliedChange(shown);
+    onChanged();
+  };
+  const undo = async () => {
+    if (!appliedChange) return;
+    Haptics.selectionAsync();
+    await undoChange(db, appliedChange.id);
+    setAppliedChange(null);
+    onChanged();
+  };
+
+  const openWarmup = (set: SetLog | null) => {
+    const proposal = set
+      ? { weightKg: set.weightKg, reps: set.reps }
+      : warmupProposal(warmups.length, slot.weightKg ?? 0, increment, lastWarmups);
+    setSheetKg(proposal.weightKg ?? 0);
+    setSheetReps(proposal.reps);
+    setSheet({ kind: 'warmup', set });
+  };
+  const openWeight = () => {
+    setSheetKg(slot.weightKg ?? 0);
+    setSheet({ kind: 'weight' });
+  };
 
   const submit = async () => {
     setSaving(true);
@@ -459,111 +720,367 @@ function SetView({
     }
   };
 
+  const kgOrNull = (kg: number) => (kg > 0 ? kg : bodyweight ? null : 0);
+  const loadText = (kg: number) => (kg > 0 ? formatKg(kg) : bodyweight ? 'Sin lastre' : formatKg(0));
+  const lastSpoken = `Última vez: ${last.join(', ')}${last[done] !== undefined ? `. En esta serie, ${last[done]}` : ''}`;
+
+  const menu = () =>
+    showActions([
+      { text: 'Saltar ejercicio', icon: 'skip-next-outline', onPress: onSkip },
+      ...(done > 0 ? [{ text: 'Añadir aproximación', icon: 'plus' as const, onPress: () => openWarmup(null) }] : []),
+      { text: 'Editar ejercicio de la rutina', icon: 'pencil-outline', onPress: () => router.push(`/slot/${slot.id}`) },
+    ]);
+
+  const footer = (
+    <BottomBar actionKey={`set-${slot.id}-${done}`} style={{ flexDirection: 'column', gap: spacing.md }}>
+      <AppText variant="label" style={{ textAlign: 'center' }}>
+        {repsLabel}
+      </AppText>
+      <Stepper big value={reps} onChange={setReps} min={1} />
+      <Button size="xl" icon="check-bold" title={extra ? 'Serie extra hecha' : 'Serie hecha'} onPress={submit} disabled={saving || reps <= 0} />
+    </BottomBar>
+  );
+
   return (
-    <Screen>
-      <View style={{ gap: spacing.xs }}>
-        <AppText variant="title">{slot.exerciseName}</AppText>
-        <AppText variant="heading" style={{ color: setNumber > slot.sets ? colors.warning : colors.primary }}>
-          {setNumber > slot.sets ? `Serie extra ${setNumber}` : `Serie ${setNumber} de ${slot.sets}`}
-        </AppText>
-      </View>
-
-      <Card>
-        <Row between>
-          <View style={{ flex: 1 }}>
-            <AppText variant="small">Peso</AppText>
-            <AppText variant="heading">{formatLoad(slot.weightKg, isBodyweight(slot))}</AppText>
-          </View>
-          <Button kind="ghost" title="Editar peso" onPress={() => router.push(`/slot/${slot.id}`)} />
-        </Row>
-        <AppText variant="muted">Objetivo: {formatTarget(slot.target, slot.unit, slot.perSide)}</AppText>
-        {slot.note ? <AppText variant="small">{slot.note}</AppText> : null}
-        {last.length > 0 ? <AppText variant="small">Última vez: {last.join(' · ')}</AppText> : null}
-      </Card>
-
-      {change && askNow ? (
-        <RecommendationBox title="Recomendación para hoy" change={change} onChanged={onChanged} onLater={onLater} />
-      ) : change ? (
-        <SuggestionLine change={change} onChanged={onChanged} />
-      ) : null}
-
-      {editing ? (
-        <Card>
-          <AppText variant="heading">Corregir serie {editing.setIndex}</AppText>
-          <Stepper big value={editReps} onChange={setEditReps} />
-          <Row>
-            <Button
-              title="Guardar"
-              onPress={() => {
-                onUpdateSet(editing.id, editReps);
-                setEditing(null);
-              }}
-            />
-            <Button
-              kind="danger"
-              title="Borrar serie"
-              onPress={() => {
-                onDeleteSet(editing.id);
-                setEditing(null);
-              }}
-            />
-            <Button kind="ghost" title="Cancelar" onPress={() => setEditing(null)} />
-          </Row>
-        </Card>
-      ) : (
-        <Card style={{ gap: spacing.lg }}>
-          <AppText variant="muted" style={{ textAlign: 'center' }}>
-            Repeticiones{slot.perSide ? ' por lado' : ''}
+    <>
+      <Stack.Screen
+        options={{
+          title,
+          headerRight: () => (
+            <HeaderActions>
+              <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
+            </HeaderActions>
+          ),
+        }}
+      />
+      <Screen tight footer={footer}>
+        <View style={{ gap: spacing.xs }}>
+          <AppText variant="title" numberOfLines={2}>
+            {slot.exerciseName}
           </AppText>
-          <Stepper big value={reps} onChange={setReps} />
-          <Button big title="Serie hecha" onPress={submit} disabled={saving || reps <= 0} />
-        </Card>
-      )}
-
-      {slotSets.length > 0 ? (
-        <View style={{ gap: spacing.sm }}>
-          <AppText variant="small">Series hechas (toca para corregir)</AppText>
-          <Row>
-            {slotSets.map((s) => (
-              <Chip
-                key={s.id}
-                label={`S${s.setIndex}: ${s.reps}`}
-                onPress={() => {
-                  setEditing(s);
-                  setEditReps(s.reps);
-                }}
-              />
-            ))}
+          <Row between>
+            <AppText variant="bodySm" weight="600" style={[{ flexShrink: 1 }, extra && { color: colors.warning }]}>
+              {extra ? `Serie extra ${setNumber}` : `Serie ${setNumber} de ${slot.sets}`}
+            </AppText>
+            {done === 0 ? (
+              // The text button keeps its 44 dp touch box; the negative margin keeps the line at 20 dp.
+              <View style={styles.inlineAction}>
+                <Button kind="text" icon="plus" title="Aproximación" accessibilityLabel="Añadir aproximación" onPress={() => openWarmup(null)} />
+              </View>
+            ) : null}
           </Row>
         </View>
-      ) : null}
 
-      {/* Two equal bordered buttons, so each one lines up with the cards above. */}
-      <Row style={{ flexWrap: 'nowrap' }}>
-        <Button kind="secondary" title="Ver ejercicios" onPress={onBack} style={{ flex: 1 }} />
-        {done === 0 ? <Button kind="secondary" title="Saltar ejercicio" onPress={onSkip} style={{ flex: 1 }} /> : null}
-      </Row>
-    </Screen>
+        {warmups.length > 0 ? (
+          // flexGrow 0: a ScrollView grows by default and would take the free height of the screen.
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.warmups}>
+            {warmups.map((w) => (
+              <Pressable
+                key={w.id}
+                onPress={() => openWarmup(w)}
+                style={styles.warmupPill}
+                accessibilityRole="button"
+                accessibilityLabel={`Aproximación ${w.setIndex}: ${loadText(w.weightKg ?? 0)} por ${w.reps}`}>
+                <AppText variant="tag" style={{ color: colors.accent }}>
+                  A{w.setIndex}
+                </AppText>
+                <AppText variant="bodySm" weight="600" tabular>
+                  {loadText(w.weightKg ?? 0)} × {w.reps}
+                </AppText>
+              </Pressable>
+            ))}
+          </ScrollView>
+        ) : null}
+
+        <SetTracker planned={slot.sets} sets={slotSets} currentReps={reps} onOpen={(set) => setSheet({ kind: 'set', set })} />
+
+        <ListGroup inset={0}>
+          <View>
+            <Pressable
+              onPress={openWeight}
+              android_ripple={{ color: colors.pressed }}
+              style={styles.weightRow}
+              accessibilityRole="button"
+              accessibilityLabel={`${bodyweight ? 'Lastre' : 'Peso'}: ${noLoad ? 'peso corporal' : formatKg(slot.weightKg ?? 0)}`}
+              accessibilityHint={bodyweight ? 'Cambia el lastre' : 'Cambia el peso'}>
+              <AppText variant="label">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
+              <View style={[styles.weightLine, { minHeight: numberLine }]}>
+                {noLoad ? (
+                  <AppText variant="title" numberOfLines={1} style={{ flex: 1 }}>
+                    Peso corporal
+                  </AppText>
+                ) : (
+                  <Value value={formatNumber(slot.weightKg ?? 0)} unit="kg" size="numberL" style={{ flex: 1 }} />
+                )}
+                <Icon name="pencil-outline" size={20} color={colors.muted} />
+              </View>
+            </Pressable>
+            {shown ? (
+              <View style={styles.suggestionSlot}>
+                {prominent ? (
+                  <SuggestionAction change={shown} applied={!!appliedChange} bodyweight={bodyweight} onApply={apply} onUndo={undo} />
+                ) : (
+                  <SuggestionLine change={shown} applied={!!appliedChange} onApply={apply} onUndo={undo} />
+                )}
+              </View>
+            ) : null}
+          </View>
+
+          <View style={styles.infoGrid}>
+            <InfoCell
+              label="Objetivo"
+              spoken={`Objetivo: ${spokenTarget(slot.target, slot.unit, slot.perSide)}`}
+              caption={slot.perSide ? 'Por lado' : undefined}>
+              <AppText variant="rowValue" tabular numberOfLines={2}>
+                {capitalizeFirst(formatTarget(slot.target, slot.unit, false))}
+              </AppText>
+            </InfoCell>
+            {last.length > 0 ? (
+              <>
+                <View style={styles.vDivider} />
+                <InfoCell label="Última vez" spoken={lastSpoken}>
+                  <AppText variant="rowValue" tabular numberOfLines={2} style={{ color: colors.muted }}>
+                    {last.map((r, i) => (
+                      <Fragment key={i}>
+                        {i > 0 ? ' · ' : ''}
+                        <AppText
+                          variant="rowValue"
+                          tabular
+                          weight={i === done ? '700' : undefined}
+                          style={{ color: i === done ? colors.text : colors.muted }}>
+                          {r}
+                        </AppText>
+                      </Fragment>
+                    ))}
+                  </AppText>
+                </InfoCell>
+              </>
+            ) : null}
+          </View>
+
+          {slot.note ? <NoteRow text={slot.note} /> : null}
+        </ListGroup>
+      </Screen>
+
+      <SetSheet
+        key={sheet?.kind === 'set' ? sheet.set.id : 'none'}
+        set={sheet?.kind === 'set' ? sheet.set : null}
+        label={repsLabel}
+        onClose={() => setSheet(null)}
+        onSave={(set, value) => onCorrect(set, value)}
+        onDelete={onDelete}
+      />
+
+      <Sheet
+        visible={sheet?.kind === 'warmup'}
+        title={sheet?.kind === 'warmup' ? `Aproximación ${sheet.set ? sheet.set.setIndex : warmups.length + 1}` : ''}
+        onClose={() => setSheet(null)}
+        action={
+          sheet?.kind === 'warmup' && sheet.set ? (
+            <Button
+              kind="danger"
+              icon="trash-can-outline"
+              title="Borrar"
+              onPress={() => {
+                const removed = sheet.set!;
+                setSheet(null);
+                onDelete(removed);
+              }}
+            />
+          ) : null
+        }>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="label">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
+          <Stepper decimal value={sheetKg} onChange={setSheetKg} step={increment} format={loadText} typing={false} />
+        </View>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="label">{repsLabel}</AppText>
+          <Stepper value={sheetReps} onChange={setSheetReps} min={1} typing={false} />
+        </View>
+        <Button
+          size="lg"
+          title="Guardar aproximación"
+          disabled={sheetReps <= 0}
+          onPress={async () => {
+            const editing = sheet?.kind === 'warmup' ? sheet.set : null;
+            setSheet(null);
+            if (editing) onCorrect(editing, sheetReps, kgOrNull(sheetKg));
+            else await onWarmup(kgOrNull(sheetKg), sheetReps);
+          }}
+        />
+      </Sheet>
+
+      <Sheet visible={sheet?.kind === 'weight'} title={bodyweight ? 'Cambiar lastre' : 'Cambiar peso'} onClose={() => setSheet(null)}>
+        <Stepper big decimal value={sheetKg} onChange={setSheetKg} step={increment} format={loadText} typing={false} />
+        <AppText variant="caption">También para las próximas sesiones</AppText>
+        <Button
+          size="lg"
+          title={`Guardar ${loadText(sheetKg)}`}
+          disabled={kgOrNull(sheetKg) === slot.weightKg}
+          onPress={async () => {
+            setSheet(null);
+            await onWeight(kgOrNull(sheetKg));
+            // «Deshacer» would put back the weight from before the suggestion over this one.
+            setAppliedChange(null);
+          }}
+        />
+      </Sheet>
+    </>
+  );
+}
+
+/** A label over its value in the set card; one TalkBack stop. */
+function InfoCell({ label, spoken, caption, children }: { label: string; spoken: string; caption?: string; children: ReactNode }) {
+  return (
+    <View style={styles.infoCell} accessible accessibilityLabel={spoken}>
+      <AppText variant="label" numberOfLines={1}>
+        {label}
+      </AppText>
+      {children}
+      {caption ? <AppText variant="caption">{caption}</AppText> : null}
+    </View>
+  );
+}
+
+/** The routine note: two lines; only when it is longer, a chevron and a tap show it whole. */
+function NoteRow({ text }: { text: string }) {
+  const { fontScale } = useWindowDimensions();
+  const [lines, setLines] = useState(0);
+  const [open, setOpen] = useState(false);
+  const long = lines > 2;
+  // The icons stay centred on the first line.
+  const firstLine = { height: type.bodySm.lineHeight * Math.min(fontScale, maxFontScale.bodySm ?? fontScale) };
+  return (
+    <Pressable
+      onPress={long ? () => setOpen((o) => !o) : undefined}
+      android_ripple={long ? { color: colors.pressed } : undefined}
+      style={styles.noteRow}
+      accessibilityRole={long ? 'button' : undefined}
+      accessibilityState={long ? { expanded: open } : undefined}
+      accessibilityLabel={`Nota: ${text}`}
+      accessibilityHint={long ? (open ? 'Recoge la nota' : 'Muestra la nota entera') : undefined}>
+      <View style={[styles.noteSide, firstLine]}>
+        <Icon name="note-text-outline" size={20} color={colors.muted} />
+      </View>
+      <View style={{ flex: 1 }}>
+        <AppText variant="bodySm" numberOfLines={open ? undefined : 2}>
+          {text}
+        </AppText>
+        {/* Android reports only the visible lines of a clamped text: an invisible full copy counts them. */}
+        <View style={styles.measure} pointerEvents="none" importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+          <AppText variant="bodySm" onTextLayout={(e) => setLines(e.nativeEvent.lines.length)}>
+            {text}
+          </AppText>
+        </View>
+      </View>
+      {long ? (
+        <View style={[styles.noteSide, firstLine]}>
+          <Icon name={open ? 'chevron-up' : 'chevron-down'} size={20} color={colors.muted} />
+        </View>
+      ) : null}
+    </Pressable>
+  );
+}
+
+/**
+ * One cell per planned set, plus the extra ones: done (its reps and a check), the current one
+ * (the reps of the stepper, live) and the ones left («–»). Tapping a done one opens its correction.
+ */
+function SetTracker({
+  planned,
+  sets,
+  currentReps,
+  onOpen,
+}: {
+  planned: number;
+  sets: SetLog[];
+  currentReps: number;
+  onOpen: (set: SetLog) => void;
+}) {
+  const count = Math.max(planned, sets.length + 1);
+  // At least 3 columns (1–2 sets keep a normal width), at most 6 (more wrap to a new row).
+  const columns = Math.min(6, Math.max(3, count));
+  const cells = Array.from({ length: count }, (_, i) => {
+    const set = sets[i];
+    const label = i >= planned ? 'Extra' : `S${i + 1}`;
+    if (set) {
+      return (
+        <Pressable
+          key={i}
+          onPress={() => onOpen(set)}
+          style={[styles.cell, styles.cellDone]}
+          accessibilityRole="button"
+          accessibilityLabel={`Serie ${i + 1}: ${set.reps} repeticiones, hecha`}
+          accessibilityHint="Toca para corregirla">
+          <AppText variant="tag" maxFontSizeMultiplier={CELL_MAX_SCALE}>
+            {label}
+          </AppText>
+          <View style={styles.cellValue}>
+            <AppText variant="rowValue" tabular maxFontSizeMultiplier={CELL_MAX_SCALE}>
+              {set.reps}
+            </AppText>
+            <Icon name="check" size={14} color={colors.primary} />
+          </View>
+        </Pressable>
+      );
+    }
+    const isCurrent = i === sets.length;
+    return (
+      <View
+        key={i}
+        style={[styles.cell, isCurrent ? styles.cellCurrent : styles.cellPending]}
+        accessible
+        accessibilityLabel={isCurrent ? `Serie ${i + 1}: ${currentReps} repeticiones, en curso` : `Serie ${i + 1}, pendiente`}>
+        <AppText variant="tag" maxFontSizeMultiplier={CELL_MAX_SCALE} style={{ color: isCurrent ? colors.primary : colors.muted }}>
+          {label}
+        </AppText>
+        <AppText variant="rowValue" tabular maxFontSizeMultiplier={CELL_MAX_SCALE} style={{ color: isCurrent ? colors.primary : colors.muted }}>
+          {isCurrent ? currentReps : '–'}
+        </AppText>
+      </View>
+    );
+  });
+  const rows: ReactNode[][] = [];
+  for (let i = 0; i < count; i += columns) rows.push(cells.slice(i, i + columns));
+  return (
+    <View style={styles.tracker}>
+      {rows.map((row, r) => (
+        <View key={r} style={styles.trackerRow}>
+          {row}
+          {Array.from({ length: columns - row.length }, (_, k) => (
+            <View key={`spacer-${k}`} style={styles.cellSpacer} />
+          ))}
+        </View>
+      ))}
+    </View>
   );
 }
 
 function RestView({
   endsAt,
+  totalSeconds,
   next,
-  nextLabel,
+  nextSlot,
+  lastSet,
+  lastSlot,
+  onCorrect,
+  onDelete,
   onAdjust,
   onContinue,
-  onChoose,
   askOverlay,
   onGrantOverlay,
   onDeclineOverlay,
 }: {
   endsAt: number;
+  totalSeconds: number;
   next: NextStep;
-  nextLabel: string;
+  nextSlot: Slot | null;
+  lastSet: SetLog | null;
+  lastSlot: Slot | undefined;
+  onCorrect: (set: SetLog, reps: number) => void;
+  onDelete: (set: SetLog) => void;
   onAdjust: (deltaSeconds: number) => void;
   onContinue: () => void;
-  onChoose: () => void;
   askOverlay: boolean;
   onGrantOverlay: () => void;
   onDeclineOverlay: () => void;
@@ -572,6 +1089,7 @@ function RestView({
   const remaining = endsAt - now;
   const over = remaining <= 0;
   const buzzed = useRef(false);
+  const [correcting, setCorrecting] = useState<SetLog | null>(null);
 
   useEffect(() => {
     if (over && !buzzed.current) {
@@ -584,72 +1102,115 @@ function RestView({
     next.kind === 'next_set'
       ? next.setNumber === 1
         ? 'Empezar ejercicio'
-        : `Siguiente serie (${next.setNumber})`
+        : 'Siguiente serie'
       : next.kind === 'next_exercise'
         ? 'Siguiente ejercicio'
         : 'Terminar';
+  const total = Math.max(totalSeconds * 1000, remaining);
+  const ringSize = 264;
+  const ink = over ? colors.primary : colors.text;
+
+  // «Saltar descanso» and the action that replaces it at 0 take exactly the same place.
+  const footer = (
+    <BottomBar actionKey={over ? 'next' : 'skip'} style={{ flexDirection: 'column', gap: spacing.md }}>
+      <View style={{ flexDirection: 'row', gap: spacing.md }}>
+        <Button size="lg" kind="secondary" title="−30 s" onPress={() => onAdjust(-30)} disabled={over} style={{ flex: 1 }} />
+        <Button size="lg" kind="secondary" title="+30 s" onPress={() => onAdjust(30)} disabled={over} style={{ flex: 1 }} />
+      </View>
+      <Button
+        size="xl"
+        kind={over ? 'primary' : 'secondary'}
+        icon={over ? 'play' : 'skip-next'}
+        title={over ? continueLabel : 'Saltar descanso'}
+        onPress={onContinue}
+      />
+    </BottomBar>
+  );
 
   return (
-    <Screen>
-      <View style={[styles.restBox, over && { borderColor: colors.primary }]}>
-        <AppText variant="muted">{over ? '¡Descanso terminado!' : 'Descanso'}</AppText>
-        <AppText style={[styles.countdown, over && { color: colors.primary }]}>{formatCountdown(remaining)}</AppText>
-        {!over ? (
-          <Row style={{ justifyContent: 'center' }}>
-            <Button kind="secondary" title="−30 s" onPress={() => onAdjust(-30)} />
-            <Button kind="secondary" title="+30 s" onPress={() => onAdjust(30)} />
-          </Row>
-        ) : null}
+    <Screen tight footer={footer}>
+      <View style={styles.restTop}>
+        <AppText variant="bodySm" weight="600" style={{ color: over ? colors.primary : colors.muted }}>
+          {over ? 'Descanso terminado' : 'Descanso'}
+        </AppText>
+        <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
+          <View style={StyleSheet.absoluteFill}>
+            <Ring size={ringSize} stroke={10} progress={over ? 1 : remaining / total} color={ink} />
+          </View>
+          <AppText
+            variant="countdown"
+            tabular
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+            style={{ color: ink, maxWidth: ringSize - 40 }}>
+            {formatCountdown(remaining)}
+          </AppText>
+          {over ? (
+            <AppText variant="metricSm" tabular style={{ color: colors.warning }}>
+              +{formatCountdown(-remaining)}
+            </AppText>
+          ) : (
+            <AppText variant="secondary">de {formatCountdown(totalSeconds * 1000)}</AppText>
+          )}
+        </View>
       </View>
 
-      <Card>
-        <AppText variant="small">A continuación</AppText>
-        <AppText variant="heading">{nextLabel}</AppText>
-      </Card>
+      {lastSet && lastSlot ? (
+        <Pressable
+          onPress={() => setCorrecting(lastSet)}
+          android_ripple={{ color: colors.pressed }}
+          style={styles.doneRow}
+          accessibilityRole="button"
+          accessibilityHint="Corrige la serie sin parar el descanso">
+          <Icon name="check" size={16} color={colors.primary} />
+          <AppText variant="bodySm" weight="600" tabular style={{ flex: 1 }} numberOfLines={1}>
+            Serie {lastSet.setIndex} hecha · {formatLoad(lastSet.weightKg, isBodyweight(lastSlot))} × {lastSet.reps}
+          </AppText>
+          <Icon name="pencil-outline" size={20} color={colors.muted} />
+        </Pressable>
+      ) : null}
 
-      <Button big kind={over ? 'primary' : 'secondary'} title={over ? continueLabel : `Saltar descanso · ${continueLabel}`} onPress={onContinue} />
-      <Button kind="ghost" title={over ? 'Ver ejercicios' : 'Ver ejercicios (el descanso sigue)'} onPress={onChoose} />
+      {nextSlot ? (
+        <View style={{ gap: 2 }}>
+          <AppText variant="label">Siguiente</AppText>
+          <AppText variant="heading" numberOfLines={2}>
+            {nextSlot.exerciseName}
+          </AppText>
+          <AppText variant="bodySm" style={{ color: colors.muted }}>
+            {next.kind === 'next_set' ? `Serie ${next.setNumber} de ${nextSlot.sets}` : 'Primera serie'}
+            {' · '}
+            {formatLoad(nextSlot.weightKg, isBodyweight(nextSlot))}
+          </AppText>
+        </View>
+      ) : (
+        <AppText variant="heading">Era la última serie</AppText>
+      )}
 
       {askOverlay ? (
-        <Card style={{ borderColor: colors.accent }}>
-          <AppText variant="heading">Burbuja flotante</AppText>
-          <AppText variant="muted">
-            Para ver el descanso en una burbuja cuando sales de la app, Android necesita el permiso «Mostrar sobre
-            otras apps». Si se abre una lista de apps, busca Entreno y permítelo.
+        <Row style={{ gap: spacing.sm }}>
+          <AppText variant="caption" style={{ flex: 1 }} numberOfLines={1}>
+            Burbuja con el descanso fuera de la app
           </AppText>
-          <Row>
-            <Button title="Dar permiso" onPress={onGrantOverlay} />
-            <Button kind="ghost" title="No, gracias" onPress={onDeclineOverlay} />
-          </Row>
-        </Card>
+          <Button kind="text" title="Dar permiso" onPress={onGrantOverlay} />
+          <IconButton icon="close" label="No, gracias" onPress={onDeclineOverlay} size={20} color={colors.muted} />
+        </Row>
       ) : null}
+
+      <SetSheet
+        key={correcting?.id ?? 'none'}
+        set={correcting}
+        label={`Repeticiones${lastSlot?.perSide ? ' por lado' : ''}`}
+        onClose={() => setCorrecting(null)}
+        onSave={onCorrect}
+        onDelete={onDelete}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  restBox: {
-    alignItems: 'center',
-    gap: spacing.md,
-    paddingVertical: spacing.xxl,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  countdown: { color: colors.text, fontSize: 96, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  restBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: colors.border,
-    backgroundColor: colors.cardAlt,
-  },
-  bannerClock: { color: colors.text, fontSize: 26, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  completed: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl, borderColor: colors.primary },
+  completed: { alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xl },
   completedIcon: {
     width: 64,
     height: 64,
@@ -658,4 +1219,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  rowTitle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  dots: { flexDirection: 'row', gap: 4 },
+  dot: { width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: colors.border },
+  dotDone: { backgroundColor: colors.primary, borderColor: colors.primary },
+  restBar: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    minHeight: 64,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
+  },
+  warmups: { gap: spacing.sm },
+  warmupPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    height: 40,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentTint,
+  },
+  tracker: { gap: spacing.sm },
+  trackerRow: { flexDirection: 'row', gap: spacing.sm },
+  cell: { flex: 1, minHeight: 48, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  cellSpacer: { flex: 1 },
+  cellDone: { backgroundColor: colors.cardAlt },
+  cellCurrent: { backgroundColor: colors.primaryTint },
+  cellPending: { borderWidth: 1, borderColor: colors.border },
+  cellValue: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  inlineAction: { marginVertical: -spacing.md },
+  weightRow: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: 2 },
+  weightLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  suggestionSlot: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  infoGrid: { flexDirection: 'row', alignItems: 'stretch' },
+  infoCell: { flex: 1, gap: 2, paddingVertical: spacing.md, paddingHorizontal: spacing.lg },
+  vDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  noteSide: { justifyContent: 'center' },
+  measure: { position: 'absolute', top: 0, left: 0, right: 0, opacity: 0 },
+  restTop: { alignItems: 'center', gap: spacing.md, paddingTop: spacing.sm },
+  doneRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 48 },
 });

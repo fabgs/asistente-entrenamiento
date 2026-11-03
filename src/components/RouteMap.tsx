@@ -1,32 +1,85 @@
-import { useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState, type ReactNode } from 'react';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
-import { fitView, outline, project, TILE_SIZE, tilesFor } from '@/domain/mapView';
-import { colors, radius } from '@/theme';
+import { fitView, osmTileUrl, outline, project, TILE_USER_AGENT, tilesFor } from '@/domain/mapView';
+import { attributionType, colors, radius } from '@/theme';
 import { AppText } from './ui';
 
-// OpenStreetMap's own tiles: no API key. Their usage policy asks for attribution and a User-Agent
-// that identifies the app; a personal app's few requests are well within it.
-const tileSource = (z: number, x: number, y: number) => ({
-  uri: `https://tile.openstreetmap.org/${z}/${x}/${y}.png`,
-  headers: { 'User-Agent': 'Entreno/1.0 (personal training app)' },
-});
+const tileSource = (z: number, x: number, y: number) => ({ uri: osmTileUrl(z, x, y), headers: { 'User-Agent': TILE_USER_AGENT } });
 
-/** A route drawn over map tiles; without internet only the line shows, over the app background. */
-export function RouteMap({ segments, height = 240 }: { segments: LatLon[][]; height?: number }) {
+/** Darkens the light tiles to sit in the dark theme (the 3D map uses raster-brightness-max 0.62). */
+const VEIL = 0.38;
+
+/**
+ * A route drawn over map tiles; without internet only the line shows, over the app background.
+ * `cursor` marks a moment of the walk (from its chart); `onPress` opens the full map; `corner`
+ * holds small buttons over the top-right corner.
+ */
+export function RouteMap({
+  segments,
+  height = 240,
+  cursor = null,
+  onPress,
+  corner,
+  rounded = true,
+  onTilesLoaded,
+  fitInset,
+  lineWidth = 5,
+  veil = VEIL,
+  detail = 1,
+  attribution = true,
+}: {
+  segments: LatLon[][];
+  height?: number;
+  cursor?: LatLon | null;
+  onPress?: () => void;
+  corner?: ReactNode;
+  rounded?: boolean;
+  /** Called once every tile has loaded or failed (for capturing the map as an image). */
+  onTilesLoaded?: () => void;
+  /** Space kept free above and below the route (e.g. for text drawn over the map). */
+  fitInset?: { top: number; bottom: number };
+  lineWidth?: number;
+  /** How much the light map is darkened to sit in the dark theme. */
+  veil?: number;
+  /** Zoom levels the tiles come from further in, drawn smaller and so sharper (see tilesFor). */
+  detail?: number;
+  /** false when the screen shows «© OpenStreetMap» itself (the share image). */
+  attribution?: boolean;
+}) {
   const [width, setWidth] = useState(0);
   const points = segments.flat();
 
   return (
-    <View style={[styles.box, { height }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
+    <View style={[styles.box, !rounded && styles.square, { height }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
       {points.length === 0 ? (
         <View style={styles.empty}>
           <AppText variant="muted">Esperando la señal del GPS…</AppText>
         </View>
       ) : width > 0 ? (
-        <MapContent segments={segments} points={points} width={width} height={height} />
+        <Pressable
+          onPress={onPress}
+          disabled={!onPress}
+          style={StyleSheet.absoluteFill}
+          accessibilityRole={onPress ? 'button' : undefined}
+          accessibilityLabel={onPress ? 'Abrir el mapa a pantalla completa' : 'Mapa de la ruta'}>
+          <MapContent
+            segments={segments}
+            points={points}
+            width={width}
+            height={height}
+            cursor={cursor}
+            onTilesLoaded={onTilesLoaded}
+            fitInset={fitInset}
+            lineWidth={lineWidth}
+            veil={veil}
+            detail={detail}
+            attribution={attribution}
+          />
+        </Pressable>
       ) : null}
+      {corner && points.length > 0 ? <View style={styles.corner}>{corner}</View> : null}
     </View>
   );
 }
@@ -36,47 +89,95 @@ function MapContent({
   points,
   width,
   height,
+  cursor,
+  onTilesLoaded,
+  fitInset = { top: 0, bottom: 0 },
+  lineWidth,
+  veil,
+  detail,
+  attribution,
 }: {
   segments: LatLon[][];
   points: LatLon[];
   width: number;
   height: number;
+  cursor: LatLon | null;
+  onTilesLoaded?: () => void;
+  fitInset?: { top: number; bottom: number };
+  lineWidth: number;
+  veil: number;
+  detail: number;
+  attribution: boolean;
 }) {
-  const view = fitView(points, width, height);
+  const fitted = fitView(points, width, height - fitInset.top - fitInset.bottom);
+  const view = { ...fitted, originY: fitted.originY - fitInset.top };
+  const tiles = tilesFor(view, width, height, detail);
+  const [settled, setSettled] = useState(0);
   const toScreen = (p: LatLon) => {
     const { x, y } = project(p, view.zoom);
     return { x: x - view.originX, y: y - view.originY };
   };
   const start = toScreen(points[0]);
   const end = toScreen(points[points.length - 1]);
+  const mark = cursor ? toScreen(cursor) : null;
+  const lines = segments.map((segment) => segment.map((p) => toScreen(p)).map((p) => `${p.x},${p.y}`).join(' '));
+  const allSettled = tiles.length > 0 && settled >= tiles.length;
+  useEffect(() => {
+    if (allSettled) onTilesLoaded?.();
+  }, [allSettled, onTilesLoaded]);
 
   return (
     <>
-      {tilesFor(view, width, height).map((t) => (
+      {tiles.map((t) => (
         <Image
-          key={`${view.zoom}/${t.x}/${t.y}/${t.left}`}
-          source={tileSource(view.zoom, t.x, t.y)}
-          style={{ position: 'absolute', left: t.left, top: t.top, width: TILE_SIZE, height: TILE_SIZE }}
+          key={`${t.zoom}/${t.x}/${t.y}/${t.left}`}
+          source={tileSource(t.zoom, t.x, t.y)}
+          onLoadEnd={onTilesLoaded ? () => setSettled((n) => n + 1) : undefined}
+          style={{ position: 'absolute', left: t.left, top: t.top, width: t.size, height: t.size }}
         />
       ))}
       {/* Darkens the light map so it sits in the dark theme and the route stands out. */}
-      <View style={styles.shade} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: veil }]} />
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
-        {segments.map((segment, i) => (
+        {/* The dark outline keeps the green line readable over light tiles. */}
+        {lines.map((points, i) => (
+          <Polyline
+            key={`o${i}`}
+            points={points}
+            fill="none"
+            stroke={colors.bg}
+            strokeOpacity={0.7}
+            strokeWidth={lineWidth + 4}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        ))}
+        {lines.map((points, i) => (
           <Polyline
             key={i}
-            points={segment.map((p) => toScreen(p)).map((p) => `${p.x},${p.y}`).join(' ')}
+            points={points}
             fill="none"
             stroke={colors.primary}
-            strokeWidth={4}
+            strokeWidth={lineWidth}
             strokeLinejoin="round"
             strokeLinecap="round"
           />
         ))}
         <Circle cx={start.x} cy={start.y} r={6} fill={colors.bg} stroke={colors.primary} strokeWidth={3} />
         <Circle cx={end.x} cy={end.y} r={7} fill={colors.primary} stroke={colors.bg} strokeWidth={2} />
+        {/* Same mark as the chart's cursor. */}
+        {mark ? (
+          <>
+            <Circle cx={mark.x} cy={mark.y + 1} r={10} fill={colors.bg} opacity={0.35} />
+            <Circle cx={mark.x} cy={mark.y} r={7} fill={colors.text} stroke={colors.bg} strokeWidth={3} />
+          </>
+        ) : null}
       </Svg>
-      <Text style={styles.attribution}>© OpenStreetMap</Text>
+      {attribution ? (
+        <Text style={styles.attribution} maxFontSizeMultiplier={1}>
+          © OpenStreetMap
+        </Text>
+      ) : null}
     </>
   );
 }
@@ -104,29 +205,18 @@ export function RouteThumbnail({ segments, size = 56 }: { segments: LatLon[][]; 
 }
 
 const styles = StyleSheet.create({
-  thumbnail: {
-    borderRadius: radius.md,
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    overflow: 'hidden',
-  },
-  box: {
-    borderRadius: radius.lg,
-    overflow: 'hidden',
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
+  thumbnail: { borderRadius: radius.sm, backgroundColor: colors.cardAlt, overflow: 'hidden' },
+  box: { borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.cardAlt },
+  square: { borderRadius: 0 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  shade: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(14, 17, 22, 0.55)' },
+  corner: { position: 'absolute', top: 8, right: 8, gap: 8 },
   attribution: {
     position: 'absolute',
-    right: 6,
+    left: 6,
     bottom: 4,
-    fontSize: 10,
+    ...attributionType,
     color: colors.muted,
-    backgroundColor: 'rgba(14, 17, 22, 0.6)',
+    backgroundColor: colors.overlay,
     paddingHorizontal: 4,
     borderRadius: 4,
   },

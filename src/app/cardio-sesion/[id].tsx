@@ -1,13 +1,38 @@
+import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
-import { LineChart } from '@/components/LineChart';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { showActions, showDialog, showPrompt } from '@/components/Dialog';
+import { MetricBoard } from '@/components/MetricBoard';
 import { RouteMap } from '@/components/RouteMap';
-import { AppText, Button, Card, Icon, Loading, Row, Screen, Stat, StatRow } from '@/components/ui';
-import { getCardioSession, listTrackPoints, type CardioSession } from '@/db/repositories/cardioSessions';
-import { getSettings } from '@/db/repositories/settings';
+import { TrackChart } from '@/components/TrackChart';
+import {
+  AppText,
+  BottomBar,
+  Button,
+  Card,
+  EditableTitle,
+  EmptyState,
+  FloatingButton,
+  HeaderActions,
+  Icon,
+  IconButton,
+  ListGroup,
+  Loading,
+  ProgressBar,
+  Row,
+  Screen,
+  Section,
+  Segmented,
+  Stat,
+  StatRow,
+  Tag,
+  type IconName,
+} from '@/components/ui';
+import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
+import { markHintSeen, type Hint } from '@/db/repositories/hints';
+import { updateSettings, type LivePanel, type Settings } from '@/db/repositories/settings';
 import {
   describePlan,
   expandPlan,
@@ -18,30 +43,13 @@ import {
   type Intensity,
   type Phase,
 } from '@/domain/cardioPlan';
-import {
-  formatClock,
-  formatCountdown,
-  formatLongDate,
-  formatMetres,
-  formatNumber,
-  formatSpeedKmh,
-} from '@/domain/format';
-import {
-  activeMs,
-  altitudeProfile,
-  decodeRoute,
-  elevationChange,
-  kmSplits,
-  MAX_ACCURACY_M,
-  paceMinPerKm,
-  speedSeries,
-  summarizeTrack,
-  type Split,
-  type TrackPoint,
-  type TrackSample,
-} from '@/domain/gps';
+import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
+import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type Split, type TrackPoint } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
-import { useDb, useLoader, useNow } from '@/hooks/data';
+import type { TrackMetric } from '@/domain/trackChart';
+import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
+import { useDb, useNow } from '@/hooks/data';
+import { useCardioSession } from '@/hooks/walk';
 import { maybeAutoBackup } from '@/services/backup';
 import {
   discardCardio,
@@ -56,6 +64,10 @@ import { colors, radius, spacing } from '@/theme';
 const KEEP_AWAKE_TAG = 'cardio';
 /** A fix older than this means the GPS has lost the signal. */
 const STALE_FIX_MS = 20_000;
+/** Better than this the GPS pill is green. */
+const GOOD_ACCURACY_M = 10;
+/** Below this the live panel is too short: the screen scrolls instead (big system font). */
+const MIN_PANEL = 180;
 
 const INTENSITY_COLOR: Record<Intensity, string> = {
   low: colors.intensityLow,
@@ -63,31 +75,27 @@ const INTENSITY_COLOR: Record<Intensity, string> = {
   high: colors.intensityHigh,
 };
 
+/** What the walk screens remember (settings and one-time hints). */
+interface WalkPrefs {
+  settings: Settings;
+  metricHint: boolean;
+  chartHint: boolean;
+  onHero: (metric: WalkMetric) => void;
+  onToggleUnit: () => void;
+  onChartMetric: (metric: TrackMetric) => void;
+  onChartHintSeen: () => void;
+  onLivePanel: (panel: LivePanel) => void;
+}
+
 export default function CardioSessionScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const sessionId = Number(id);
   const db = useDb();
-  const { data, reload } = useLoader(async (db) => {
-    const session = await getCardioSession(db, sessionId);
-    if (!session) return null;
-    const live = session.status === 'in_progress' && session.tracking === 'gps';
-    return {
-      session,
-      points: live ? await listTrackPoints(db, sessionId) : [],
-      keepAwake: (await getSettings(db)).keepAwake,
-    };
-  });
+  const { data, reload } = useCardioSession(sessionId);
+  const [justFinished, setJustFinished] = useState(false);
 
   const session = data?.session;
   const inProgress = session?.status === 'in_progress';
-
-  // The background task stores the GPS fixes; the screen just reads them again every few seconds.
-  const liveGps = inProgress && session?.tracking === 'gps';
-  useEffect(() => {
-    if (!liveGps) return;
-    const timer = setInterval(reload, 3000);
-    return () => clearInterval(timer);
-  }, [liveGps, reload]);
 
   // Once per visit: if the app was killed or the phone restarted, recording starts again.
   const checked = useRef(false);
@@ -97,7 +105,7 @@ export default function CardioSessionScreen() {
     ensureCardioRunning(db, session).catch((e) => console.warn('Could not resume cardio', e));
   }, [db, session]);
 
-  const keepAwake = inProgress && session?.tracking === 'timer' && !!data?.keepAwake;
+  const keepAwake = inProgress && session?.tracking === 'timer' && !!data?.settings.keepAwake;
   useEffect(() => {
     if (!keepAwake) return;
     activateKeepAwakeAsync(KEEP_AWAKE_TAG);
@@ -108,47 +116,80 @@ export default function CardioSessionScreen() {
 
   if (data === undefined) return <Loading />;
   if (data === null || !session) {
-    return (
-      <Screen>
-        <AppText>No se encontró esta sesión de cardio.</AppText>
-      </Screen>
-    );
+    return <EmptyState icon="map-marker-off-outline" title="No se encontró esta sesión" text="Puede que se borrara." />;
   }
 
-  const header = <Stack.Screen options={{ title: session.name }} />;
+  const { settings, hints } = data;
+  const isWalk = session.tracking === 'gps';
+  const seen = async (hint: Hint) => {
+    if (!hints.has(hint)) await markHintSeen(db, hint);
+  };
+  const saveAndReload = async (patch: Partial<Settings>) => {
+    await updateSettings(db, patch);
+    reload();
+  };
+  const prefs: WalkPrefs = {
+    settings,
+    metricHint: !hints.has('walk-metric'),
+    // Never two hints at once: the chart's waits until the figures' is gone.
+    chartHint: hints.has('walk-metric') && !hints.has('walk-chart'),
+    onHero: async (metric) => {
+      await seen('walk-metric');
+      saveAndReload({ cardioHero: metric });
+    },
+    onToggleUnit: () => saveAndReload({ distanceUnit: settings.distanceUnit === 'km' ? 'm' : 'km' }),
+    onChartMetric: (metric) => saveAndReload({ cardioChart: metric }),
+    onChartHintSeen: async () => {
+      await seen('walk-chart');
+      reload();
+    },
+    onLivePanel: (panel) => saveAndReload({ cardioLivePanel: panel }),
+  };
 
   const finish = async (at?: number) => {
     await finishCardio(db, session, at);
+    setJustFinished(true);
     await reload();
     maybeAutoBackup(db);
   };
 
   const confirmFinish = () =>
-    showDialog('¿Terminar y guardar?', `«${session.name}» se guarda en el historial y se marca como hecho en Hoy.`, [
-      { text: 'Seguir', style: 'cancel' },
-      { text: 'Terminar', onPress: () => finish() },
+    showDialog('¿Terminar y guardar?', undefined, [
+      { text: 'Guardar', onPress: () => finish() },
+      { text: isWalk ? 'Seguir caminando' : 'Seguir', style: 'cancel' },
     ]);
 
+  const what = isWalk ? 'caminata' : 'sesión';
+  const leave = () => (router.canGoBack() ? router.back() : router.replace('/'));
   const discard = () =>
     showDialog(
-      inProgress ? '¿Descartar esta sesión?' : '¿Borrar esta sesión?',
-      session.tracking === 'gps' ? 'Se perderá la ruta grabada.' : 'No se puede deshacer.',
+      inProgress ? `¿Descartar la ${what}?` : `¿Borrar la ${what}?`,
+      inProgress
+        ? isWalk
+          ? 'Se pierde la ruta grabada hasta ahora.'
+          : 'No se guarda en el historial.'
+        : 'Desaparece del historial y no se puede deshacer.',
       [
-        { text: 'Cancelar', style: 'cancel' },
         {
           text: inProgress ? 'Descartar' : 'Borrar',
           style: 'destructive',
           onPress: async () => {
             await discardCardio(db, session);
-            if (router.canGoBack()) router.back();
-            else router.replace('/');
+            leave();
           },
         },
+        { text: 'Cancelar', style: 'cancel' },
       ],
     );
+  const menu = () =>
+    showActions([
+      { text: inProgress ? `Descartar ${what}` : `Borrar ${what}`, icon: 'trash-can-outline', destructive: true, onPress: discard },
+    ]);
+  const share = () => router.push({ pathname: '/compartir/[tipo]/[id]', params: { tipo: 'cardio', id: String(session.id) } });
 
   const togglePause = async () => {
     if (session.pausedAt === null) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
       await pauseCardio(db, session);
     } else {
       const result = await resumeCardio(db, session);
@@ -160,79 +201,389 @@ export default function CardioSessionScreen() {
   if (!inProgress) {
     return (
       <>
-        {header}
-        <FinishedView session={session} onDelete={discard} />
+        <Stack.Screen
+          options={{
+            // Also clears the GPS pill that was the title while recording.
+            title: '',
+            headerTitle: '',
+            headerRight: () => (
+              <HeaderActions>
+                {isWalk ? <IconButton icon="share-variant" label="Compartir imagen" onPress={share} /> : null}
+                <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
+              </HeaderActions>
+            ),
+          }}
+        />
+        <FinishedView
+          session={session}
+          prefs={prefs}
+          onRename={async () => {
+            const title = await showPrompt('Título', {
+              value: session.title ?? '',
+              placeholder: session.name,
+              maxLength: 40,
+              confirm: 'Guardar',
+            });
+            if (title === null) return;
+            await setCardioTitle(db, session.id, title);
+            reload();
+          }}
+          footer={
+            justFinished ? (
+              <BottomBar>
+                {isWalk ? (
+                  <Button size="lg" kind="secondary" icon="share-variant" title="Compartir" onPress={share} style={{ flex: 1 }} />
+                ) : null}
+                <Button size="lg" icon="check" title="Listo" onPress={() => router.replace('/')} style={{ flex: 1 }} />
+              </BottomBar>
+            ) : undefined
+          }
+        />
       </>
     );
   }
 
+  const paused = session.pausedAt !== null;
+  const footer = (
+    <BottomBar actionKey={paused ? 'paused' : 'running'}>
+      {paused ? (
+        <>
+          <Button size="xl" icon="play" title="Seguir" onPress={togglePause} style={{ flex: 1 }} />
+          <Button size="xl" kind="secondary" icon="flag-checkered" title="Terminar" onPress={confirmFinish} style={{ flex: 1 }} />
+        </>
+      ) : (
+        <>
+          <Button size="xl" kind="secondary" icon="pause" title="Pausar" onPress={togglePause} style={{ flex: 1 }} />
+          <Button size="xl" icon="flag-checkered" title="Terminar" onPress={confirmFinish} style={{ flex: 1 }} />
+        </>
+      )}
+    </BottomBar>
+  );
+  const headerRight = () => (
+    <HeaderActions>
+      <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
+    </HeaderActions>
+  );
+
+  if (!isWalk) {
+    return (
+      <>
+        <Stack.Screen options={{ title: session.name, headerTitle: session.name, headerRight }} />
+        <TimerView session={session} onPlanOver={finish} footer={footer} />
+      </>
+    );
+  }
+  const points = data.points ?? [];
   return (
     <>
-      {header}
-      {session.tracking === 'gps' ? (
-        <GpsView session={session} points={data.points} />
-      ) : (
-        <TimerView session={session} onPlanOver={finish} />
-      )}
-      <View style={styles.controls}>
-        <Button
-          big
-          kind={session.pausedAt === null ? 'secondary' : 'primary'}
-          icon={session.pausedAt === null ? 'pause' : 'play'}
-          title={session.pausedAt === null ? 'Pausar' : 'Seguir'}
-          onPress={togglePause}
-          style={{ flex: 1 }}
-        />
-        <Button big icon="flag-checkered" title="Terminar" onPress={confirmFinish} style={{ flex: 1 }} />
-      </View>
-      <View style={styles.discard}>
-        <Button kind="ghost" title="Descartar" onPress={discard} />
-      </View>
+      <Stack.Screen
+        options={{ title: session.name, headerTitle: () => <GpsPill last={points.at(-1)} paused={paused} />, headerRight }}
+      />
+      <GpsView session={session} points={points} prefs={prefs} footer={footer} />
     </>
   );
 }
 
-function GpsView({ session, points }: { session: CardioSession; points: TrackPoint[] }) {
+/** The state of the GPS, as the title of the live walk. */
+function GpsPill({ last, paused }: { last: TrackPoint | undefined; paused: boolean }) {
   const now = useNow(1000);
-  const active = activeMs(session, now);
-  const track = summarizeTrack(points, now);
-  const average = active > 0 ? track.distanceM / (active / 1000) : 0;
-  const last = points.at(-1);
-  const paused = session.pausedAt !== null;
-  const signal = paused
-    ? 'Grabación en pausa'
+  const accuracy = Math.round(last?.accuracy ?? 0);
+  const state: { icon?: IconName; color: string; text: string } = paused
+    ? { icon: 'pause', color: colors.warning, text: 'En pausa' }
     : !last
-      ? 'Buscando la señal del GPS…'
+      ? { color: colors.muted, text: 'Buscando GPS…' }
       : now - last.t > STALE_FIX_MS
-        ? 'Sin señal del GPS ahora mismo'
-        : (last.accuracy ?? 0) > MAX_ACCURACY_M
-          ? `Señal del GPS débil (±${Math.round(last.accuracy ?? 0)} m): aún no cuenta para la distancia`
-          : `GPS preciso a ±${Math.round(last.accuracy ?? 0)} m`;
-
+        ? { icon: 'alert-circle', color: colors.danger, text: 'Sin señal de GPS' }
+        : accuracy > MAX_ACCURACY_M
+          ? { icon: 'alert-circle', color: colors.danger, text: `GPS ±${accuracy}${NBSP}m · no suma` }
+          : accuracy > GOOD_ACCURACY_M
+            ? { icon: 'alert-circle', color: colors.warning, text: `GPS débil ±${accuracy}${NBSP}m` }
+            : { color: colors.primary, text: `GPS ±${accuracy}${NBSP}m` };
   return (
-    <Screen>
-      <View style={styles.hero}>
-        <Text style={styles.heroValue}>{formatMetres(track.distanceM)}</Text>
-        <AppText variant="muted">{formatClock(active)}</AppText>
-      </View>
-      <StatRow>
-        <Stat label="Velocidad" value={paused ? '—' : formatSpeedKmh(track.currentSpeedMs)} />
-        <Stat label="Ritmo" value={paused ? '—' : `${paceMinPerKm(track.currentSpeedMs) ?? '—'} /km`} />
-        <Stat label="Media" value={`${paceMinPerKm(average) ?? '—'} /km`} />
-      </StatRow>
-      <RouteMap segments={track.segments} height={260} />
-      <Row>
-        <Icon name={paused ? 'pause-circle-outline' : last ? 'crosshairs-gps' : 'crosshairs-question'} size={18} color={colors.muted} />
-        <AppText variant="small">{signal}</AppText>
-      </Row>
-      <AppText variant="small">
-        Puedes bloquear el móvil: la ruta se sigue grabando (lo indica la notificación «Grabando la ruta»).
+    <View style={styles.pill} accessible accessibilityLabel={state.text} accessibilityLiveRegion="polite">
+      {state.icon ? (
+        <Icon name={state.icon} size={14} color={state.color} />
+      ) : (
+        <View style={[styles.pillDot, { backgroundColor: state.color }]} />
+      )}
+      <AppText variant="label" weight="600" style={{ color: colors.text }} numberOfLines={1}>
+        {state.text}
       </AppText>
+    </View>
+  );
+}
+
+const LIVE_PANELS: { value: LivePanel; label: string }[] = [
+  { value: 'map', label: 'Mapa' },
+  { value: 'chart', label: 'Gráfica' },
+  { value: 'splits', label: 'Parciales' },
+];
+
+function GpsView({
+  session,
+  points,
+  prefs,
+  footer,
+}: {
+  session: CardioSession;
+  points: TrackPoint[];
+  prefs: WalkPrefs;
+  footer: ReactNode;
+}) {
+  const { settings } = prefs;
+  const now = useNow(1000);
+  const [panel, setPanel] = useState<LivePanel>(settings.cardioLivePanel);
+  const [panelHeight, setPanelHeight] = useState(0);
+  const [cramped, setCramped] = useState(false);
+  const lastFix = points.at(-1)?.t ?? session.startedAt;
+  // The route, the chart and the splits change with each read of the points (every 3 s), not with the clock.
+  const track = useMemo(() => walkSnapshot(session, points, lastFix), [session, points, lastFix]);
+  const splits = useMemo(() => kmSplits(track.samples), [track.samples]);
+  const paused = session.pausedAt !== null;
+  const numbers = {
+    ...track.numbers,
+    activeMs: activeMs(session, now),
+    currentSpeedMs: now - lastFix > STALE_FIX_MS ? undefined : track.numbers.currentSpeedMs,
+  };
+
+  // A buzz at every km, only with the screen in front of the user.
+  const km = Math.floor(track.numbers.distanceM / 1000);
+  const lastKm = useRef(km);
+  useEffect(() => {
+    if (km > lastKm.current && AppState.currentState === 'active') {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
+    lastKm.current = km;
+  }, [km]);
+
+  const content = (
+    <>
+      <MetricBoard
+        mode="live"
+        paused={paused}
+        hint={prefs.metricHint}
+        hero={settings.cardioHero}
+        numbers={numbers}
+        unit={settings.distanceUnit}
+        onHero={prefs.onHero}
+        onToggleUnit={prefs.onToggleUnit}
+      />
+      <Segmented
+        options={LIVE_PANELS}
+        value={panel}
+        onChange={(p) => {
+          setPanel(p);
+          prefs.onLivePanel(p);
+        }}
+      />
+      <View
+        style={cramped ? { height: 260 } : styles.panel}
+        onLayout={(e) => {
+          const height = e.nativeEvent.layout.height;
+          if (!cramped && height < MIN_PANEL) setCramped(true);
+          setPanelHeight(height);
+        }}>
+        {panelHeight === 0 ? null : panel === 'map' ? (
+          <RouteMap
+            segments={track.segments}
+            height={panelHeight}
+            onPress={() => openMap(session.id)}
+            corner={<FloatingButton icon="arrow-expand" label="Ampliar el mapa" onPress={() => openMap(session.id)} />}
+          />
+        ) : panel === 'chart' ? (
+          <Card flush style={styles.livePanelCard}>
+            <TrackChart
+              live
+              fill
+              samples={track.samples}
+              average={numbers}
+              unit={settings.distanceUnit}
+              metric={settings.cardioChart}
+              onMetric={prefs.onChartMetric}
+            />
+          </Card>
+        ) : (
+          <LiveSplits splits={splits} />
+        )}
+      </View>
+    </>
+  );
+  return (
+    <Screen tight scroll={cramped} footer={footer}>
+      {content}
     </Screen>
   );
 }
 
-function TimerView({ session, onPlanOver }: { session: CardioSession; onPlanOver: (at: number) => void }) {
+const openMap = (sessionId: number, mode?: '3d') =>
+  router.push({ pathname: '/ruta/[id]', params: { id: String(sessionId), ...(mode ? { modo: mode } : {}) } });
+
+/** The km being walked, filling up, and the km already closed, the last one first. */
+function LiveSplits({ splits }: { splits: Split[] }) {
+  const last = splits.at(-1);
+  const current = last && last.distanceM < 1000 ? last : null;
+  const closed = current ? splits.slice(0, -1) : splits;
+  if (splits.length === 0) {
+    return (
+      <View style={styles.centered}>
+        <AppText variant="caption">Aquí verás el tiempo de cada km</AppText>
+      </View>
+    );
+  }
+  return (
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ gap: spacing.md }}>
+      {current ? (
+        <Card>
+          <Row between>
+            <AppText variant="heading">Km {splits.length}</AppText>
+            <Tag label="En curso" tone="info" />
+          </Row>
+          <ProgressBar progress={current.distanceM / 1000} color={colors.accent} height={6} />
+          <AppText variant="bodySm" tabular>
+            {formatMetres(current.distanceM)} · {formatClock(current.seconds * 1000)}
+          </AppText>
+        </Card>
+      ) : null}
+      {closed.length > 0 ? <SplitsTable splits={closed} reverse /> : null}
+    </ScrollView>
+  );
+}
+
+/** Map, chart and splits of a finished walk; the chart's cursor is marked on the map. */
+function WalkDetails({ sessionId, walk, prefs }: { sessionId: number; walk: WalkSnapshot; prefs: WalkPrefs }) {
+  const [cursorD, setCursorD] = useState<number | null>(null);
+  const [focus, setFocus] = useState<{ min: number; max: number; key: number } | undefined>();
+  const splits = kmSplits(walk.samples);
+
+  return (
+    <>
+      <View style={{ gap: spacing.md }}>
+        {walk.segments.length > 0 ? (
+          <RouteMap
+            segments={walk.segments}
+            height={240}
+            cursor={cursorD === null ? null : positionAtDistance(walk.segments, cursorD)}
+            onPress={() => openMap(sessionId)}
+            corner={
+              <>
+                <FloatingButton text="3D" label="Ver la ruta en 3D" onPress={() => openMap(sessionId, '3d')} />
+                <FloatingButton icon="arrow-expand" label="Ampliar el mapa" onPress={() => openMap(sessionId)} />
+              </>
+            }
+          />
+        ) : null}
+        {walk.samples.length > 2 ? (
+          <Card flush style={styles.chartCard}>
+            <TrackChart
+              samples={walk.samples}
+              average={walk.numbers}
+              unit={prefs.settings.distanceUnit}
+              metric={prefs.settings.cardioChart}
+              onMetric={prefs.onChartMetric}
+              hint={prefs.chartHint}
+              onHintSeen={prefs.onChartHintSeen}
+              focus={focus}
+              onCursor={(p) => setCursorD(p?.d ?? null)}
+            />
+          </Card>
+        ) : (
+          <AppText variant="caption">Recorrido demasiado corto para gráficas y parciales.</AppText>
+        )}
+      </View>
+      {splits.length > 0 ? (
+        <Section label="Parciales">
+          <SplitsTable
+            splits={splits}
+            onPick={(i) => {
+              const from = i * 1000;
+              setFocus({ min: from, max: from + splits[i].distanceM, key: Date.now() });
+              setCursorD(from);
+            }}
+          />
+        </Section>
+      ) : null}
+    </>
+  );
+}
+
+const paceOf = (s: Split) => s.seconds / (s.distanceM / 1000);
+/** Differences smaller than this are not worth showing. */
+const SPLIT_DIFF_S = 5;
+
+/**
+ * Time of each km against the average: «−0:19» (faster) or «+0:26» (slower). The last stretch, if
+ * short, has no difference: it is not reliable. `reverse` lists the last km first.
+ */
+function SplitsTable({ splits, reverse = false, onPick }: { splits: Split[]; reverse?: boolean; onPick?: (index: number) => void }) {
+  const full = splits.filter((s) => s.distanceM === 1000);
+  const average = splits.reduce((sum, s) => sum + s.seconds, 0) / (splits.reduce((sum, s) => sum + s.distanceM, 0) / 1000);
+  const fastest = full.length > 1 ? Math.min(...full.map(paceOf)) : null;
+  const rows = splits.map((s, i) => ({ s, i }));
+  if (reverse) rows.reverse();
+
+  return (
+    <ListGroup>
+      <View style={styles.splitHead}>
+        <AppText variant="label" style={styles.splitKm}>
+          Km
+        </AppText>
+        <AppText variant="label" style={styles.splitPace}>
+          Ritmo /km
+        </AppText>
+        <AppText variant="label" style={styles.splitDiff}>
+          Dif.
+        </AppText>
+      </View>
+      {rows.map(({ s, i }) => {
+        const pace = paceOf(s);
+        const partial = s.distanceM < 1000;
+        const diff = Math.round(pace - average);
+        const ink = partial ? colors.muted : colors.text;
+        return (
+          <Pressable
+            key={i}
+            disabled={!onPick}
+            onPress={() => onPick?.(i)}
+            android_ripple={onPick ? { color: colors.pressed } : undefined}
+            style={styles.splitRow}
+            accessibilityRole={onPick ? 'button' : undefined}
+            accessibilityHint={onPick ? 'Amplía la gráfica a este km' : undefined}>
+            <AppText variant="bodySm" weight="600" tabular style={[styles.splitKm, { color: ink }]}>
+              {partial ? formatNumber(s.distanceM / 1000, 2) : i + 1}
+            </AppText>
+            <AppText variant="rowValue" tabular style={[styles.splitPace, { color: ink }]}>
+              {formatClock(pace * 1000)}
+            </AppText>
+            <View style={[styles.splitDiff, styles.diffCell]}>
+              {!partial && Math.abs(diff) >= SPLIT_DIFF_S ? (
+                <>
+                  {diff < 0 ? <Icon name="arrow-up" size={12} color={colors.primary} /> : null}
+                  <AppText variant="secondary" weight="500" tabular style={{ color: diff < 0 ? colors.text : colors.muted }}>
+                    {diff < 0 ? '−' : '+'}
+                    {formatClock(Math.abs(diff) * 1000)}
+                  </AppText>
+                </>
+              ) : null}
+            </View>
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              {fastest !== null && !partial && pace === fastest ? <Tag label="Más rápido" tone="success" /> : null}
+            </View>
+          </Pressable>
+        );
+      })}
+    </ListGroup>
+  );
+}
+
+function TimerView({
+  session,
+  onPlanOver,
+  footer,
+}: {
+  session: CardioSession;
+  onPlanOver: (at: number) => void;
+  footer: ReactNode;
+}) {
   const now = useNow(250);
   const plan = session.plan!;
   const phases = expandPlan(plan);
@@ -254,34 +605,34 @@ function TimerView({ session, onPlanOver }: { session: CardioSession; onPlanOver
   if (!position) return <Loading />;
   const { phase, remainingSec, index } = position;
   const next = phases[index + 1];
-  const color = INTENSITY_COLOR[phase.intensity];
 
   return (
-    <Screen>
-      <View style={[styles.phaseBox, { borderColor: color }]}>
-        <AppText variant="small" style={{ color, fontWeight: '700', letterSpacing: 1 }}>
-          {INTENSITY_LABEL[phase.intensity].toUpperCase()} · FASE {index + 1} DE {phases.length}
-        </AppText>
+    <Screen footer={footer}>
+      <View style={styles.phase}>
+        <Row style={{ justifyContent: 'center' }}>
+          <Tag label={`${INTENSITY_LABEL[phase.intensity]} · fase ${index + 1} de ${phases.length}`} />
+          {session.pausedAt !== null ? <Tag label="En pausa" tone="warning" icon="pause" /> : null}
+        </Row>
         <AppText variant="title" style={{ textAlign: 'center' }}>
           {phase.label}
         </AppText>
-        <Text style={[styles.countdown, { color }]}>{formatCountdown(remainingSec * 1000)}</Text>
-        {session.pausedAt !== null ? <AppText variant="muted">En pausa</AppText> : null}
-      </View>
-      <PhaseBar phases={phases} elapsedSec={elapsedMs / 1000} total={total} />
-      <Row between>
-        <AppText variant="muted" style={{ flex: 1 }}>
-          {formatClock(elapsedMs)} de {formatClock(total * 1000)}
+        <AppText variant="countdown" tabular style={{ color: INTENSITY_COLOR[phase.intensity] }}>
+          {formatCountdown(remainingSec * 1000)}
         </AppText>
-        <AppText variant="muted">{PLAN_KIND_LABEL[plan.kind]}</AppText>
-      </Row>
-      <Card>
-        <AppText variant="small">A continuación</AppText>
+      </View>
+      <View style={{ gap: spacing.sm }}>
+        <PhaseBar phases={phases} elapsedSec={elapsedMs / 1000} total={total} />
+        <Row between>
+          <AppText variant="secondary" tabular style={{ flex: 1 }}>
+            {formatClock(elapsedMs)} de {formatClock(total * 1000)}
+          </AppText>
+          <AppText variant="secondary">{PLAN_KIND_LABEL[plan.kind]}</AppText>
+        </Row>
+      </View>
+      <View style={{ gap: spacing.xs }}>
+        <AppText variant="label">A continuación</AppText>
         <AppText variant="heading">{next ? `${next.label} · ${formatCountdown(next.seconds * 1000)}` : 'Fin'}</AppText>
-      </Card>
-      <AppText variant="small">
-        Cada cambio de fase suena aunque bloquees el móvil. En la pantalla de bloqueo verás lo que falta.
-      </AppText>
+      </View>
     </Screen>
   );
 }
@@ -298,132 +649,75 @@ function PhaseBar({ phases, elapsedSec, total }: { phases: Phase[]; elapsedSec: 
   );
 }
 
-function FinishedView({ session, onDelete }: { session: CardioSession; onDelete: () => void }) {
-  const time = activeMs(session, session.finishedAt ?? session.startedAt);
-  const segments = decodeRoute(session.route);
-  const average = time > 0 && session.distanceM ? session.distanceM / (time / 1000) : 0;
+function FinishedView({
+  session,
+  prefs,
+  onRename,
+  footer,
+}: {
+  session: CardioSession;
+  prefs: WalkPrefs;
+  onRename: () => void;
+  footer?: ReactNode;
+}) {
+  const end = session.finishedAt ?? session.startedAt;
+  const walk = session.tracking === 'gps' ? walkSnapshot(session, null, 0) : null;
+  const { settings } = prefs;
 
   return (
-    <Screen>
+    <Screen footer={footer}>
       <View style={{ gap: spacing.xs }}>
-        <AppText variant="title">{session.name}</AppText>
-        <AppText variant="muted">{formatLongDate(parseLocalDate(session.date))}</AppText>
+        <EditableTitle value={session.title ?? session.name} onEdit={onRename} />
+        <AppText variant="secondary">
+          {formatLongDate(parseLocalDate(session.date))} · {formatTimeRange(session.startedAt, end)}
+        </AppText>
       </View>
-      {session.tracking === 'gps' ? (
+      {walk ? (
         <>
-          <StatRow>
-            <Stat big label="Distancia" value={formatMetres(session.distanceM ?? 0)} />
-            <Stat big label="Tiempo" value={formatClock(time)} />
-          </StatRow>
-          <StatRow>
-            <Stat label="Ritmo medio" value={`${paceMinPerKm(average) ?? '—'} /km`} />
-            <Stat label="Velocidad media" value={formatSpeedKmh(average)} />
-          </StatRow>
-          {segments.length > 0 ? <RouteMap segments={segments} height={300} /> : null}
-          {session.samples.length > 2 ? (
-            <WalkDetails samples={session.samples} />
-          ) : (
-            <AppText variant="small">
-              No hubo recorrido suficiente para las gráficas de velocidad y altitud ni los parciales por km.
-            </AppText>
-          )}
+          <MetricBoard
+            mode="finished"
+            hero={settings.cardioHero}
+            hint={prefs.metricHint}
+            numbers={walk.numbers}
+            unit={settings.distanceUnit}
+            onHero={prefs.onHero}
+            onToggleUnit={prefs.onToggleUnit}
+          />
+          <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} />
         </>
       ) : (
         <StatRow>
-          <Stat big label="Tiempo" value={formatClock(time)} />
+          <Stat label="Tiempo" value={formatClock(activeMs(session, end))} big />
           {session.plan ? <Stat label={PLAN_KIND_LABEL[session.plan.kind]} value={describePlan(session.plan)} /> : null}
         </StatRow>
       )}
-      <Button big kind="secondary" title="Cerrar" onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))} />
-      <Button kind="danger" title="Borrar esta sesión" onPress={onDelete} />
     </Screen>
   );
 }
 
-/** Speed and altitude charts and the time of each kilometre. */
-function WalkDetails({ samples }: { samples: TrackSample[] }) {
-  const speed = speedSeries(samples);
-  const profile = altitudeProfile(samples);
-  const { gain, loss } = elevationChange(profile);
-  const splits = kmSplits(samples);
-
-  return (
-    <>
-      <Card>
-        <LineChart
-          title="Velocidad (km/h)"
-          points={speed.map((p) => ({ label: formatClock(p.s * 1000), value: p.speed * 3.6 }))}
-          format={(v) => `${formatNumber(v, 1)} km/h`}
-          tickFormat={(v) => formatNumber(v, 1)}
-        />
-      </Card>
-      {profile.length > 1 ? (
-        <Card>
-          <LineChart
-            title="Altitud GPS (m)"
-            points={profile.map((p) => ({ label: formatMetres(p.d), value: p.a }))}
-            format={(v) => `${formatNumber(v, 0)} m`}
-            tickFormat={(v) => formatNumber(v, 0)}
-          />
-          <AppText variant="small">
-            Desnivel: sube {formatNumber(gain, 0)} m y baja {formatNumber(loss, 0)} m. La altitud del GPS es
-            aproximada.
-          </AppText>
-        </Card>
-      ) : null}
-      {splits.length > 0 ? <SplitsCard splits={splits} /> : null}
-      <AppText variant="small">Toca o arrastra sobre las gráficas para ver cada momento.</AppText>
-    </>
-  );
-}
-
-function SplitsCard({ splits }: { splits: Split[] }) {
-  const pace = (s: Split) => s.seconds / (s.distanceM / 1000);
-  const fastest = Math.min(...splits.map(pace));
-  return (
-    <Card>
-      <AppText variant="heading">Parciales</AppText>
-      {splits.map((s, i) => (
-        <Row key={i} style={{ flexWrap: 'nowrap' }}>
-          <AppText style={styles.splitLabel}>{s.distanceM === 1000 ? `Km ${i + 1}` : formatMetres(s.distanceM)}</AppText>
-          {/* Longer bar = faster kilometre. */}
-          <View style={styles.splitTrack}>
-            <View style={[styles.splitBar, { width: `${(fastest / pace(s)) * 100}%` }]} />
-          </View>
-          <AppText style={styles.splitPace}>{formatClock(pace(s) * 1000)} /km</AppText>
-        </Row>
-      ))}
-    </Card>
-  );
-}
-
 const styles = StyleSheet.create({
-  splitLabel: { width: 64, fontWeight: '600' },
-  splitTrack: { flex: 1, height: 8, borderRadius: radius.pill, backgroundColor: colors.cardAlt, overflow: 'hidden' },
-  splitBar: { height: 8, borderRadius: radius.pill, backgroundColor: colors.chart },
-  splitPace: { width: 92, textAlign: 'right', fontVariant: ['tabular-nums'] },
-  hero: { alignItems: 'center', gap: spacing.xs, paddingVertical: spacing.md },
-  heroValue: { color: colors.text, fontSize: 64, fontWeight: '800', fontVariant: ['tabular-nums'] },
-  controls: {
+  pill: {
+    alignSelf: 'flex-start',
     flexDirection: 'row',
-    gap: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    backgroundColor: colors.bg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  discard: { backgroundColor: colors.bg, paddingBottom: spacing.sm },
-  phaseBox: {
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.xl,
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    backgroundColor: colors.card,
+    gap: 6,
+    height: 28,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardAlt,
   },
-  countdown: { fontSize: 88, fontWeight: '800', fontVariant: ['tabular-nums'] },
+  pillDot: { width: 8, height: 8, borderRadius: 4 },
+  panel: { flex: 1, minHeight: MIN_PANEL },
+  livePanelCard: { flex: 1, paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  chartCard: { padding: spacing.md },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  splitHead: { flexDirection: 'row', alignItems: 'center', minHeight: 40, paddingHorizontal: spacing.lg },
+  splitRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: spacing.lg },
+  splitKm: { width: 40 },
+  splitPace: { width: 88 },
+  splitDiff: { width: 72 },
+  diffCell: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  phase: { alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xl },
   bar: { flexDirection: 'row', height: 14, borderRadius: radius.pill, overflow: 'hidden', gap: 2 },
-  barDone: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: 'rgba(14, 17, 22, 0.65)' },
+  barDone: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.overlay },
 });

@@ -20,6 +20,8 @@ export interface CardioSession {
   id: number;
   activityId: number | null;
   name: string;
+  /** Given by the user (e.g. when sharing); null shows the activity name. */
+  title: string | null;
   date: string;
   tracking: CardioSessionTracking;
   status: 'in_progress' | 'finished';
@@ -41,6 +43,7 @@ interface SessionRow {
   id: number;
   activity_id: number | null;
   name: string;
+  title: string | null;
   date: string;
   tracking: CardioSessionTracking;
   status: CardioSession['status'];
@@ -59,6 +62,7 @@ const toSession = (r: SessionRow): CardioSession => ({
   id: r.id,
   activityId: r.activity_id,
   name: r.name,
+  title: r.title,
   date: r.date,
   tracking: r.tracking,
   status: r.status,
@@ -206,6 +210,11 @@ export async function finishCardioSession(db: Db, id: number, now = Date.now()):
       id,
     );
   });
+}
+
+/** An empty title goes back to the activity name. */
+export async function setCardioTitle(db: Db, id: number, title: string): Promise<void> {
+  await db.runAsync('UPDATE cardio_session SET title = ? WHERE id = ?', title.trim() || null, id);
 }
 
 export async function discardCardioSession(db: Db, id: number): Promise<void> {

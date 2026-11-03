@@ -1,101 +1,154 @@
-import { router } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { AppText, Button, Card, Icon, Loading, Row, Screen } from '@/components/ui';
-import { listCardio } from '@/db/repositories/cardio';
-import { createRoutine, isBodyweight, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
-import { SuggestionLine } from '@/components/Recommendation';
+import { router, useNavigation } from 'expo-router';
+import { Fragment, useCallback, useLayoutEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { showPrompt } from '@/components/Dialog';
+import { RoutineCard } from '@/components/RoutineCard';
+import {
+  AppText,
+  Button,
+  Card,
+  Divider,
+  EmptyState,
+  IconButton,
+  ListGroup,
+  ListRow,
+  Loading,
+  Screen,
+} from '@/components/ui';
+import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
+import { listExercises } from '@/db/repositories/exercises';
+import { createRoutine, listRoutines, listSlots, type Slot } from '@/db/repositories/routines';
 import { listOpenChanges } from '@/db/repositories/weightChanges';
-import { formatLoad, formatTarget } from '@/domain/format';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
+import { queueWrite, reschedule } from '@/hooks/editing';
 import { colors, spacing } from '@/theme';
+
+const cardioLabel = (c: CardioActivity) => (c.target ? `${c.name} ${c.target}` : c.name);
 
 export default function RoutinesScreen() {
   const db = useDb();
+  const navigation = useNavigation();
   const { data, reload } = useLoader(async (db) => {
     const routines = await listRoutines(db);
     const slots = new Map<number, Slot[]>();
     for (const r of routines) slots.set(r.id, await listSlots(db, r.id));
-    return { routines, slots, cardio: await listCardio(db), openChanges: await listOpenChanges(db) };
+    return {
+      routines,
+      slots,
+      cardio: await listCardio(db),
+      openChanges: await listOpenChanges(db),
+      exerciseCount: (await listExercises(db)).length,
+    };
   });
+
+  // Nothing is created until the name is confirmed (D29).
+  const newRoutine = useCallback(async () => {
+    const name = await showPrompt('Nueva rutina', { value: '', placeholder: 'Día 5: Full body', confirm: 'Crear' });
+    if (name === null) return;
+    const id = await queueWrite(() => createRoutine(db, name.trim() || 'Nueva rutina'));
+    reschedule(db);
+    router.push(`/rutina/${id}`);
+  }, [db]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => (
+        <View style={styles.headerAction}>
+          <IconButton icon="plus" label="Nueva rutina" onPress={newRoutine} />
+        </View>
+      ),
+    });
+  }, [navigation, newRoutine]);
 
   if (!data) return <Loading />;
 
-  const newRoutine = async () => {
-    const id = await createRoutine(db, 'Nueva rutina');
-    router.push(`/rutina/${id}`);
-  };
-
   return (
     <Screen>
-      <Card>
-        <Row between>
-          <AppText variant="heading" style={{ flex: 1 }}>
+      <Card flush>
+        <View style={styles.weekHead}>
+          <AppText variant="heading" style={styles.flex}>
             Semana
           </AppText>
-          <Button kind="ghost" title="Editar" onPress={() => router.push('/cardio')} />
-        </Row>
-        {ISO_WEEKDAYS.map((wd) => {
-          const strength = data.routines.filter((r) => r.weekdays.includes(wd)).map((r) => r.name);
-          const cardio = data.cardio.filter((c) => c.weekday === wd).map((c) => `${c.name}${c.target ? ` ${c.target}` : ''}`);
+          <Button kind="text" title="Editar cardio" onPress={() => router.push('/cardio')} />
+        </View>
+        {ISO_WEEKDAYS.map((day, i) => {
+          const strength = data.routines.filter((r) => r.weekdays.includes(day)).map((r) => r.name);
+          const cardio = data.cardio
+            .filter((c) => c.weekday === day)
+            .map(cardioLabel)
+            .join(' · ');
           return (
-            <Pressable
-              key={wd}
-              style={({ pressed }) => [styles.dayRow, pressed && { opacity: 0.75 }]}
-              onPress={() => router.push({ pathname: '/cardio', params: { dia: String(wd) } })}>
-              <AppText style={styles.dayName}>{WEEKDAY_NAMES[wd].slice(0, 3)}</AppText>
-              <View style={{ flex: 1 }}>
-                {strength.map((s) => (
-                  <AppText key={s}>{s}</AppText>
-                ))}
-                <AppText variant="small">{cardio.join(' · ') || '—'}</AppText>
-              </View>
-              <Icon name="chevron-right" size={20} color={colors.muted} />
-            </Pressable>
+            <Fragment key={day}>
+              {i > 0 ? <Divider inset={72} /> : null}
+              <ListRow
+                onPress={() => router.push({ pathname: '/cardio', params: { dia: String(day) } })}
+                left={
+                  <View style={styles.day}>
+                    <AppText variant="control" style={styles.muted}>
+                      {WEEKDAY_NAMES[day].slice(0, 3)}
+                    </AppText>
+                  </View>
+                }
+                title={
+                  strength.length > 0 || cardio ? (
+                    strength.join(' + ') || cardio
+                  ) : (
+                    <AppText variant="rowTitle" style={styles.muted}>
+                      Descanso
+                    </AppText>
+                  )
+                }
+                subtitle={strength.length > 0 && cardio ? cardio : undefined}
+                titleLines={1}
+              />
+            </Fragment>
           );
         })}
       </Card>
 
-      {data.routines.map((routine) => (
-        <Card key={routine.id}>
-          <Row between>
-            <AppText variant="heading" style={{ flex: 1 }}>
-              {routine.name}
-            </AppText>
-            <Button kind="ghost" title="Editar" onPress={() => router.push(`/rutina/${routine.id}`)} />
-          </Row>
-          <AppText variant="small">
-            {routine.weekdays.map((d) => WEEKDAY_NAMES[d]).join(', ') || 'Sin día asignado'}
-          </AppText>
-          {(data.slots.get(routine.id) ?? []).map((slot) => (
-            <Pressable key={slot.id} onPress={() => router.push(`/slot/${slot.id}`)} style={styles.slotRow}>
-              <Row between>
-                <AppText style={{ flex: 1 }}>{slot.exerciseName}</AppText>
-                <AppText style={{ color: colors.primary, fontWeight: '700' }}>
-                  {formatLoad(slot.weightKg, isBodyweight(slot))}
-                </AppText>
-              </Row>
-              <AppText variant="small">
-                {slot.sets} × {formatTarget(slot.target, slot.unit, slot.perSide)}
-              </AppText>
-              {data.openChanges
-                .filter((c) => c.slotId === slot.id)
-                .map((c) => (
-                  <SuggestionLine key={c.id} change={c} onChanged={reload} />
-                ))}
-            </Pressable>
+      {data.routines.length === 0 ? (
+        <EmptyState
+          icon="dumbbell"
+          title="Sin rutinas todavía"
+          text="Crea tu primera rutina y añádele ejercicios del catálogo."
+          action={
+            <View style={styles.emptyAction}>
+              <Button kind="secondary" icon="plus" title="Nueva rutina" onPress={newRoutine} />
+            </View>
+          }
+        />
+      ) : (
+        <View style={styles.cards}>
+          {data.routines.map((routine) => (
+            <RoutineCard
+              key={routine.id}
+              mode="routines"
+              routine={routine}
+              slots={data.slots.get(routine.id) ?? []}
+              openChanges={data.openChanges}
+              onChanged={reload}
+              onEdit={() => router.push(`/rutina/${routine.id}`)}
+              onOpenSlot={(slot) => router.push(`/slot/${slot.id}`)}
+            />
           ))}
-        </Card>
-      ))}
+        </View>
+      )}
 
-      <Button title="Nueva rutina" onPress={newRoutine} />
-      <Button kind="secondary" title="Catálogo de ejercicios" onPress={() => router.push('/ejercicios')} />
+      <ListGroup>
+        <ListRow title="Catálogo de ejercicios" right={String(data.exerciseCount)} onPress={() => router.push('/ejercicios')} />
+      </ListGroup>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  dayRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: spacing.xs },
-  dayName: { width: 40, color: colors.muted, fontWeight: '700' },
-  slotRow: { paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, gap: 2 },
+  // The tab header has no inset of its own: 4 + the 12 inside the button = the 16 dp margin.
+  headerAction: { marginRight: spacing.xs },
+  flex: { flex: 1 },
+  weekHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
+  day: { width: 40 },
+  muted: { color: colors.muted },
+  cards: { gap: spacing.sm },
+  emptyAction: { alignSelf: 'stretch', marginTop: spacing.sm },
 });

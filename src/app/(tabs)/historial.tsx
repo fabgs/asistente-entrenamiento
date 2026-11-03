@@ -1,109 +1,312 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable } from 'react-native';
+import { useMemo, useState } from 'react';
+import { SectionList, StyleSheet, View } from 'react-native';
 import { RouteThumbnail } from '@/components/RouteMap';
-import { AppText, Card, Chip, Icon, Loading, Row, Screen } from '@/components/ui';
-import { cardioHistory, exercisesWithHistory } from '@/db/repositories/progress';
-import { listFinishedSessions } from '@/db/repositories/sessions';
-import { formatDuration, formatKg, formatLongDate, formatShortDate } from '@/domain/format';
+import {
+  AppText,
+  Button,
+  Divider,
+  EmptyState,
+  ListRow,
+  Loading,
+  RowIcon,
+  SectionLabel,
+  Segmented,
+  Value,
+} from '@/components/ui';
+import {
+  cardioEntries,
+  exercisesWithHistory,
+  workoutHistory,
+  type CardioEntry,
+  type ExerciseOverview,
+} from '@/db/repositories/progress';
+import type { SessionSummaryRow } from '@/db/repositories/sessions';
+import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatTimeOfDay } from '@/domain/format';
 import { decodeRoute } from '@/domain/gps';
-import { parseLocalDate } from '@/domain/schedule';
+import { capitalize, countOf, formatDayMonth, formatMonth, groupByMonth, splitUnit, thinSegments } from '@/domain/progress';
 import { useLoader } from '@/hooks/data';
-import { colors } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 type HistoryView = 'entrenos' | 'ejercicios' | 'cardio';
 
-const VIEWS: { key: HistoryView; label: string }[] = [
-  { key: 'entrenos', label: 'Entrenos' },
-  { key: 'ejercicios', label: 'Ejercicios' },
-  { key: 'cardio', label: 'Cardio' },
+const VIEWS: { value: HistoryView; label: string }[] = [
+  { value: 'entrenos', label: 'Entrenos' },
+  { value: 'ejercicios', label: 'Ejercicios' },
+  { value: 'cardio', label: 'Cardio' },
 ];
 
-export default function HistoryScreen() {
-  const [view, setView] = useState<HistoryView>('entrenos');
-  const { data } = useLoader(async (db) => ({
-    sessions: await listFinishedSessions(db),
-    exercises: await exercisesWithHistory(db),
-    cardio: await cardioHistory(db),
+// Remembered while the app is open: History opens on the last view used.
+let lastView: HistoryView = 'entrenos';
+
+type Item =
+  | { kind: 'workout'; key: string; session: SessionSummaryRow }
+  | { kind: 'exercise'; key: string; exercise: ExerciseOverview }
+  | { kind: 'cardio'; key: string; entry: CardioEntry };
+
+interface MonthSection {
+  key: string;
+  title: string;
+  count: string;
+  first: boolean;
+  data: Item[];
+}
+
+interface HistoryData {
+  workouts: SessionSummaryRow[];
+  exercises: ExerciseOverview[];
+  cardio: CardioEntry[];
+}
+
+/** One section per month, newest first, with how many items it holds («12 entrenos»). */
+function monthSections<T>(
+  items: T[],
+  dateOf: (item: T) => string,
+  toItem: (item: T) => Item,
+  noun: [string, string],
+): MonthSection[] {
+  return groupByMonth(items, dateOf).map((group, i) => ({
+    key: group.month,
+    title: formatMonth(group.month),
+    count: countOf(group.items.length, ...noun),
+    first: i === 0,
+    data: group.items.map(toItem),
   }));
+}
+
+function sectionsFor(view: HistoryView, data: HistoryData): MonthSection[] {
+  switch (view) {
+    case 'entrenos':
+      return monthSections(
+        data.workouts,
+        (s) => s.date,
+        (s) => ({ kind: 'workout', key: `w${s.id}`, session: s }),
+        ['entreno', 'entrenos'],
+      );
+    case 'ejercicios':
+      // An exercise goes in the month it was last done.
+      return monthSections(
+        data.exercises,
+        (e) => e.lastDate,
+        (e) => ({ kind: 'exercise', key: `e${e.id}`, exercise: e }),
+        ['ejercicio', 'ejercicios'],
+      );
+    case 'cardio':
+      return monthSections(data.cardio, (c) => c.date, (c) => ({ kind: 'cardio', key: c.key, entry: c }), ['sesión', 'sesiones']);
+  }
+}
+
+const EMPTY: Record<HistoryView, { title: string; text: string }> = {
+  entrenos: { title: 'Sin entrenos todavía', text: 'Aquí verás cada entreno que termines.' },
+  ejercicios: { title: 'Sin ejercicios todavía', text: 'Aquí verás cómo progresas en cada ejercicio que entrenes.' },
+  cardio: { title: 'Sin cardio todavía', text: 'Aquí verás tus caminatas y el cardio que marques en Hoy.' },
+};
+
+/** Entrenos · Ejercicios · Cardio, each as rows grouped by month (PLAN.md §6.6). */
+export default function HistoryScreen() {
+  const [view, setViewState] = useState<HistoryView>(lastView);
+  const { data } = useLoader(
+    async (db): Promise<HistoryData> => ({
+      workouts: await workoutHistory(db),
+      exercises: await exercisesWithHistory(db),
+      cardio: await cardioEntries(db),
+    }),
+  );
+
+  const setView = (next: HistoryView) => {
+    lastView = next;
+    setViewState(next);
+  };
 
   if (!data) return <Loading />;
+  const sections = sectionsFor(view, data);
 
   return (
-    <Screen>
-      <Row>
-        {VIEWS.map((v) => (
-          <Chip key={v.key} label={v.label} selected={view === v.key} onPress={() => setView(v.key)} />
-        ))}
-      </Row>
-
-      {view === 'entrenos' ? (
-        <>
-          {data.sessions.length === 0 ? <AppText variant="muted">Aún no hay entrenamientos terminados.</AppText> : null}
-          {data.sessions.map((s) => (
-            <Pressable key={s.id} onPress={() => router.push(`/workout/resumen/${s.id}`)}>
-              <Card>
-                <Row between>
-                  <AppText variant="heading" style={{ flex: 1 }}>
-                    {s.routineName ?? 'Entrenamiento'}
-                  </AppText>
-                  {s.imported ? <Chip label="Excel" /> : null}
-                </Row>
-                <AppText variant="muted">
-                  {formatLongDate(new Date(s.startedAt))} · {s.setCount} series
-                  {s.finishedAt && !s.imported ? ` · ${formatDuration(s.finishedAt - s.startedAt)}` : ''}
-                </AppText>
-              </Card>
-            </Pressable>
-          ))}
-        </>
-      ) : null}
-
-      {view === 'ejercicios' ? (
-        <>
-          {data.exercises.length === 0 ? <AppText variant="muted">Aún no hay ejercicios con historial.</AppText> : null}
-          {data.exercises.map((e) => (
-            <Pressable key={e.id} onPress={() => router.push(`/progreso/${e.id}`)}>
-              <Card>
-                <AppText variant="heading">{e.name}</AppText>
-                <AppText variant="muted">
-                  {e.sessions} {e.sessions === 1 ? 'sesión' : 'sesiones'} · última el {formatShortDate(e.lastDate)}
-                  {e.topWeightKg ? ` · máx. ${formatKg(e.topWeightKg)}` : ''}
-                </AppText>
-              </Card>
-            </Pressable>
-          ))}
-        </>
-      ) : null}
-
-      {view === 'cardio' ? (
-        <>
-          {data.cardio.length === 0 ? (
-            <AppText variant="muted">Cuando marques el cardio como hecho en Hoy, aparecerá aquí.</AppText>
-          ) : null}
-          {data.cardio.map((day) => (
-            <Card key={day.date}>
-              <AppText variant="heading">{formatLongDate(parseLocalDate(day.date))}</AppText>
-              {day.activities.map((a, i) => (
-                <Pressable
-                  key={i}
-                  disabled={a.sessionId === null}
-                  onPress={() => router.push(`/cardio-sesion/${a.sessionId}`)}>
-                  <Row style={{ flexWrap: 'nowrap', minHeight: a.route ? 64 : undefined }}>
-                    <Icon name="check" size={18} color={colors.primary} />
-                    <AppText variant="muted" style={{ flex: 1 }}>
-                      {a.name}
-                      {a.value ? ` · ${a.value}` : ''}
-                    </AppText>
-                    {a.route ? <RouteThumbnail segments={decodeRoute(a.route)} /> : null}
-                    {a.sessionId !== null ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
-                  </Row>
-                </Pressable>
-              ))}
-            </Card>
-          ))}
-        </>
-      ) : null}
-    </Screen>
+    <View style={styles.screen}>
+      <View style={styles.top}>
+        <Segmented options={VIEWS} value={view} onChange={setView} />
+      </View>
+      <SectionList
+        key={view}
+        sections={sections}
+        keyExtractor={(item) => item.key}
+        renderSectionHeader={({ section }) => (
+          <View style={[styles.monthHeader, section.first && { paddingTop: 0 }]}>
+            <SectionLabel right={section.count}>{section.title}</SectionLabel>
+          </View>
+        )}
+        renderItem={({ item, index, section }) => (
+          <View style={[styles.groupRow, index === 0 && styles.groupTop, index === section.data.length - 1 && styles.groupBottom]}>
+            <HistoryRow item={item} />
+          </View>
+        )}
+        ItemSeparatorComponent={RowSeparator}
+        ListEmptyComponent={
+          <View style={styles.emptyBox}>
+            <View style={{ flex: 1 }} />
+            <EmptyState
+              icon="history"
+              title={EMPTY[view].title}
+              text={EMPTY[view].text}
+              action={<Button kind="secondary" title="Ir a Hoy" onPress={() => router.navigate('/')} />}
+            />
+            <View style={{ flex: 2 }} />
+          </View>
+        }
+        stickySectionHeadersEnabled={false}
+        initialNumToRender={12}
+        contentContainerStyle={styles.list}
+      />
+    </View>
   );
 }
+
+function HistoryRow({ item }: { item: Item }) {
+  switch (item.kind) {
+    case 'workout':
+      return <WorkoutRow session={item.session} />;
+    case 'exercise':
+      return <ExerciseRow exercise={item.exercise} />;
+    case 'cardio':
+      return <CardioRow entry={item.entry} />;
+  }
+}
+
+const dayOf = (iso: string) => capitalize(formatDayMonth(iso));
+
+function WorkoutRow({ session }: { session: SessionSummaryRow }) {
+  const facts = [
+    dayOf(session.date),
+    countOf(session.setCount, 'serie', 'series'),
+    session.finishedAt !== null && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : null,
+    // In the subtitle, not as a tag on the right: there it left the long routine names unreadable.
+    session.imported ? 'Importado' : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  // A title of your own keeps the routine underneath, so you still know which one it was.
+  const routine = session.title && session.routineName && session.title !== session.routineName ? session.routineName : null;
+  // One line: routine names are long, and two-line rows would leave only five entrenos on screen.
+  return (
+    <ListRow
+      title={session.title ?? session.routineName ?? 'Entreno'}
+      titleLines={1}
+      subtitle={routine ? <SubtitleLines lines={[facts, routine]} /> : facts}
+      left={<RowIcon name="dumbbell" />}
+      onPress={() => router.push(`/workout/resumen/${session.id}`)}
+    />
+  );
+}
+
+function ExerciseRow({ exercise }: { exercise: ExerciseOverview }) {
+  return (
+    <ListRow
+      title={exercise.name}
+      subtitle={`${countOf(exercise.sessions, 'sesión', 'sesiones')} · última el ${formatShortDate(exercise.lastDate)}`}
+      right={exercise.topWeightKg ? <Figure text={formatKg(exercise.topWeightKg)} caption="máx." /> : undefined}
+      onPress={() => router.push(`/progreso/${exercise.id}`)}
+    />
+  );
+}
+
+const THUMBNAIL_SIZE = 48;
+/** Points of a route a 48 dp thumbnail needs. */
+const THUMBNAIL_POINTS = 100;
+
+function CardioRow({ entry }: { entry: CardioEntry }) {
+  // Decoded once per row, not on every render: a long walk is thousands of points.
+  const thumbnail = useMemo(() => {
+    const segments = decodeRoute(entry.route);
+    return segments.flat().length >= 2 ? thinSegments(segments, THUMBNAIL_POINTS) : null;
+  }, [entry.route]);
+
+  const day = dayOf(entry.date);
+  if (entry.kind === 'check' || entry.sessionId === null) {
+    return (
+      <ListRow
+        title={entry.name}
+        subtitle={`${day} · ${entry.value ?? 'Hecho'}`}
+        left={<RowIcon name="check-circle-outline" color={colors.muted} />}
+      />
+    );
+  }
+  const sessionId = entry.sessionId;
+  const active = entry.activeMs ?? 0;
+  return (
+    <ListRow
+      title={entry.name}
+      subtitle={entry.startedAt !== null ? `${day} · ${formatTimeOfDay(entry.startedAt)}` : day}
+      left={
+        thumbnail ? (
+          <RouteThumbnail segments={thumbnail} size={THUMBNAIL_SIZE} />
+        ) : (
+          <RowIcon name={entry.kind === 'gps' ? 'walk' : 'timer-outline'} />
+        )
+      }
+      right={
+        entry.distanceM !== null ? (
+          <Figure text={formatMetres(entry.distanceM)} caption={formatClock(active)} />
+        ) : (
+          formatDuration(active)
+        )
+      }
+      onPress={() => router.push(`/cardio-sesion/${sessionId}`)}
+    />
+  );
+}
+
+/** A figure on the right of a row, with its unit smaller and a caption under it. */
+function Figure({ text, caption }: { text: string; caption: string }) {
+  const { value, unit } = splitUnit(text);
+  return (
+    <View style={styles.figure}>
+      <Value value={value} unit={unit} size="rowValue" />
+      <AppText variant="caption" tabular>
+        {caption}
+      </AppText>
+    </View>
+  );
+}
+
+function SubtitleLines({ lines }: { lines: string[] }) {
+  return (
+    <>
+      {lines.map((line) => (
+        <AppText key={line} variant="secondary" numberOfLines={1}>
+          {line}
+        </AppText>
+      ))}
+    </>
+  );
+}
+
+/** Hairline between rows, starting where the text of the row above starts. */
+function RowSeparator({ leadingItem }: { leadingItem?: Item }) {
+  return (
+    <View style={styles.separatorBox}>
+      <Divider inset={spacing.lg + leadingWidth(leadingItem)} />
+    </View>
+  );
+}
+
+/** RowIcon is a 40 dp circle. */
+const ROW_ICON_SIZE = 40;
+
+function leadingWidth(item: Item | undefined): number {
+  if (!item || item.kind === 'exercise') return 0;
+  const thumbnail = item.kind === 'cardio' && item.entry.kind === 'gps' && item.entry.route !== null;
+  return (thumbnail ? THUMBNAIL_SIZE : ROW_ICON_SIZE) + spacing.lg;
+}
+
+const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: colors.bg },
+  top: { paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  list: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.lg, paddingBottom: spacing.xxl },
+  monthHeader: { paddingTop: spacing.xl, paddingBottom: spacing.sm },
+  groupRow: { backgroundColor: colors.card, overflow: 'hidden' },
+  groupTop: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
+  groupBottom: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
+  separatorBox: { backgroundColor: colors.card },
+  figure: { alignItems: 'flex-end' },
+  emptyBox: { flex: 1 },
+});

@@ -1,9 +1,27 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
-import { RecommendationBox } from '@/components/Recommendation';
-import { AppText, Button, Card, Chip, Loading, Row, Screen, Stat, StatRow, Stepper } from '@/components/ui';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
+import { NoChangeLine, RecommendationBox } from '@/components/Recommendation';
+import { Sheet } from '@/components/Sheet';
+import {
+  AppText,
+  BottomBar,
+  Button,
+  Card,
+  EditableTitle,
+  EmptyState,
+  HeaderActions,
+  Icon,
+  IconButton,
+  Loading,
+  Row,
+  Screen,
+  Stat,
+  StatRow,
+  Stepper,
+  Tag,
+} from '@/components/ui';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
   deleteFinishedSession,
@@ -11,6 +29,8 @@ import {
   getSession,
   listSets,
   refreshRecommendations,
+  restoreSet,
+  setSessionTitle,
   slotHistory,
   updateSetReps,
   updateSetWeight,
@@ -18,16 +38,19 @@ import {
 } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession } from '@/db/repositories/weightChanges';
-import { formatDuration, formatKg, formatLoad, formatLongDate, formatNumber } from '@/domain/format';
+import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange } from '@/domain/format';
 import { recommend } from '@/domain/progression';
 import { useDb, useLoader } from '@/hooks/data';
-import { spacing } from '@/theme';
+import { colors, radius, spacing } from '@/theme';
 
 export default function SummaryScreen() {
-  const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
+  const { sessionId, nuevo } = useLocalSearchParams<{ sessionId: string; nuevo?: string }>();
   const id = Number(sessionId);
   const db = useDb();
-  const [editing, setEditing] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
+  const [sheet, setSheet] = useState<{ set: SetLog; slot: Slot } | null>(null);
+  const [sheetReps, setSheetReps] = useState(0);
+  const [sheetKg, setSheetKg] = useState(0);
 
   const { data, reload } = useLoader(async (db) => {
     const session = await getSession(db, id);
@@ -62,17 +85,16 @@ export default function SummaryScreen() {
 
   if (data === undefined) return <Loading />;
   if (data === null) {
-    return (
-      <Screen>
-        <AppText>No se encontró esta sesión.</AppText>
-      </Screen>
-    );
+    return <EmptyState icon="dumbbell" title="No se encontró este entreno" text="Puede que se borrara." />;
   }
 
   const { session, sets, slots, changes } = data;
   const finished = session.status === 'finished';
   const pending = changes.filter((c) => c.status === 'pending');
-  const volume = sets.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0);
+  // Warm-ups are shown, but never count as series or volume.
+  const work = sets.filter((s) => !s.isWarmup);
+  const warmupCount = sets.length - work.length;
+  const volume = work.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0);
   const duration = session.finishedAt ? formatDuration(session.finishedAt - session.startedAt) : '—';
 
   const applyAll = async () => {
@@ -86,8 +108,7 @@ export default function SummaryScreen() {
   };
 
   const removeSession = () =>
-    showDialog('Borrar entrenamiento', 'Se borrarán todas sus series. No se puede deshacer.', [
-      { text: 'Cancelar', style: 'cancel' },
+    showDialog('¿Borrar el entreno?', 'Se borran todas sus series y no se puede deshacer.', [
       {
         text: 'Borrar',
         style: 'destructive',
@@ -97,156 +118,232 @@ export default function SummaryScreen() {
           else router.replace('/');
         },
       },
+      { text: 'Cancelar', style: 'cancel' },
     ]);
 
-  return (
-    <Screen>
-      <View style={{ gap: spacing.xs }}>
-        <AppText variant="title">{session.routineName ?? 'Entrenamiento'}</AppText>
-        <AppText variant="muted">
-          {formatLongDate(new Date(session.startedAt))}
-          {session.imported ? ' · importado del Excel' : ''}
-        </AppText>
-      </View>
+  const share = () => router.push({ pathname: '/compartir/[tipo]/[id]', params: { tipo: 'entreno', id: String(id) } });
+  const menu = () =>
+    showActions([
+      { text: 'Corregir series', icon: 'pencil-outline', onPress: () => setCorrecting(true) },
+      { text: 'Borrar entreno', icon: 'trash-can-outline', destructive: true, onPress: removeSession },
+    ]);
 
-      <StatRow>
-        <Stat label="Duración" value={duration} />
-        <Stat label="Series" value={String(sets.length)} />
-        <Stat label="Volumen" value={`${formatNumber(volume, 0)} kg`} />
-      </StatRow>
-
-      {finished ? (
-        <Button
-          kind={editing ? 'primary' : 'secondary'}
-          title={editing ? 'Terminar de corregir' : 'Corregir series'}
-          onPress={() => setEditing(!editing)}
-        />
-      ) : null}
-
-      {pending.length > 1 && !editing ? (
-        <Button title={`Aplicar todas las recomendaciones (${pending.length})`} onPress={applyAll} />
-      ) : null}
-
-      {slots.map((slot) => {
-        const slotSets = sets.filter((s) => s.slotId === slot.id);
-        // The latest live recommendation; an expired one only explains a past decision.
-        const change = changes.filter((c) => c.slotId === slot.id && c.status !== 'expired').at(-1);
-        return (
-          <Card key={slot.id}>
-            <Row between>
-              <AppText variant="heading" style={{ flex: 1 }}>
-                {slot.exerciseName}
-              </AppText>
-              <Button kind="ghost" title="Progreso" onPress={() => router.push(`/progreso/${slot.exerciseId}`)} />
-            </Row>
-            {editing ? (
-              <SetEditorList
-                slot={slot}
-                sets={slotSets}
-                increment={slot.incrementKg ?? slot.exerciseIncrementKg ?? data.defaultIncrement}
-                onChanged={afterEdit}
-              />
-            ) : (
-              <>
-                <AppText variant="muted">
-                  {formatLoad(slotSets[0]?.weightKg ?? null, isBodyweight(slot))} · {slotSets.map((s) => s.reps).join(' · ')}
-                </AppText>
-                {change ? (
-                  <RecommendationBox change={change} onChanged={reload} />
-                ) : (
-                  <AppText variant="small">= {data.keepReasons.get(slot.id) ?? 'Sin cambio de peso'}</AppText>
-                )}
-              </>
-            )}
-          </Card>
-        );
-      })}
-
-      {editing ? (
-        <>
-          <AppText variant="small">
-            Al corregir, la recomendación de peso de esta sesión se recalcula (salvo que ya la hubieras aplicado o haya
-            una sesión más reciente de ese ejercicio).
-          </AppText>
-          <Button kind="danger" title="Borrar este entrenamiento" onPress={removeSession} />
-        </>
-      ) : (
-        <Button
-          big
-          kind="secondary"
-          title="Cerrar"
-          onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        />
-      )}
-    </Screen>
-  );
-}
-
-function SetEditorList({
-  slot,
-  sets,
-  increment,
-  onChanged,
-}: {
-  slot: Slot;
-  sets: SetLog[];
-  increment: number;
-  onChanged: () => void;
-}) {
-  const db = useDb();
-  const [open, setOpen] = useState<number | null>(null);
-  const [reps, setReps] = useState(0);
-  const [weight, setWeight] = useState(0);
-  const bodyweight = isBodyweight(slot);
-
-  const edit = (set: SetLog) => {
-    setOpen(set.id);
-    setReps(set.reps);
-    setWeight(set.weightKg ?? 0);
+  const openSet = (set: SetLog, slot: Slot) => {
+    setSheetReps(set.reps);
+    setSheetKg(set.weightKg ?? 0);
+    setSheet({ set, slot });
   };
 
-  const save = async (set: SetLog) => {
-    await updateSetReps(db, set.id, reps);
-    const newWeight = bodyweight && weight === 0 ? null : weight;
-    if (newWeight !== set.weightKg) await updateSetWeight(db, set.id, newWeight);
-    setOpen(null);
-    onChanged();
-  };
-
-  const remove = async (set: SetLog) => {
-    await deleteSet(db, set.id);
-    setOpen(null);
-    onChanged();
-  };
+  const footer = correcting ? (
+    <BottomBar>
+      <Button size="lg" title="Hecho" onPress={() => setCorrecting(false)} style={{ flex: 1 }} />
+    </BottomBar>
+  ) : nuevo && finished ? (
+    <BottomBar>
+      <Button size="lg" kind="secondary" icon="share-variant" title="Compartir" onPress={share} style={{ flex: 1 }} />
+      <Button size="lg" icon="check" title="Listo" onPress={() => router.replace('/')} style={{ flex: 1 }} />
+    </BottomBar>
+  ) : undefined;
 
   return (
-    <View style={{ gap: spacing.sm }}>
-      <Row>
-        {sets.map((s) => (
-          <Chip
-            key={s.id}
-            label={`S${s.setIndex}: ${s.reps}${s.weightKg ? ` × ${formatKg(s.weightKg)}` : ''}`}
-            selected={open === s.id}
-            onPress={() => (open === s.id ? setOpen(null) : edit(s))}
+    <>
+      <Stack.Screen
+        options={{
+          title: correcting ? 'Corregir series' : '',
+          headerRight:
+            finished && !correcting
+              ? () => (
+                  <HeaderActions>
+                    <IconButton icon="share-variant" label="Compartir imagen" onPress={share} />
+                    <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
+                  </HeaderActions>
+                )
+              : undefined,
+        }}
+      />
+      <Screen footer={footer}>
+        <View style={{ gap: spacing.xs }}>
+          <EditableTitle
+            value={session.title ?? session.routineName ?? 'Entreno'}
+            onEdit={async () => {
+              const name = session.routineName ?? 'Entreno';
+              const title = await showPrompt('Título', { value: session.title ?? '', placeholder: name, maxLength: 40, confirm: 'Guardar' });
+              if (title === null) return;
+              await setSessionTitle(db, id, title);
+              reload();
+            }}
           />
-        ))}
-      </Row>
-      {sets
-        .filter((s) => s.id === open)
-        .map((s) => (
-          <View key={s.id} style={{ gap: spacing.sm }}>
-            <AppText variant="small">Repeticiones</AppText>
-            <Stepper value={reps} onChange={setReps} min={0} />
-            <AppText variant="small">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
-            <Stepper decimal value={weight} onChange={setWeight} step={increment} format={formatKg} />
-            <Row>
-              <Button title="Guardar" onPress={() => save(s)} disabled={reps <= 0} />
-              <Button kind="danger" title="Borrar serie" onPress={() => remove(s)} />
-            </Row>
-          </View>
-        ))}
-      {sets.length === 0 ? <AppText variant="small">Sin series.</AppText> : null}
-    </View>
+          <Row>
+            <AppText variant="secondary">
+              {formatLongDate(new Date(session.startedAt))}
+              {session.finishedAt && !session.imported ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}
+            </AppText>
+            {session.imported ? <Tag label="Importado" /> : null}
+          </Row>
+        </View>
+
+        <View style={{ gap: spacing.sm }}>
+          <StatRow>
+            <Stat label="Duración" value={duration} />
+            <Stat label="Series" value={String(work.length)} />
+            <Stat label="Volumen" value={formatNumber(volume, 0)} unit="kg" />
+          </StatRow>
+          {/* Under the grid: in a third of the width «aproximaciones» does not fit. */}
+          {warmupCount > 0 ? (
+            <AppText variant="caption">
+              Series y volumen sin contar {warmupCount === 1 ? '1 aproximación' : `${warmupCount} aproximaciones`}
+            </AppText>
+          ) : null}
+        </View>
+
+        {pending.length > 1 && !correcting ? (
+          <Row between>
+            <Tag label={`${pending.length} sugerencias`} tone="warning" icon="arrow-up-down" />
+            <Button kind="text" title={`Aplicar las ${pending.length}`} onPress={applyAll} />
+          </Row>
+        ) : null}
+
+        {slots.map((slot) => {
+          const slotSets = work.filter((s) => s.slotId === slot.id);
+          const warmups = sets.filter((s) => s.slotId === slot.id && s.isWarmup);
+          const bodyweight = isBodyweight(slot);
+          // The latest live recommendation; an expired one only explains a past decision.
+          const change = changes.filter((c) => c.slotId === slot.id && c.status !== 'expired').at(-1);
+          return (
+            <Card key={slot.id}>
+              <Pressable
+                onPress={() => router.push(`/progreso/${slot.exerciseId}`)}
+                style={styles.nameRow}
+                accessibilityRole="button"
+                accessibilityHint="Abre el progreso del ejercicio">
+                <AppText variant="heading" style={{ flex: 1 }}>
+                  {slot.exerciseName}
+                </AppText>
+                <Icon name="chevron-right" size={20} color={colors.muted} />
+              </Pressable>
+              {warmups.length > 0 ? (
+                <Row style={{ flexWrap: 'nowrap' }}>
+                  <Tag label="Aprox." tone="info" />
+                  <AppText variant="secondary" tabular style={{ flex: 1 }}>
+                    {warmups.map((w) => `${w.weightKg ? formatKg(w.weightKg) : 'sin peso'} × ${w.reps}`).join(' · ')}
+                  </AppText>
+                </Row>
+              ) : null}
+              {correcting ? (
+                <View style={styles.cells}>
+                  {[...warmups, ...slotSets].map((s) => (
+                    <Pressable
+                      key={s.id}
+                      onPress={() => openSet(s, slot)}
+                      style={[styles.cell, s.isWarmup && { backgroundColor: colors.accentTint }]}
+                      accessibilityRole="button"
+                      accessibilityLabel={`${s.isWarmup ? 'Aproximación' : 'Serie'} ${s.setIndex}: ${s.reps} repeticiones`}>
+                      <AppText variant="tag" style={s.isWarmup ? { color: colors.accent } : undefined}>
+                        {s.isWarmup ? 'A' : 'S'}
+                        {s.setIndex}
+                      </AppText>
+                      <AppText variant="rowValue" tabular>
+                        {s.reps}
+                      </AppText>
+                      <AppText variant="caption" tabular>
+                        {s.weightKg ? formatNumber(s.weightKg) : '–'}
+                      </AppText>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <>
+                  {slotSets.length > 0 ? (
+                    <AppText variant="bodySm" tabular>
+                      {formatSetGroups(slotSets, bodyweight)}
+                    </AppText>
+                  ) : (
+                    <AppText variant="secondary">Sin series</AppText>
+                  )}
+                  {change ? (
+                    <RecommendationBox change={change} onChanged={reload} />
+                  ) : data.keepReasons.has(slot.id) ? (
+                    <NoChangeLine reason={data.keepReasons.get(slot.id)!} />
+                  ) : null}
+                </>
+              )}
+            </Card>
+          );
+        })}
+
+        {correcting ? <AppText variant="caption">La sugerencia de peso se recalcula al guardar</AppText> : null}
+      </Screen>
+
+      <Sheet
+        visible={sheet !== null}
+        title={sheet ? `${sheet.set.isWarmup ? 'Aproximación' : 'Serie'} ${sheet.set.setIndex}` : ''}
+        onClose={() => setSheet(null)}
+        action={
+          sheet ? (
+            <Button
+              kind="danger"
+              icon="trash-can-outline"
+              title="Borrar"
+              onPress={async () => {
+                const removed = sheet.set;
+                setSheet(null);
+                await deleteSet(db, removed.id);
+                afterEdit();
+                showSnackbar(removed.isWarmup ? 'Aproximación borrada' : 'Serie borrada', {
+                  label: 'Deshacer',
+                  onPress: async () => {
+                    await restoreSet(db, removed);
+                    afterEdit();
+                  },
+                });
+              }}
+            />
+          ) : null
+        }>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="label">Repeticiones</AppText>
+          <Stepper value={sheetReps} onChange={setSheetReps} min={1} typing={false} />
+        </View>
+        <View style={{ gap: spacing.sm }}>
+          <AppText variant="label">{sheet && isBodyweight(sheet.slot) ? 'Lastre' : 'Peso'}</AppText>
+          <Stepper
+            decimal
+            typing={false}
+            value={sheetKg}
+            onChange={setSheetKg}
+            step={sheet ? (sheet.slot.incrementKg ?? sheet.slot.exerciseIncrementKg ?? data.defaultIncrement) : 2.5}
+            format={formatKg}
+          />
+        </View>
+        <Button
+          size="lg"
+          title="Guardar"
+          disabled={sheetReps <= 0}
+          onPress={async () => {
+            if (!sheet) return;
+            const { set, slot } = sheet;
+            setSheet(null);
+            await updateSetReps(db, set.id, sheetReps);
+            const newWeight = isBodyweight(slot) && sheetKg === 0 ? null : sheetKg;
+            if (newWeight !== set.weightKg) await updateSetWeight(db, set.id, newWeight);
+            afterEdit();
+          }}
+        />
+      </Sheet>
+    </>
   );
 }
 
+const styles = StyleSheet.create({
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
+  cells: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  cell: {
+    width: 64,
+    minHeight: 64,
+    borderRadius: radius.md,
+    backgroundColor: colors.cardAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+});

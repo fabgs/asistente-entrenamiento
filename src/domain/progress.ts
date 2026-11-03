@@ -1,3 +1,6 @@
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+
 export interface LoggedSet {
   weightKg: number | null;
   reps: number;
@@ -8,6 +11,8 @@ export interface ExerciseSession {
   sessionId: number;
   date: string;
   startedAt: number;
+  /** Given by the user; null shows the routine name. */
+  title: string | null;
   routineName: string | null;
   imported: boolean;
   sets: LoggedSet[];
@@ -31,11 +36,11 @@ export function summarize(sets: LoggedSet[]): SessionSummary {
 
 export interface Records {
   /** Heaviest set; ties go to more reps, then to the first time it happened. */
-  maxWeight: { kg: number; reps: number; date: string } | null;
+  maxWeight: { kg: number; reps: number; date: string; sessionId: number } | null;
   /** Most reps in one set; ties go to the heavier set, then to the first time. */
-  maxReps: { reps: number; kg: number; date: string } | null;
+  maxReps: { reps: number; kg: number; date: string; sessionId: number } | null;
   /** Largest Σ weight × reps in a session. */
-  maxVolume: { kg: number; date: string } | null;
+  maxVolume: { kg: number; date: string; sessionId: number } | null;
 }
 
 export function computeRecords(sessions: ExerciseSession[]): Records {
@@ -45,27 +50,46 @@ export function computeRecords(sessions: ExerciseSession[]): Records {
   let maxVolume: Records['maxVolume'] = null;
 
   for (const session of chronological) {
+    const { sessionId, date } = session;
     for (const set of session.sets) {
       const kg = set.weightKg ?? 0;
       if (kg > 0 && (!maxWeight || kg > maxWeight.kg || (kg === maxWeight.kg && set.reps > maxWeight.reps))) {
-        maxWeight = { kg, reps: set.reps, date: session.date };
+        maxWeight = { kg, reps: set.reps, date, sessionId };
       }
       if (set.reps > 0 && (!maxReps || set.reps > maxReps.reps || (set.reps === maxReps.reps && kg > maxReps.kg))) {
-        maxReps = { reps: set.reps, kg, date: session.date };
+        maxReps = { reps: set.reps, kg, date, sessionId };
       }
     }
     const volume = summarize(session.sets).volumeKg;
-    if (volume > 0 && (!maxVolume || volume > maxVolume.kg)) maxVolume = { kg: volume, date: session.date };
+    if (volume > 0 && (!maxVolume || volume > maxVolume.kg)) maxVolume = { kg: volume, date, sessionId };
   }
   return { maxWeight, maxReps, maxVolume };
 }
 
 /**
+ * The records to show side by side: «Más reps» is left out when it is the very set of «Mejor
+ * peso» (the heaviest set was also the longest one), so the same set is never shown twice.
+ */
+export function distinctRecords(records: Records): Records {
+  const { maxWeight, maxReps } = records;
+  const sameSet =
+    maxWeight !== null &&
+    maxReps !== null &&
+    maxWeight.sessionId === maxReps.sessionId &&
+    maxWeight.kg === maxReps.kg &&
+    maxWeight.reps === maxReps.reps;
+  return sameSet ? { ...records, maxReps: null } : records;
+}
+
+/**
  * Axis bounds and ticks on clean steps (1, 2, 2.5 or 5 × 10ⁿ), never below zero (weights and
- * reps). A flat series is given room above and below so its line does not sit on the frame.
+ * reps). A flat series is given room above and below so its line does not sit on the frame. A
+ * series of whole numbers (reps) gets whole steps of at least 1: with 10, 10.5, 11 the axis would
+ * read 10, 11, 11.
  */
 export function niceScale(values: number[], targetTicks = 4): { min: number; max: number; ticks: number[] } {
   if (values.length === 0) return { min: 0, max: 1, ticks: [0, 1] };
+  const whole = values.every(Number.isInteger);
   let lo = Math.min(...values);
   let hi = Math.max(...values);
   if (lo === hi) {
@@ -75,10 +99,63 @@ export function niceScale(values: number[], targetTicks = 4): { min: number; max
   }
   const rough = (hi - lo) / Math.max(1, targetTicks - 1);
   const magnitude = 10 ** Math.floor(Math.log10(rough));
-  const step = [1, 2, 2.5, 5, 10].map((m) => m * magnitude).find((s) => s >= rough) ?? 10 * magnitude;
+  const candidates = [1, 2, 2.5, 5, 10].map((m) => m * magnitude);
+  let step = candidates.find((s) => s >= rough && (!whole || Number.isInteger(s))) ?? 10 * magnitude;
+  if (whole) step = Math.max(1, Math.round(step));
   const min = Math.max(0, Math.floor(lo / step) * step);
   const max = Math.ceil(hi / step) * step;
   const ticks: number[] = [];
   for (let t = min; t <= max + step / 1000; t += step) ticks.push(Math.round(t * 1000) / 1000);
   return { min, max, ticks };
+}
+
+/** Items in a row that fall in the same month ('YYYY-MM'), in the order given (newest first). */
+export function groupByMonth<T>(items: T[], dateOf: (item: T) => string): { month: string; items: T[] }[] {
+  const groups: { month: string; items: T[] }[] = [];
+  for (const item of items) {
+    const month = dateOf(item).slice(0, 7);
+    const last = groups.at(-1);
+    if (last?.month === month) last.items.push(item);
+    else groups.push({ month, items: [item] });
+  }
+  return groups;
+}
+
+const parseIso = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d ?? 1);
+};
+
+/** Header of a month in a history list: «Noviembre», with the year if it is not this year. */
+export function formatMonth(month: string, now = new Date()): string {
+  const date = parseIso(month);
+  const text = format(date, date.getFullYear() === now.getFullYear() ? 'LLLL' : "LLLL 'de' yyyy", { locale: es });
+  return capitalize(text);
+}
+
+/** «vie 30 oct» from 'YYYY-MM-DD' (lower case: it goes mid-sentence; capitalize it to start a line). */
+export function formatDayMonth(iso: string): string {
+  return format(parseIso(iso), 'EEE d MMM', { locale: es });
+}
+
+export const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+/** «1 serie», «11 series». */
+export const countOf = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** "5,14 km" → { value: "5,14", unit: "km" }, so the unit can be drawn smaller and grey. */
+export function splitUnit(text: string): { value: string; unit?: string } {
+  const at = text.search(/[  ]/);
+  return at < 0 ? { value: text } : { value: text.slice(0, at), unit: text.slice(at + 1) };
+}
+
+/**
+ * At most about `maxPoints` points of a route, keeping the ends of every segment: a thumbnail of
+ * 48 dp shows no more, and drawing the thousands of fixes of a long walk in each row slows the list.
+ */
+export function thinSegments<T>(segments: T[][], maxPoints: number): T[][] {
+  const total = segments.reduce((n, s) => n + s.length, 0);
+  const every = Math.max(1, Math.ceil(total / maxPoints));
+  if (every === 1) return segments;
+  return segments.map((s) => s.filter((_, i) => i % every === 0 || i === s.length - 1));
 }

@@ -174,13 +174,51 @@ export function speedSeries(samples: TrackSample[], windowS = 30): { s: number; 
 }
 
 /** GPS altitude smoothed with a moving average, by distance. */
-export function altitudeProfile(samples: TrackSample[], window = 5): { d: number; a: number }[] {
+export function altitudeProfile(samples: TrackSample[], window = 5): { s: number; d: number; a: number }[] {
   const known = samples.filter((x): x is TrackSample & { a: number } => x.a !== null);
   const half = Math.floor(window / 2);
   return known.map((x, i) => {
     const around = known.slice(Math.max(0, i - half), i + half + 1);
-    return { d: x.d, a: around.reduce((sum, y) => sum + y.a, 0) / around.length };
+    return { s: x.s, d: x.d, a: around.reduce((sum, y) => sum + y.a, 0) / around.length };
   });
+}
+
+/** Metres along the route (not joining segments) to the vertex closest to `p`: a tap on the map. */
+export function distanceAlong(segments: LatLon[][], p: LatLon): number | null {
+  let walked = 0;
+  let best: { d: number; gap: number } | null = null;
+  for (const segment of segments) {
+    for (let i = 0; i < segment.length; i++) {
+      if (i > 0) walked += distanceM(segment[i - 1], segment[i]);
+      const gap = distanceM(segment[i], p);
+      if (!best || gap < best.gap) best = { d: walked, gap };
+    }
+  }
+  return best?.d ?? null;
+}
+
+/**
+ * Where the walker was after `d` metres, interpolated along the route. Distance does not join
+ * segments (as in `buildSamples`), so a distance at a pause is the end of the earlier segment.
+ */
+export function positionAtDistance(segments: LatLon[][], d: number): LatLon | null {
+  let walked = 0;
+  let last: LatLon | null = null;
+  for (const segment of segments) {
+    for (let i = 1; i < segment.length; i++) {
+      const step = distanceM(segment[i - 1], segment[i]);
+      if (walked + step >= d) {
+        const f = step > 0 ? Math.max(0, d - walked) / step : 0;
+        return {
+          lat: segment[i - 1].lat + (segment[i].lat - segment[i - 1].lat) * f,
+          lon: segment[i - 1].lon + (segment[i].lon - segment[i - 1].lon) * f,
+        };
+      }
+      walked += step;
+    }
+    last = segment.at(-1) ?? last;
+  }
+  return last;
 }
 
 /** Total climb and descent, ignoring changes smaller than `threshold` metres (GPS noise). */

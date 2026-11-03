@@ -1,17 +1,24 @@
-import { router, useLocalSearchParams } from 'expo-router';
+import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { showDialog } from '@/components/Dialog';
-import { RecommendationBox } from '@/components/Recommendation';
+import { StyleSheet } from 'react-native';
+import { showActions, showDialog } from '@/components/Dialog';
+import { FormRow } from '@/components/FormRow';
+import { OpenChange } from '@/components/Recommendation';
 import {
   AppText,
+  BottomBar,
   Button,
   Card,
-  Chip,
-  Divider,
   DurationField,
+  EmptyState,
+  HeaderButton,
+  ListGroup,
+  ListRow,
   Loading,
-  Row,
+  NumberRow,
   Screen,
+  Section,
+  Segmented,
   Stepper,
   SwitchRow,
   TextField,
@@ -21,23 +28,42 @@ import {
   getRoutine,
   getSlot,
   isBodyweight,
+  prescriptionOf,
+  samePrescription,
   updateSlotPrescription,
+  type Routine,
   type Slot,
+  type SlotPrescription,
 } from '@/db/repositories/routines';
-import { slotHistory } from '@/db/repositories/sessions';
+import { slotHistory, type SlotPerformance } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { listOpenChanges, setSlotWeightManually } from '@/db/repositories/weightChanges';
-import { formatCountdown, formatKg, formatLoad, formatTarget } from '@/domain/format';
+import { listOpenChanges, setSlotWeightManually, type WeightChange } from '@/db/repositories/weightChanges';
+import { formatCountdown, formatKg, formatSetGroups, formatTarget } from '@/domain/format';
 import type { ProgressionKind, RepTarget, RepUnit } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
-import { rescheduleDailyReminders } from '@/services/dailyReminder';
-import { colors } from '@/theme';
+import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
 
+const TARGET_KINDS: { value: RepTarget['kind']; label: string }[] = [
+  { value: 'range', label: 'Rango' },
+  { value: 'fixed', label: 'Fijo' },
+  { value: 'failure', label: 'Al fallo' },
+];
+const UNITS: { value: RepUnit; label: string }[] = [
+  { value: 'reps', label: 'Reps' },
+  { value: 'steps', label: 'Pasos' },
+  { value: 'seconds', label: 'Segundos' },
+];
+/** Label of the fixed count, in the unit being counted. */
+const FIXED_LABEL: Record<RepUnit, string> = { reps: 'Repeticiones', steps: 'Pasos', seconds: 'Segundos' };
+const PROGRESSIONS: { value: ProgressionKind; label: string }[] = [
+  { value: 'load', label: 'Automática' },
+  { value: 'manual', label: 'Manual' },
+];
+
+/** The exercise of a routine: its weight and prescription, saved with one «Guardar». */
 export default function SlotEditorScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const slotId = Number(id);
-  const db = useDb();
-
   const { data, reload } = useLoader(async (db) => {
     const slot = await getSlot(db, slotId);
     if (!slot) return null;
@@ -47,121 +73,50 @@ export default function SlotEditorScreen() {
       routine: await getRoutine(db, slot.routineId),
       defaultIncrement: slot.exerciseIncrementKg ?? settings.defaultIncrementKg,
       defaultRest: settings.restSecondsDefault,
-      change: (await listOpenChanges(db)).find((c) => c.slotId === slotId),
-      history: await slotHistory(db, slotId, 5),
+      change: (await listOpenChanges(db)).find((c) => c.slotId === slotId) ?? null,
+      last: (await slotHistory(db, slotId, 1))[0] ?? null,
     };
   });
 
-  if (data === undefined) return <Loading />;
+  if (data === undefined) {
+    return (
+      <>
+        {/* The title is the name of the exercise, not known yet. */}
+        <Stack.Screen options={{ title: '' }} />
+        <Loading />
+      </>
+    );
+  }
   if (data === null) {
     return (
       <Screen>
-        <AppText>No se encontró el ejercicio.</AppText>
+        <EmptyState icon="dumbbell" title="Este ejercicio ya no está en la rutina" />
       </Screen>
     );
   }
-
-  const { slot } = data;
-
-  const remove = () =>
-    showDialog('Quitar ejercicio', `«${slot.exerciseName}» se quitará de la rutina. Su historial se conserva.`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Quitar',
-        style: 'destructive',
-        onPress: async () => {
-          await archiveSlot(db, slot.id);
-          await rescheduleDailyReminders(db);
-          router.back();
-        },
-      },
-    ]);
-
-  return (
-    <Screen>
-      <AppText variant="title">{slot.exerciseName}</AppText>
-      <AppText variant="muted">
-        {data.routine?.name} · {slot.sets} × {formatTarget(slot.target, slot.unit, slot.perSide)}
-      </AppText>
-      {data.change ? <RecommendationBox title="Recomendación de peso" change={data.change} onChanged={reload} /> : null}
-      <WeightEditor
-        key={`${slot.weightKg}`}
-        slot={slot}
-        increment={slot.incrementKg ?? data.defaultIncrement}
-        onSaved={reload}
-      />
-      <PrescriptionForm
-        key={slot.id}
-        slot={slot}
-        defaultIncrement={data.defaultIncrement}
-        defaultRest={data.defaultRest}
-        onSaved={reload}
-      />
-      {data.history.length > 0 ? (
-        <Card>
-          <AppText variant="heading">Últimas sesiones</AppText>
-          {data.history.map((h) => (
-            <AppText key={h.sessionId} variant="muted">
-              {formatLoad(h.weightKg, isBodyweight(slot))} · {h.reps.join(' · ')}
-            </AppText>
-          ))}
-        </Card>
-      ) : null}
-      <Button kind="secondary" title="Ver progreso" onPress={() => router.push(`/progreso/${slot.exerciseId}`)} />
-      <Button kind="danger" title="Quitar de la rutina" onPress={remove} />
-    </Screen>
-  );
+  return <SlotForm key={data.slot.id} {...data} onChanged={reload} />;
 }
 
-function WeightEditor({ slot, increment, onSaved }: { slot: Slot; increment: number; onSaved: () => void }) {
-  const db = useDb();
-  const [weight, setWeight] = useState(slot.weightKg ?? 0);
-  const bodyweight = isBodyweight(slot);
-  const unchanged = weight === (slot.weightKg ?? 0);
-
-  const save = async () => {
-    await setSlotWeightManually(db, slot.id, bodyweight && weight === 0 ? null : weight);
-    onSaved();
-  };
-
-  return (
-    <Card>
-      <AppText variant="heading">{bodyweight ? 'Lastre' : 'Peso'}</AppText>
-      <AppText variant="small">Actual: {formatLoad(slot.weightKg, bodyweight)}</AppText>
-      <Stepper big decimal value={weight} onChange={setWeight} step={increment} format={formatKg} />
-      <Button big title="Guardar peso" onPress={save} disabled={unchanged} />
-    </Card>
-  );
-}
-
-const TARGET_KINDS: { key: RepTarget['kind']; label: string }[] = [
-  { key: 'range', label: 'Rango' },
-  { key: 'fixed', label: 'Fijo' },
-  { key: 'failure', label: 'Al fallo' },
-];
-const UNITS: { key: RepUnit; label: string }[] = [
-  { key: 'reps', label: 'Reps' },
-  { key: 'steps', label: 'Pasos' },
-  { key: 'seconds', label: 'Segundos' },
-];
-const PROGRESSIONS: { key: ProgressionKind; label: string }[] = [
-  { key: 'load', label: 'Automática' },
-  { key: 'manual', label: 'Manual' },
-];
-
-function PrescriptionForm({
+function SlotForm({
   slot,
+  routine,
   defaultIncrement,
   defaultRest,
-  onSaved,
+  change,
+  last,
+  onChanged,
 }: {
   slot: Slot;
+  routine: Routine | null;
   defaultIncrement: number;
   defaultRest: number;
-  onSaved: () => void;
+  change: WeightChange | null;
+  last: SlotPerformance | null;
+  onChanged: () => void;
 }) {
   const db = useDb();
   const t = slot.target;
+  const bodyweight = isBodyweight(slot);
   const [sets, setSets] = useState(slot.sets);
   const [kind, setKind] = useState(t.kind);
   const [min, setMin] = useState(t.kind === 'range' ? t.min : 8);
@@ -177,126 +132,235 @@ function PrescriptionForm({
   const [ownRest, setOwnRest] = useState(slot.restSeconds !== null);
   const [rest, setRest] = useState(slot.restSeconds ?? defaultRest);
   const [note, setNote] = useState(slot.note ?? '');
-  const [saved, setSaved] = useState(false);
+  // Untouched (null), the weight follows the slot: applying a suggestion here changes it.
+  const [weightEdit, setWeightEdit] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
 
+  const savedWeight = slot.weightKg ?? 0;
+  const weight = weightEdit ?? savedWeight;
   const target: RepTarget =
-    kind === 'range'
-      ? { kind, min: Math.min(min, max), max: Math.max(min, max) }
-      : kind === 'fixed'
-        ? { kind, reps: fixed }
-        : { kind, minus };
-
-  const touch =
-    <T,>(setter: (value: T) => void) =>
-    (value: T) => {
-      setSaved(false);
-      setter(value);
-    };
+    kind === 'range' ? { kind, min, max } : kind === 'fixed' ? { kind, reps: fixed } : { kind, minus };
+  const prescription: SlotPrescription = {
+    sets,
+    target,
+    perSide,
+    unit,
+    progression,
+    allowDecrease,
+    incrementKg: ownIncrement ? increment : null,
+    restSeconds: ownRest ? rest : null,
+    note: note.trim() || null,
+  };
+  const weightChanged = weight !== savedWeight;
+  const dirty = weightChanged || !samePrescription(prescription, prescriptionOf(slot));
+  const automatic = progression === 'load';
 
   const save = async () => {
-    await updateSlotPrescription(db, slot.id, {
-      sets,
-      target,
-      perSide,
-      unit,
-      progression,
-      allowDecrease,
-      incrementKg: ownIncrement ? increment : null,
-      restSeconds: ownRest ? rest : null,
-      note: note.trim() || null,
+    await queueWrite(async () => {
+      await updateSlotPrescription(db, slot.id, prescription);
+      // Only a real change is logged: as a manual change, which expires the open suggestions.
+      if (weightChanged) await setSlotWeightManually(db, slot.id, bodyweight && weight === 0 ? null : weight);
     });
-    await rescheduleDailyReminders(db);
-    setSaved(true);
-    onSaved();
+    reschedule(db);
+    return true;
+  };
+  const leave = useSaveGuard(dirty, save);
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      await save();
+      leave();
+    } finally {
+      setSaving(false);
+    }
   };
 
+  const remove = () =>
+    showDialog(
+      '¿Quitar de la rutina?',
+      `«${slot.exerciseName}» deja de estar en ${routine ? `«${routine.name}»` : 'la rutina'}. Las series que ya hiciste siguen en el historial.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Quitar',
+          style: 'destructive',
+          onPress: async () => {
+            await queueWrite(() => archiveSlot(db, slot.id));
+            reschedule(db);
+            leave();
+          },
+        },
+      ],
+    );
+
+  // Pushing one end of the range past the other moves both.
+  const changeMin = (value: number) => {
+    setMin(value);
+    if (value > max) setMax(value);
+  };
+  const changeMax = (value: number) => {
+    setMax(value);
+    if (value < min) setMin(value);
+  };
+
+  const formatWeight = (kg: number) => (kg > 0 ? formatKg(kg) : bodyweight ? 'Peso corporal' : 'Sin carga');
+  const lastTime = last ? formatSetGroups(last.reps.map((reps) => ({ weightKg: last.weightKg, reps })), bodyweight) : null;
+
   return (
-    <Card>
-      <AppText variant="heading">Series y repeticiones</AppText>
-      <AppText variant="small">Series</AppText>
-      <Stepper value={sets} onChange={touch(setSets)} min={1} />
-
-      <AppText variant="small">Objetivo</AppText>
-      <Row>
-        {TARGET_KINDS.map((k) => (
-          <Chip key={k.key} label={k.label} selected={kind === k.key} onPress={() => touch(setKind)(k.key)} />
-        ))}
-      </Row>
-      {kind === 'range' ? (
-        <>
-          <AppText variant="small">Mínimo</AppText>
-          <Stepper value={min} onChange={touch(setMin)} min={1} />
-          <AppText variant="small">Máximo</AppText>
-          <Stepper value={max} onChange={touch(setMax)} min={1} />
-        </>
-      ) : kind === 'fixed' ? (
-        <>
-          <AppText variant="small">Repeticiones</AppText>
-          <Stepper value={fixed} onChange={touch(setFixed)} min={1} />
-        </>
-      ) : (
-        <Row>
-          {[0, 1, 2].map((m) => (
-            <Chip
-              key={m}
-              label={m === 0 ? 'Al fallo' : `Fallo −${m}`}
-              selected={minus === m}
-              onPress={() => touch(setMinus)(m)}
+    <Screen
+      footer={
+        <BottomBar>
+          <Button size="lg" title="Guardar" disabled={!dirty || saving} onPress={submit} style={styles.flex} />
+        </BottomBar>
+      }>
+      <Stack.Screen
+        options={{
+          title: slot.exerciseName,
+          headerRight: () => (
+            <HeaderButton
+              icon="dots-vertical"
+              label="Más acciones"
+              onPress={() =>
+                showActions([
+                  { text: 'Quitar de la rutina', icon: 'minus-circle-outline', destructive: true, onPress: remove },
+                ])
+              }
             />
-          ))}
-        </Row>
-      )}
-
-      <AppText variant="small">Unidad</AppText>
-      <Row>
-        {UNITS.map((u) => (
-          <Chip key={u.key} label={u.label} selected={unit === u.key} onPress={() => touch(setUnit)(u.key)} />
-        ))}
-      </Row>
-      <SwitchRow label="Por lado (cada pierna o brazo)" value={perSide} onValueChange={touch(setPerSide)} />
-
-      <Divider />
-      <AppText variant="heading">Progresión</AppText>
-      <Row>
-        {PROGRESSIONS.map((p) => (
-          <Chip
-            key={p.key}
-            label={p.label}
-            selected={progression === p.key}
-            onPress={() => touch(setProgression)(p.key)}
-          />
-        ))}
-      </Row>
-      <AppText variant="small">
-        {progression === 'load'
-          ? 'Al terminar te propone subir o bajar el peso según el rango (nunca lo cambia sin que lo aceptes).'
-          : 'Sin propuestas de peso: solo intentas superar tus reps.'}
+          ),
+        }}
+      />
+      <AppText variant="secondary">
+        {[routine?.name, `${sets} × ${formatTarget(target, unit, perSide)}`].filter(Boolean).join(' · ')}
       </AppText>
-      {progression === 'load' ? (
-        <>
-          <SwitchRow label="Proponer bajar si no llego al mínimo" value={allowDecrease} onValueChange={touch(setAllowDecrease)} />
-          <SwitchRow
-            label={`Incremento propio (por defecto ${formatKg(defaultIncrement)})`}
-            value={ownIncrement}
-            onValueChange={touch(setOwnIncrement)}
+
+      <Section label={bodyweight ? 'Lastre' : 'Peso'}>
+        <Card>
+          <Stepper
+            decimal
+            value={weight}
+            onChange={setWeightEdit}
+            step={ownIncrement ? increment : defaultIncrement}
+            format={formatWeight}
           />
-          {ownIncrement ? (
-            <Stepper decimal value={increment} onChange={touch(setIncrement)} step={0.5} min={0.25} format={formatKg} />
+          {change ? (
+            <OpenChange
+              change={change}
+              onChanged={() => {
+                setWeightEdit(null);
+                onChanged();
+              }}
+            />
           ) : null}
-        </>
+        </Card>
+      </Section>
+
+      <Section label="Series y repeticiones">
+        <ListGroup>
+          <FormRow>
+            <NumberRow label="Series" value={sets} onChange={setSets} min={1} max={20} />
+          </FormRow>
+          <FormRow padded>
+            <Segmented options={TARGET_KINDS} value={kind} onChange={setKind} />
+          </FormRow>
+          {kind === 'range' ? (
+            <FormRow>
+              <NumberRow label="Mínimo" value={min} onChange={changeMin} min={1} max={100} />
+            </FormRow>
+          ) : null}
+          {kind === 'range' ? (
+            <FormRow>
+              <NumberRow label="Máximo" value={max} onChange={changeMax} min={1} max={100} />
+            </FormRow>
+          ) : null}
+          {kind === 'fixed' ? (
+            <FormRow>
+              <NumberRow label={FIXED_LABEL[unit]} value={fixed} onChange={setFixed} min={1} max={100} />
+            </FormRow>
+          ) : null}
+          {kind === 'failure' ? (
+            <FormRow>
+              <NumberRow label="Reps en reserva" value={minus} onChange={setMinus} max={5} />
+            </FormRow>
+          ) : null}
+          <FormRow padded>
+            <Segmented options={UNITS} value={unit} onChange={setUnit} />
+          </FormRow>
+          <FormRow>
+            <SwitchRow label="Por lado" value={perSide} onValueChange={setPerSide} />
+          </FormRow>
+        </ListGroup>
+      </Section>
+
+      {/* «Al fallo» never changes the weight: there is no progression to set. */}
+      {kind !== 'failure' ? (
+        <Section label="Progresión">
+          <ListGroup>
+            <FormRow padded>
+              <Segmented options={PROGRESSIONS} value={progression} onChange={setProgression} />
+            </FormRow>
+            {automatic && kind === 'range' ? (
+              <FormRow>
+                <SwitchRow
+                  label="Proponer bajar el peso"
+                  subtitle="Si no llegas al mínimo"
+                  value={allowDecrease}
+                  onValueChange={setAllowDecrease}
+                />
+              </FormRow>
+            ) : null}
+            {automatic ? (
+              <FormRow>
+                <SwitchRow
+                  label="Incremento propio"
+                  subtitle={`Por defecto ${formatKg(defaultIncrement)}`}
+                  value={ownIncrement}
+                  onValueChange={setOwnIncrement}
+                />
+              </FormRow>
+            ) : null}
+            {automatic && ownIncrement ? (
+              <FormRow>
+                <NumberRow label="Incremento" value={increment} onChange={setIncrement} step={0.5} min={0.5} format={formatKg} />
+              </FormRow>
+            ) : null}
+          </ListGroup>
+        </Section>
       ) : null}
 
-      <Divider />
-      <SwitchRow
-        label={`Descanso propio (por defecto ${formatCountdown(defaultRest * 1000)})`}
-        value={ownRest}
-        onValueChange={touch(setOwnRest)}
-      />
-      {ownRest ? <DurationField value={rest} onChange={touch(setRest)} /> : null}
-      <TextField label="Nota (se ve durante el entreno)" value={note} onChangeText={touch(setNote)} multiline />
+      <Section label="Descanso entre series">
+        <ListGroup>
+          <FormRow>
+            <SwitchRow
+              label="Descanso propio"
+              subtitle={`Por defecto ${formatCountdown(defaultRest * 1000)}`}
+              value={ownRest}
+              onValueChange={setOwnRest}
+            />
+          </FormRow>
+          {ownRest ? (
+            <FormRow padded>
+              <DurationField value={rest} onChange={setRest} />
+            </FormRow>
+          ) : null}
+        </ListGroup>
+      </Section>
 
-      <Button title="Guardar cambios" onPress={save} />
-      {saved ? <AppText style={{ color: colors.primary }}>Guardado ✓</AppText> : null}
-    </Card>
+      <TextField label="Nota" value={note} onChangeText={setNote} multiline help="Se ve en la serie" />
+
+      {lastTime ? (
+        <ListGroup>
+          <ListRow
+            title="Últimas sesiones"
+            subtitle={lastTime}
+            onPress={() => router.push(`/progreso/${slot.exerciseId}`)}
+          />
+        </ListGroup>
+      ) : null}
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+});

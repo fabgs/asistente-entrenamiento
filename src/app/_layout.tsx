@@ -3,7 +3,7 @@ import { router, Stack, ThemeProvider, type Href } from 'expo-router';
 import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { DialogHost } from '@/components/Dialog';
+import { DialogHost, SnackbarHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
 import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
@@ -18,7 +18,7 @@ import {
   getPermissionState,
   requestNotificationPermission,
 } from '@/services/notifications';
-import { colors, navigationTheme } from '@/theme';
+import { colors, headerOptions, navigationTheme } from '@/theme';
 
 configureNotificationHandler();
 
@@ -66,25 +66,26 @@ export default function RootLayout() {
       <SQLiteProvider databaseName="entreno.db" onInit={initDatabase}>
         <Bootstrap />
         <Stack
-          screenOptions={{
-            headerStyle: { backgroundColor: colors.card },
-            headerTintColor: colors.text,
-            contentStyle: { backgroundColor: colors.bg },
-          }}>
+          screenOptions={{ ...headerOptions, contentStyle: { backgroundColor: colors.bg } }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="workout/[sessionId]" options={{ title: 'Entrenando' }} />
           <Stack.Screen name="workout/resumen/[sessionId]" options={{ title: 'Resumen' }} />
           <Stack.Screen name="cardio-sesion/[id]" options={{ title: 'Cardio' }} />
+          <Stack.Screen name="ruta/[id]" options={{ title: 'Mapa' }} />
+          <Stack.Screen name="compartir/[tipo]/[id]" options={{ title: 'Compartir' }} />
           <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />
           <Stack.Screen name="rutina/[id]" options={{ title: 'Editar rutina' }} />
           <Stack.Screen name="ejercicios" options={{ title: 'Ejercicios' }} />
           <Stack.Screen name="ejercicio/[id]" options={{ title: 'Ejercicio' }} />
           <Stack.Screen name="cardio" options={{ title: 'Cardio semanal' }} />
+          <Stack.Screen name="cardio/actividad/[id]" options={{ title: 'Actividad' }} />
           <Stack.Screen name="progreso/[id]" options={{ title: 'Progreso' }} />
           <Stack.Screen name="alimentos" options={{ title: 'Alimentos' }} />
           <Stack.Screen name="alimento/[id]" options={{ title: 'Alimento' }} />
           <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
+          <Stack.Screen name="dev/componentes" options={{ title: 'Componentes' }} />
         </Stack>
+        <SnackbarHost />
         <DialogHost />
       </SQLiteProvider>
     </ThemeProvider>

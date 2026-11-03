@@ -120,7 +120,41 @@ export async function updateCardio(db: Db, id: number, fields: CardioFields): Pr
   }
 }
 
+/** What `updateCardio` writes, as the activity has it now (a plan only for the timer). */
+export function cardioFieldsOf(activity: CardioActivity): Required<CardioFields> {
+  return {
+    name: activity.name,
+    target: activity.target,
+    intensity: activity.intensity,
+    notes: activity.notes,
+    tracking: activity.tracking,
+    plan: activity.tracking === 'timer' ? activity.plan : null,
+  };
+}
+
+/**
+ * True when both save the same activity: texts as the editor saves them (trimmed, empty as none)
+ * and plans field by field.
+ */
+export function sameCardioFields(a: Required<CardioFields>, b: Required<CardioFields>): boolean {
+  const text = (s: string | null) => s?.trim() || null;
+  const plan = (p: CardioPlan | null) => (p ? JSON.stringify(Object.entries(p).sort(([x], [y]) => x.localeCompare(y))) : null);
+  return (
+    a.name.trim() === b.name.trim() &&
+    text(a.target) === text(b.target) &&
+    text(a.intensity) === text(b.intensity) &&
+    text(a.notes) === text(b.notes) &&
+    a.tracking === b.tracking &&
+    plan(a.plan) === plan(b.plan)
+  );
+}
+
 /** Hides the activity; days already marked as done keep their log. */
 export async function archiveCardio(db: Db, id: number): Promise<void> {
   await db.runAsync('UPDATE cardio_activity SET archived = 1 WHERE id = ?', id);
+}
+
+/** Brings back an activity just removed (the «Deshacer» of «Actividad quitada»). */
+export async function unarchiveCardio(db: Db, id: number): Promise<void> {
+  await db.runAsync('UPDATE cardio_activity SET archived = 0 WHERE id = ?', id);
 }

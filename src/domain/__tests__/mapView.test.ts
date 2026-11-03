@@ -44,6 +44,22 @@ describe('map view', () => {
     const view = { zoom: 3, originX: 100, originY: 300 };
     const tiles = tilesFor(view, 300, 200); // x 100–400, y 300–500
     expect(tiles.map((t) => `${t.x},${t.y}`)).toEqual(['0,1', '1,1']);
-    expect(tiles[0]).toMatchObject({ left: -100, top: -44 });
+    expect(tiles[0]).toMatchObject({ zoom: 3, left: -100, top: -44, size: 256 });
+  });
+
+  it('takes sharper tiles from one zoom level further in, drawn at half the size', () => {
+    const view = { zoom: 3, originX: 100, originY: 300 };
+    const tiles = tilesFor(view, 300, 200, 1);
+    // The same area: 4 × 2 tiles of 128 dp from zoom 4, starting at the same corner.
+    expect(tiles).toHaveLength(8);
+    expect(tiles[0]).toEqual({ zoom: 4, x: 0, y: 2, left: -100, top: -44, size: 128 });
+    expect(tiles.every((t) => t.zoom === 4 && t.size === 128)).toBe(true);
+    expect(Math.max(...tiles.map((t) => t.left + t.size))).toBeGreaterThanOrEqual(300);
+    expect(Math.max(...tiles.map((t) => t.top + t.size))).toBeGreaterThanOrEqual(200);
+  });
+
+  it('never asks for tiles past the deepest zoom of the server', () => {
+    const view = { zoom: 18, originX: 0, originY: 0 };
+    expect(tilesFor(view, 100, 100, 2)[0]).toMatchObject({ zoom: 19, size: 128 });
   });
 });

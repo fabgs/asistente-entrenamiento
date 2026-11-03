@@ -5,6 +5,8 @@ export interface PlannedSlot {
 
 export interface DoneSet {
   slotId: number | null;
+  /** Warm-ups never count as done sets. */
+  isWarmup?: boolean;
 }
 
 export type NextStep =
@@ -13,7 +15,7 @@ export type NextStep =
   | { kind: 'finished' };
 
 export function setsDone(slotId: number, sets: DoneSet[]): number {
-  return sets.filter((s) => s.slotId === slotId).length;
+  return sets.filter((s) => s.slotId === slotId && !s.isWarmup).length;
 }
 
 export function isSlotComplete(slot: PlannedSlot, sets: DoneSet[]): boolean {
@@ -52,4 +54,21 @@ export function nextStep(
   }
   const next = nextPendingSlot(slots, sets, skipped, currentSlotId);
   return next === null ? { kind: 'finished' } : { kind: 'next_exercise', slotId: next };
+}
+
+/**
+ * What «Empezar rutina» and «Continuar entreno» open: the set of the exercise in progress or else of
+ * the first pending one (SET_INPUT). null leaves the workout as it is: resting, or nothing left to do.
+ */
+export function slotToOpen(
+  slots: PlannedSlot[],
+  sets: DoneSet[],
+  skipped: number[],
+  current: number | null,
+  resting: boolean,
+): number | null {
+  if (resting) return null;
+  const inProgress = slots.find((s) => s.slotId === current);
+  if (inProgress && !isSlotComplete(inProgress, sets)) return inProgress.slotId;
+  return nextPendingSlot(slots, sets, skipped, null);
 }

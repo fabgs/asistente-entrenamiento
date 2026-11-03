@@ -1,4 +1,4 @@
-import { formatKg, formatNumber } from './format';
+import { formatNumber } from './format';
 import type {
   ProgressionSettings,
   Recommendation,
@@ -30,14 +30,17 @@ function assess(reps: number[], target: RepTarget, settings: ProgressionSettings
   }
 }
 
+// Reasons read as plain sentences (PLAN.md §12): no «>», «<», «→» or «=». The buttons say the weight.
 function aboveReason(reps: number[], target: RepTarget, settings: ProgressionSettings): string {
-  if (target.kind === 'fixed') return `Completadas ${reps.length} × ${target.reps}`;
+  if (target.kind === 'fixed') return `Completaste ${reps.length} × ${target.reps}`;
   if (target.kind === 'range' && settings.mode === 'strict') {
-    return `Todas las series ≥ ${target.max}`;
+    return `Todas las series en ${target.max} o más`;
   }
   const max = target.kind === 'range' ? target.max : 0;
-  return `Media ${formatNumber(average(reps), 1)} > ${max}`;
+  return `Media de ${formatNumber(average(reps), 1)} reps, por encima de ${max}`;
 }
+
+const SESSIONS_IN_WORDS: Record<number, string> = { 2: 'dos', 3: 'tres', 4: 'cuatro' };
 
 /**
  * Suggests the load for the next session of a slot (PLAN.md §6.2).
@@ -56,7 +59,7 @@ export function recommend(
       action: 'manual',
       fromKg: slot.weightKg,
       toKg: slot.weightKg,
-      reason: 'Progresión manual: intenta superar tus reps',
+      reason: 'Sin sugerencia: intenta superar tus reps',
       repsToBeat: last?.reps,
     };
   }
@@ -75,7 +78,7 @@ export function recommend(
   });
 
   if (last.reps.length < slot.sets) {
-    return keep(`Sesión incompleta (${last.reps.length} de ${slot.sets} series)`);
+    return keep(`Hiciste ${last.reps.length} de ${slot.sets} series`);
   }
 
   const assessment = assess(last.reps, slot.target, settings);
@@ -86,14 +89,14 @@ export function recommend(
       action: 'increase',
       fromKg: slot.weightKg,
       toKg,
-      reason: `${aboveReason(last.reps, slot.target, settings)} → sube a ${formatKg(toKg)}`,
+      reason: aboveReason(last.reps, slot.target, settings),
       repsToBeat: last.reps,
     };
   }
 
   if (assessment === 'below' && slot.target.kind === 'range') {
-    const avgLabel = `Media ${formatNumber(average(last.reps), 1)} < ${slot.target.min}`;
-    if (!slot.allowDecrease) return keep(`${avgLabel} (sin bajada automática)`);
+    const avgLabel = `Media de ${formatNumber(average(last.reps), 1)}, por debajo de ${slot.target.min}`;
+    if (!slot.allowDecrease) return keep(`${avgLabel}; este ejercicio no baja solo`);
 
     const needed = Math.max(1, settings.sessionsBelowToDecrease);
     const recent = history.slice(0, needed);
@@ -102,22 +105,22 @@ export function recommend(
       recent.every(
         (s) => sameWeight(s.weightKg, last.weightKg) && assess(s.reps, slot.target, settings) === 'below',
       );
-    if (!repeated) return keep(`${avgLabel}: si se repite, bajará`);
+    if (!repeated) return keep(`${avgLabel}: si se repite, te sugerirá bajar`);
 
     const toKg = round2(weight - increment);
-    if (toKg < 0) return keep(`${avgLabel}: sin carga que quitar, prueba una variante más fácil`);
-    const sessionsLabel = needed > 1 ? ` en ${needed} sesiones` : '';
+    if (toKg < 0) return keep(`${avgLabel}: no hay carga que quitar, prueba una variante más fácil`);
+    const sessionsLabel = needed > 1 ? `, ${SESSIONS_IN_WORDS[needed] ?? needed} sesiones seguidas` : '';
     return {
       action: 'decrease',
       fromKg: slot.weightKg,
       toKg,
-      reason: `${avgLabel}${sessionsLabel} → baja a ${formatKg(toKg)}`,
+      reason: `${avgLabel}${sessionsLabel}`,
       repsToBeat: last.reps,
     };
   }
 
   if (slot.target.kind === 'range') {
-    return keep(`Media ${formatNumber(average(last.reps), 1)} dentro de ${slot.target.min}–${slot.target.max}`);
+    return keep(`Media de ${formatNumber(average(last.reps), 1)}, dentro de ${slot.target.min}–${slot.target.max}`);
   }
   return keep('Aún no completas todas las series');
 }

@@ -1,6 +1,11 @@
 import type { LatLon } from './gps';
 
 export const TILE_SIZE = 256;
+
+// OpenStreetMap's own tiles: no API key. Their usage policy asks for attribution and a User-Agent
+// that identifies the app; a personal app's few requests are well within it.
+export const osmTileUrl = (z: number, x: number, y: number) => `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+export const TILE_USER_AGENT = 'Entreno/1.3 (personal training app)';
 const MAX_ZOOM = 17;
 
 /** Web Mercator pixel position at `zoom` (what map tiles use). */
@@ -35,27 +40,42 @@ export function fitView(points: LatLon[], width: number, height: number, padding
 }
 
 export interface Tile {
+  zoom: number;
   x: number;
   y: number;
   /** Position on screen. */
   left: number;
   top: number;
+  /** Side on screen, in dp. */
+  size: number;
 }
 
-/** Tiles covering the view. */
-export function tilesFor(view: MapView, width: number, height: number): Tile[] {
+/** OpenStreetMap serves tiles up to this zoom. */
+const MAX_TILE_ZOOM = 19;
+
+/**
+ * Tiles covering the view. With `detail` k they come from k zoom levels further in and are drawn at
+ * 256/2^k dp, so on a dense screen every pixel of a tile is about a pixel of the screen and street
+ * names stay sharp (k = 1 in the app; round(log2(PixelRatio)) in the share image).
+ */
+export function tilesFor(view: MapView, width: number, height: number, detail = 0): Tile[] {
+  const k = Math.max(0, Math.min(detail, MAX_TILE_ZOOM - view.zoom));
+  const zoom = view.zoom + k;
+  const size = TILE_SIZE / 2 ** k;
   const tiles: Tile[] = [];
-  const count = 2 ** view.zoom;
-  const firstX = Math.floor(view.originX / TILE_SIZE);
-  const firstY = Math.floor(view.originY / TILE_SIZE);
-  for (let ty = firstY; ty * TILE_SIZE < view.originY + height; ty++) {
+  const count = 2 ** zoom;
+  const firstX = Math.floor(view.originX / size);
+  const firstY = Math.floor(view.originY / size);
+  for (let ty = firstY; ty * size < view.originY + height; ty++) {
     if (ty < 0 || ty >= count) continue;
-    for (let tx = firstX; tx * TILE_SIZE < view.originX + width; tx++) {
+    for (let tx = firstX; tx * size < view.originX + width; tx++) {
       tiles.push({
+        zoom,
         x: ((tx % count) + count) % count,
         y: ty,
-        left: tx * TILE_SIZE - view.originX,
-        top: ty * TILE_SIZE - view.originY,
+        left: tx * size - view.originX,
+        top: ty * size - view.originY,
+        size,
       });
     }
   }

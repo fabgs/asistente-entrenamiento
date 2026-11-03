@@ -21,23 +21,31 @@ export function formatEquipment(equipment: string | null): string | null {
   return (EQUIPMENT_LABEL[equipment] ?? equipment) || null;
 }
 
+/** Between a figure and its unit, so "10 kg" never breaks across lines. */
+export const NBSP = '\u00A0';
+/** Thousands separator from five digits on ("10 250"), as the RAE asks; four digits go together. */
+const THIN = '\u202F';
+
 /** Spanish number formatting without relying on Intl support in the JS engine. */
 export function formatNumber(value: number, maxDecimals = 2): string {
   const factor = 10 ** maxDecimals;
   const rounded = Math.round(value * factor) / factor;
-  return String(rounded).replace('.', ',');
+  const [whole, decimals] = String(rounded).split('.');
+  const digits = whole.replace('-', '');
+  const grouped = digits.length > 4 ? digits.replace(/\B(?=(\d{3})+(?!\d))/g, THIN) : digits;
+  return `${whole.startsWith('-') ? '-' : ''}${grouped}${decimals ? `,${decimals}` : ''}`;
 }
 
 export function formatKg(kg: number): string {
-  return `${formatNumber(kg)} kg`;
+  return `${formatNumber(kg)}${NBSP}kg`;
 }
 
-/** Label for the load of a slot: "37,5 kg", "Lastre 15 kg" or "Peso corporal". */
+/** Label for the load of a slot: "37,5 kg", "Lastre 15 kg", "Peso corporal" or "Sin carga". */
 export function formatLoad(weightKg: number | null, isBodyweight: boolean): string {
   if (isBodyweight) {
     return weightKg ? `Lastre ${formatKg(weightKg)}` : 'Peso corporal';
   }
-  return formatKg(weightKg ?? 0);
+  return weightKg ? formatKg(weightKg) : 'Sin carga';
 }
 
 export function formatCountdown(ms: number): string {
@@ -58,7 +66,7 @@ export function formatClock(ms: number): string {
 
 /** "850 m" below one kilometre, "5,23 km" above. */
 export function formatMetres(metres: number): string {
-  return metres < 1000 ? `${Math.round(metres)} m` : `${formatNumber(metres / 1000, 2)} km`;
+  return metres < 1000 ? `${Math.round(metres)}${NBSP}m` : `${formatNumber(metres / 1000, 2)}${NBSP}km`;
 }
 
 /** Result of a cardio session: "5,23 km · 58 min" with GPS, "30 min" for a timer. */
@@ -67,16 +75,32 @@ export function formatCardioResult(distanceM: number | null, activeMs: number): 
 }
 
 export function formatSpeedKmh(metresPerSecond: number): string {
-  return `${formatNumber(metresPerSecond * 3.6, 1)} km/h`;
+  return `${formatNumber(metresPerSecond * 3.6, 1)}${NBSP}km/h`;
 }
 
+/** "45 s", "58 min", "1 h" or "1 h 5 min" (never "1 h 0 min"). */
 export function formatDuration(ms: number): string {
-  if (ms < 59_500) return `${Math.round(ms / 1000)} s`;
+  if (ms < 59_500) return `${Math.round(ms / 1000)}${NBSP}s`;
+  return formatMinutes(ms);
+}
+
+/** Like formatDuration but never in seconds, for counters refreshed every half minute: "0 min". */
+export function formatMinutes(ms: number): string {
   const totalMinutes = Math.round(ms / 60000);
   const hours = Math.floor(totalMinutes / 60);
   const minutes = totalMinutes % 60;
-  return hours > 0 ? `${hours} h ${minutes} min` : `${minutes} min`;
+  if (hours === 0) return `${minutes}${NBSP}min`;
+  return minutes === 0 ? `${hours}${NBSP}h` : `${hours}${NBSP}h ${minutes}${NBSP}min`;
 }
+
+/** Time of day: "9:05". */
+export function formatTimeOfDay(ms: number): string {
+  const d = new Date(ms);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** "9:20–10:19" */
+export const formatTimeRange = (startMs: number, endMs: number) => `${formatTimeOfDay(startMs)}–${formatTimeOfDay(endMs)}`;
 
 const UNIT_LABEL: Record<RepUnit, string> = { reps: 'reps', steps: 'pasos', seconds: 's' };
 
@@ -84,21 +108,63 @@ export function formatTarget(target: RepTarget, unit: RepUnit, perSide: boolean)
   let label: string;
   switch (target.kind) {
     case 'range':
-      label = `${target.min}–${target.max} ${UNIT_LABEL[unit]}`;
+      label = `${target.min}–${target.max}${NBSP}${UNIT_LABEL[unit]}`;
       break;
     case 'fixed':
-      label = `${target.reps} ${UNIT_LABEL[unit]}`;
+      label = `${target.reps}${NBSP}${UNIT_LABEL[unit]}`;
       break;
     case 'failure':
-      label = target.minus > 0 ? `Al fallo −${target.minus}` : 'Al fallo';
+      // Lower case: it goes mid-sentence ("3 × al fallo −1", "Objetivo al fallo").
+      label = target.minus > 0 ? `al fallo −${target.minus}` : 'al fallo';
       break;
   }
   return perSide ? `${label} por lado` : label;
 }
 
-/** "Domingo 1 de noviembre". */
+/** "Al fallo −1": a target that starts a line (formatTarget is lower case for mid-sentence use). */
+export const capitalizeFirst = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
+
+const SPOKEN_UNIT: Record<RepUnit, [string, string]> = {
+  reps: ['repetición', 'repeticiones'],
+  steps: ['paso', 'pasos'],
+  seconds: ['segundo', 'segundos'],
+};
+
+/** What TalkBack reads for a target: "de 10 a 12 repeticiones", "al fallo menos 1", "1 segundo por lado". */
+export function spokenTarget(target: RepTarget, unit: RepUnit, perSide: boolean): string {
+  const [one, many] = SPOKEN_UNIT[unit];
+  let label: string;
+  switch (target.kind) {
+    case 'range':
+      label = `de ${target.min} a ${target.max} ${many}`;
+      break;
+    case 'fixed':
+      label = `${target.reps} ${target.reps === 1 ? one : many}`;
+      break;
+    case 'failure':
+      label = target.minus > 0 ? `al fallo menos ${target.minus}` : 'al fallo';
+      break;
+  }
+  return perSide ? `${label} por lado` : label;
+}
+
+/**
+ * The sets of an exercise in one line, grouping runs at the same weight:
+ * "35 kg × 15, 15, 14" or "35 kg × 15, 15 · 37,5 kg × 12".
+ */
+export function formatSetGroups(sets: { weightKg: number | null; reps: number }[], isBodyweight: boolean): string {
+  const groups: { kg: number | null; reps: number[] }[] = [];
+  for (const s of sets) {
+    const last = groups.at(-1);
+    if (last && (last.kg ?? 0) === (s.weightKg ?? 0)) last.reps.push(s.reps);
+    else groups.push({ kg: s.weightKg, reps: [s.reps] });
+  }
+  return groups.map((g) => `${formatLoad(g.kg, isBodyweight)} × ${g.reps.join(', ')}`).join(' · ');
+}
+
+/** "Domingo, 1 de noviembre" (with the comma the RAE asks for). */
 export function formatLongDate(date: Date): string {
-  const text = format(date, "EEEE d 'de' MMMM", { locale: es });
+  const text = format(date, "EEEE, d 'de' MMMM", { locale: es });
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 

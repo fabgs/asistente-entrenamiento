@@ -1,18 +1,41 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
+import { router, useNavigation } from 'expo-router';
+import { useLayoutEffect, useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
-import { AppText, Button, Card, Chip, Loading, Row, Screen, Stepper, WeekdayPicker } from '@/components/ui';
+import { showActions, showSnackbar, type SheetAction } from '@/components/Dialog';
+import { Sheet } from '@/components/Sheet';
+import {
+  AddRow,
+  AppText,
+  Button,
+  Card,
+  DayPicker,
+  Divider,
+  TabHeaderButton,
+  Icon,
+  ListGroup,
+  ListRow,
+  Loading,
+  NumberRow,
+  ProgressBar,
+  RowIcon,
+  Screen,
+  Section,
+  Segmented,
+  StatRow,
+  Value,
+} from '@/components/ui';
 import {
   copyDietDay,
-  deleteDietItem,
   listDietItems,
   MEALS,
+  removeDietItem,
+  restoreDietDays,
+  restoreDietItem,
   updateDietItemGrams,
   type DietItem,
 } from '@/db/repositories/diet';
 import { loadNutritionTargets } from '@/db/repositories/settings';
-import { formatNumber } from '@/domain/format';
+import { formatNumber, NBSP } from '@/domain/format';
 import {
   averageMacros,
   deviation,
@@ -28,209 +51,261 @@ import { useDb, useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
 const itemMacros = (i: DietItem) => macrosFor(i, i.grams);
-const DEVIATION_COLOR: Record<Deviation, string> = { ok: colors.primary, near: colors.warning, off: colors.danger };
+
+/** PLAN.md §5: green within 5 % of the target, amber within 10 %, red further; always with an icon. */
+const DEVIATION_LOOK: Record<Deviation, { color: string; icon: 'check' | 'alert'; words: string }> = {
+  ok: { color: colors.primary, icon: 'check', words: 'en el objetivo' },
+  near: { color: colors.warning, icon: 'alert', words: 'cerca del objetivo' },
+  off: { color: colors.danger, icon: 'alert', words: 'lejos del objetivo' },
+};
+
+type TotalsView = 'day' | 'week';
 
 export default function DietScreen() {
   const db = useDb();
-  const [day, setDay] = useState<IsoWeekday>(isoWeekdayOf(new Date()));
-  const [editingItem, setEditingItem] = useState<number | null>(null);
+  const navigation = useNavigation();
+  const [day, setDay] = useState<IsoWeekday>(() => isoWeekdayOf(new Date()));
+  const [view, setView] = useState<TotalsView>('day');
+  const [item, setItem] = useState<DietItem | null>(null);
   const [copying, setCopying] = useState(false);
   const { data, reload } = useLoader(async (db) => ({
     items: await listDietItems(db),
     targets: await loadNutritionTargets(db, localDateString(new Date())),
   }));
 
+  const dayName = WEEKDAY_NAMES[day].toLowerCase();
+  const dayItems = data?.items.filter((i) => i.weekday === day) ?? [];
+  const hasItems = dayItems.length > 0;
+
+  useLayoutEffect(() => {
+    const actions: SheetAction[] = [
+      { text: 'Catálogo de alimentos', icon: 'food-apple-outline', onPress: () => router.push('/alimentos') },
+    ];
+    // Copying an empty day would only empty the others.
+    if (hasItems) actions.unshift({ text: `Copiar el ${dayName} a…`, icon: 'content-copy', onPress: () => setCopying(true) });
+    navigation.setOptions({
+      headerRight: () => <TabHeaderButton icon="dots-vertical" label="Más acciones" onPress={() => showActions(actions)} />,
+    });
+  }, [navigation, dayName, hasItems]);
+
   if (!data) return <Loading />;
 
-  const dayItems = data.items.filter((i) => i.weekday === day);
   const dayTotals = sumMacros(dayItems.map(itemMacros));
   const weekAverage = averageMacros(
     ISO_WEEKDAYS.map((d) => sumMacros(data.items.filter((i) => i.weekday === d).map(itemMacros))),
   );
 
-  const changeDay = (d: IsoWeekday) => {
-    setDay(d);
-    setEditingItem(null);
-    setCopying(false);
+  const saveGrams = async (target: DietItem, grams: number) => {
+    setItem(null);
+    await updateDietItemGrams(db, target.id, grams);
+    await reload();
   };
 
-  const changed = async () => {
-    setEditingItem(null);
+  const remove = async (target: DietItem) => {
+    setItem(null);
+    const removed = await removeDietItem(db, target.id);
     await reload();
+    if (!removed) return;
+    showSnackbar('Alimento quitado', {
+      label: 'Deshacer',
+      onPress: async () => {
+        await restoreDietItem(db, removed);
+        await reload();
+      },
+    });
+  };
+
+  const copy = async (to: IsoWeekday[]) => {
+    setCopying(false);
+    const replaced = await copyDietDay(db, day, to);
+    await reload();
+    showSnackbar(`Plan del ${dayName} copiado`, {
+      label: 'Deshacer',
+      onPress: async () => {
+        await restoreDietDays(db, to, replaced);
+        await reload();
+      },
+    });
   };
 
   return (
     <Screen>
-      <Row>
-        {ISO_WEEKDAYS.map((d) => (
-          <Chip key={d} label={WEEKDAY_NAMES[d].slice(0, 3)} selected={d === day} onPress={() => changeDay(d)} />
-        ))}
-      </Row>
+      <DayPicker
+        multiple={false}
+        value={[day]}
+        onChange={(days) => {
+          if (days[0]) setDay(days[0]);
+        }}
+      />
 
-      <TotalsCard title={`Total ${WEEKDAY_NAMES[day].toLowerCase()}`} totals={dayTotals} targets={data.targets} />
+      <View style={styles.totals}>
+        <Segmented<TotalsView>
+          options={[
+            { value: 'day', label: 'Día' },
+            { value: 'week', label: 'Media semanal' },
+          ]}
+          value={view}
+          onChange={setView}
+        />
+        <Totals totals={view === 'day' ? dayTotals : weekAverage} targets={data.targets} />
+        {!data.targets ? (
+          <ListGroup>
+            <ListRow
+              left={<RowIcon name="account-alert-outline" color={colors.warning} />}
+              title="Completa tu perfil para ver objetivos"
+              onPress={() => router.push('/perfil')}
+            />
+          </ListGroup>
+        ) : null}
+      </View>
 
       {MEALS.map((meal) => {
         const items = dayItems.filter((i) => i.meal === meal.key);
-        const mealKcal = sumMacros(items.map(itemMacros)).kcal;
+        const kcal = sumMacros(items.map(itemMacros)).kcal;
         return (
-          <Card key={meal.key}>
-            <Row between>
-              <AppText variant="heading" style={{ flex: 1 }}>
-                {meal.label}
-              </AppText>
-              {items.length > 0 ? <AppText variant="muted">{formatNumber(mealKcal, 0)} kcal</AppText> : null}
-            </Row>
-            {items.map((item) =>
-              editingItem === item.id ? (
-                <ItemEditor key={item.id} item={item} onDone={changed} />
-              ) : (
-                <Pressable key={item.id} style={styles.itemRow} onPress={() => setEditingItem(item.id)}>
-                  <AppText style={{ flex: 1 }}>{item.foodName}</AppText>
-                  <AppText variant="muted">
-                    {formatNumber(item.grams)} g · {formatNumber(itemMacros(item).kcal, 0)} kcal
-                  </AppText>
-                </Pressable>
-              ),
-            )}
-            <Button
-              kind="ghost"
-              title="+ Añadir alimento"
-              onPress={() => router.push({ pathname: '/alimentos', params: { pickDay: String(day), pickMeal: meal.key } })}
-            />
-          </Card>
+          <Section key={meal.key} label={meal.label} right={items.length > 0 ? `${formatNumber(kcal, 0)}${NBSP}kcal` : undefined}>
+            <ListGroup>
+              {items.map((i) => (
+                <FoodRow key={i.id} item={i} onPress={() => setItem(i)} />
+              ))}
+              <AddRow
+                title="Añadir alimento"
+                onPress={() => router.push({ pathname: '/alimentos', params: { pickDay: String(day), pickMeal: meal.key } })}
+              />
+            </ListGroup>
+          </Section>
         );
       })}
 
-      {copying ? (
-        <CopyDayCard
-          from={day}
-          onCancel={() => setCopying(false)}
-          onCopy={async (to) => {
-            await copyDietDay(db, day, to);
-            setCopying(false);
-            await reload();
-          }}
-        />
-      ) : (
-        <Button kind="secondary" title={`Copiar el ${WEEKDAY_NAMES[day].toLowerCase()} a otros días`} onPress={() => setCopying(true)} />
-      )}
+      <Sheet
+        visible={item !== null}
+        title={item?.foodName ?? ''}
+        onClose={() => setItem(null)}
+        action={
+          item ? <Button kind="danger" icon="minus-circle-outline" title="Quitar" onPress={() => remove(item)} /> : null
+        }>
+        {item ? <GramsEditor key={item.id} item={item} onSave={(grams) => saveGrams(item, grams)} /> : null}
+      </Sheet>
 
-      <TotalsCard title="Media semanal" totals={weekAverage} targets={data.targets} />
-      <Button kind="secondary" title="Catálogo de alimentos" onPress={() => router.push('/alimentos')} />
+      <Sheet visible={copying} title={`Copiar el ${dayName} a…`} onClose={() => setCopying(false)}>
+        {copying ? <CopyDays from={day} onCopy={copy} /> : null}
+      </Sheet>
     </Screen>
   );
 }
 
-function ItemEditor({ item, onDone }: { item: DietItem; onDone: () => void }) {
-  const db = useDb();
-  const [grams, setGrams] = useState(item.grams);
-  const m = macrosFor(item, grams);
-
-  const save = async () => {
-    await updateDietItemGrams(db, item.id, grams);
-    onDone();
-  };
-  const remove = async () => {
-    await deleteDietItem(db, item.id);
-    onDone();
-  };
-
+/** Calories and macros in a 2 × 2 grid, each against its target when the profile has one. */
+function Totals({ totals, targets }: { totals: Macros; targets: NutritionTargets | null }) {
   return (
-    <View style={styles.editor}>
-      <AppText>{item.foodName}</AppText>
-      <Stepper decimal value={grams} onChange={setGrams} step={10} min={0} format={(g) => `${formatNumber(g)} g`} />
-      <AppText variant="small">
-        {formatNumber(m.kcal, 0)} kcal · P {formatNumber(m.protein, 1)} g · G {formatNumber(m.fat, 1)} g · C{' '}
-        {formatNumber(m.carbs, 1)} g
+    <Card flush>
+      <StatRow>
+        <TotalCell label="Calorías" value={totals.kcal} unit="kcal" target={targets?.targetKcal} />
+        <TotalCell label="Proteína" value={totals.protein} unit="g" target={targets?.proteinG} />
+      </StatRow>
+      <Divider />
+      <StatRow>
+        <TotalCell label="Grasa" value={totals.fat} unit="g" target={targets?.fatG} />
+        <TotalCell label="Hidratos" value={totals.carbs} unit="g" target={targets?.carbsG} />
+      </StatRow>
+    </Card>
+  );
+}
+
+function TotalCell({ label, value, unit, target }: { label: string; value: number; unit: string; target?: number }) {
+  const figure = formatNumber(value, 0);
+  if (!target) {
+    return (
+      <View style={styles.cell}>
+        <AppText variant="label" numberOfLines={1}>
+          {label}
+        </AppText>
+        <Value value={figure} unit={unit} size="metricSm" />
+      </View>
+    );
+  }
+  const look = DEVIATION_LOOK[deviation(value, target)];
+  return (
+    <View style={styles.cell} accessible accessibilityLabel={`${label}: ${figure} de ${formatNumber(target, 0)} ${unit}, ${look.words}`}>
+      <AppText variant="label" numberOfLines={1}>
+        {label}
       </AppText>
-      <Row>
-        <Button title="Guardar" onPress={save} disabled={grams <= 0} />
-        <Button kind="danger" title="Quitar" onPress={remove} />
-        <Button kind="ghost" title="Cancelar" onPress={onDone} />
-      </Row>
+      <Value value={figure} unit={unit} size="metricSm" />
+      <View style={styles.targetLine}>
+        <Icon name={look.icon} size={12} color={look.color} />
+        <AppText variant="caption" tabular numberOfLines={1}>
+          de {formatNumber(target, 0)}
+        </AppText>
+      </View>
+      <View style={styles.meter}>
+        <ProgressBar progress={value / target} color={look.color} />
+      </View>
     </View>
   );
 }
 
-function CopyDayCard({
-  from,
-  onCancel,
-  onCopy,
-}: {
-  from: IsoWeekday;
-  onCancel: () => void;
-  onCopy: (to: IsoWeekday[]) => void;
-}) {
-  const [chosen, setTargets] = useState<IsoWeekday[]>([]);
-
-  const confirm = () =>
-    showDialog(
-      'Copiar día',
-      `El plan de ${chosen.map((d) => WEEKDAY_NAMES[d].toLowerCase()).join(', ')} se reemplazará por el del ${WEEKDAY_NAMES[from].toLowerCase()}.`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Copiar', onPress: () => onCopy(chosen) },
-      ],
-    );
-
+/** A food of a meal: name, then grams and kcal in two right-aligned columns. */
+function FoodRow({ item, onPress }: { item: DietItem; onPress: () => void }) {
+  const grams = formatNumber(item.grams);
+  const kcal = formatNumber(itemMacros(item).kcal, 0);
   return (
-    <Card>
-      <AppText variant="heading">Copiar el {WEEKDAY_NAMES[from].toLowerCase()} a…</AppText>
-      <WeekdayPicker value={chosen} onChange={setTargets} hide={[from]} />
-      <Row>
-        <Button title="Copiar" onPress={confirm} disabled={chosen.length === 0} />
-        <Button kind="ghost" title="Cancelar" onPress={onCancel} />
-      </Row>
-    </Card>
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors.pressed }}
+      accessibilityRole="button"
+      accessibilityLabel={`${item.foodName}, ${grams} gramos, ${kcal} kilocalorías`}
+      style={styles.foodRow}>
+      <AppText variant="bodySm" numberOfLines={2} style={{ flex: 1 }}>
+        {item.foodName}
+      </AppText>
+      <AppText variant="secondary" tabular numberOfLines={1} style={styles.grams}>
+        {grams}
+        {NBSP}g
+      </AppText>
+      <Value value={kcal} unit="kcal" size="control" align="right" style={styles.kcal} />
+    </Pressable>
   );
 }
 
-function TotalsCard({ title, totals, targets }: { title: string; totals: Macros; targets: NutritionTargets | null }) {
-  const rows: [string, number, number | undefined, string][] = [
-    ['Kcal', totals.kcal, targets?.targetKcal, ''],
-    ['Proteína', totals.protein, targets?.proteinG, ' g'],
-    ['Grasa', totals.fat, targets?.fatG, ' g'],
-    ['Carbohidratos', totals.carbs, targets?.carbsG, ' g'],
-  ];
+function GramsEditor({ item, onSave }: { item: DietItem; onSave: (grams: number) => void }) {
+  const [grams, setGrams] = useState(item.grams);
+  const m = macrosFor(item, grams);
+  const g = (value: number) => `${formatNumber(value, 1)}${NBSP}g`;
   return (
-    <Card>
-      <AppText variant="heading">{title}</AppText>
-      {rows.map(([label, value, target, unit]) => (
-        <Row key={label} between>
-          <AppText variant="muted" style={{ flex: 1 }}>
-            {label}
-          </AppText>
-          <View style={{ flexDirection: 'row' }}>
-            <AppText style={target ? { color: DEVIATION_COLOR[deviation(value, target)], fontWeight: '700' } : undefined}>
-              {formatNumber(value, 0)}
-              {unit}
-            </AppText>
-            {target ? (
-              <AppText variant="muted">
-                {' '}
-                / {formatNumber(target, 0)}
-                {unit}
-              </AppText>
-            ) : null}
-          </View>
-        </Row>
-      ))}
-      {targets ? (
-        <AppText variant="small">Verde: a menos del 5 % del objetivo · ámbar: menos del 10 % · rojo: más.</AppText>
-      ) : (
-        <AppText variant="small">Completa tu perfil para comparar con tus objetivos.</AppText>
-      )}
-    </Card>
+    <>
+      <NumberRow label="Gramos" value={grams} onChange={setGrams} step={10} min={0} max={5000} format={(v) => `${formatNumber(v)}${NBSP}g`} />
+      <AppText variant="caption" tabular>
+        {formatNumber(m.kcal, 0)}
+        {NBSP}kcal · Proteína {g(m.protein)} · Grasa {g(m.fat)} · Hidratos {g(m.carbs)}
+      </AppText>
+      <Button size="lg" title="Guardar" disabled={grams <= 0} onPress={() => onSave(grams)} />
+    </>
+  );
+}
+
+function CopyDays({ from, onCopy }: { from: IsoWeekday; onCopy: (to: IsoWeekday[]) => void }) {
+  const [to, setTo] = useState<IsoWeekday[]>([]);
+  return (
+    <>
+      <DayPicker value={to} onChange={setTo} hide={[from]} />
+      <AppText variant="caption">El plan de los días que elijas se sustituye por este.</AppText>
+      <Button size="lg" title="Copiar" disabled={to.length === 0} onPress={() => onCopy(to)} />
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.sm },
-  editor: {
+  totals: { gap: spacing.md },
+  cell: { flex: 1, minHeight: 72, gap: 2, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
+  targetLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
+  meter: { marginTop: spacing.xs },
+  foodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: colors.border,
+    minHeight: 48,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
   },
+  grams: { minWidth: 64, textAlign: 'right' },
+  kcal: { minWidth: 72 },
 });

@@ -79,14 +79,14 @@ describe('recommend() with the Excel seed (PLAN.md §6.2)', () => {
   it('explains why it increases', () => {
     const remo = seed.routines[0].slots.find((s) => s.exercise === 'Remo con barra (90º)')!;
     expect(recommend(ruleOf(remo), null, historyOf(remo), settings).reason).toBe(
-      'Media 14,7 > 12 → sube a 37,5 kg',
+      'Media de 14,7 reps, por encima de 12',
     );
   });
 
   it('warns after a single session below the range', () => {
     const aus = seed.routines[2].slots.find((s) => s.exercise === 'Australianas (homb post)')!;
     expect(recommend(ruleOf(aus), null, historyOf(aus), settings).reason).toContain(
-      'si se repite, bajará',
+      'si se repite, te sugerirá bajar',
     );
   });
 });
@@ -146,13 +146,32 @@ describe('recommend() rules', () => {
   it('keeps the load after an incomplete session', () => {
     const r = recommend(slot(), null, [{ weightKg: 35, reps: [20, 20] }], settings);
     expect(r.action).toBe('keep');
-    expect(r.reason).toBe('Sesión incompleta (2 de 3 series)');
+    expect(r.reason).toBe('Hiciste 2 de 3 series');
   });
 
   it('fixed targets increase only when every set is completed', () => {
     const fixed = slot({ target: { kind: 'fixed', reps: 20 }, sets: 2, weightKg: 10 });
     expect(recommend(fixed, null, [{ weightKg: 10, reps: [20, 18] }], settings).action).toBe('keep');
     expect(recommend(fixed, null, [{ weightKg: 10, reps: [20, 20] }], settings).toKg).toBe(12.5);
+  });
+
+  it('explains every reason in a plain sentence, without symbols', () => {
+    const below = { weightKg: 35, reps: [8, 8, 8] };
+    const reasons = [
+      recommend(slot(), null, [{ weightKg: 35, reps: [13, 13, 14] }], settings).reason,
+      recommend(slot(), null, [below, below], settings).reason,
+      recommend(slot({ allowDecrease: false }), null, [below], settings).reason,
+      recommend(slot(), null, [{ weightKg: 35, reps: [11, 11, 11] }], settings).reason,
+      recommend(slot({ target: { kind: 'fixed', reps: 20 }, sets: 2 }), null, [{ weightKg: 10, reps: [20, 20] }], settings).reason,
+    ];
+    expect(reasons).toEqual([
+      'Media de 13,3 reps, por encima de 12',
+      'Media de 8, por debajo de 10, dos sesiones seguidas',
+      'Media de 8, por debajo de 10; este ejercicio no baja solo',
+      'Media de 11, dentro de 10–12',
+      'Completaste 2 × 20',
+    ]);
+    for (const r of reasons) expect(r).not.toMatch(/[<>→=]/);
   });
 
   it('reports no data without history', () => {

@@ -5,6 +5,9 @@ import {
   formatAgo,
   formatDateWithYear,
   formatDuration,
+  formatMinutes,
+  formatSetGroups,
+  formatTimeRange,
   formatEquipment,
   formatKg,
   formatLoad,
@@ -14,23 +17,35 @@ import {
   formatSpeedKmh,
   formatNumber,
   formatTarget,
+  capitalizeFirst,
   normalizeForSearch,
+  spokenTarget,
   parseDecimal,
   parseDuration,
 } from '../format';
 
 describe('format', () => {
+  it('keeps a figure and its unit together and groups thousands from five digits', () => {
+    expect(formatKg(10)).toBe('10 kg');
+    expect(formatMetres(5140)).toBe('5,14 km');
+    expect(formatSpeedKmh(1.45)).toBe('5,2 km/h');
+    expect(formatKg(10250)).toBe('10 250 kg');
+    expect(formatNumber(1900)).toBe('1900');
+    expect(formatNumber(-12345.5)).toBe('-12 345,5');
+    expect(formatLoad(0, false)).toBe('Sin carga');
+  });
+
   it('uses a decimal comma', () => {
     expect(formatNumber(14.6667, 1)).toBe('14,7');
-    expect(formatKg(37.5)).toBe('37,5 kg');
-    expect(formatKg(40)).toBe('40 kg');
+    expect(formatKg(37.5)).toBe('37,5 kg');
+    expect(formatKg(40)).toBe('40 kg');
   });
 
   it('labels loads', () => {
-    expect(formatLoad(15, true)).toBe('Lastre 15 kg');
+    expect(formatLoad(15, true)).toBe('Lastre 15 kg');
     expect(formatLoad(0, true)).toBe('Peso corporal');
     expect(formatLoad(null, true)).toBe('Peso corporal');
-    expect(formatLoad(35, false)).toBe('35 kg');
+    expect(formatLoad(35, false)).toBe('35 kg');
   });
 
   it('formats the rest countdown', () => {
@@ -40,7 +55,7 @@ describe('format', () => {
   });
 
   it('formats long dates in Spanish with only the first letter capitalized', () => {
-    expect(formatLongDate(new Date(2026, 10, 1))).toBe('Domingo 1 de noviembre');
+    expect(formatLongDate(new Date(2026, 10, 1))).toBe('Domingo, 1 de noviembre');
   });
 
   it('parses typed numbers with comma or dot', () => {
@@ -89,29 +104,55 @@ describe('format', () => {
   });
 
   it('formats targets', () => {
-    expect(formatTarget({ kind: 'range', min: 8, max: 12 }, 'reps', true)).toBe('8–12 reps por lado');
-    expect(formatTarget({ kind: 'fixed', reps: 20 }, 'steps', false)).toBe('20 pasos');
-    expect(formatTarget({ kind: 'failure', minus: 1 }, 'reps', false)).toBe('Al fallo −1');
+    expect(formatTarget({ kind: 'range', min: 8, max: 12 }, 'reps', true)).toBe('8–12 reps por lado');
+    expect(formatTarget({ kind: 'fixed', reps: 20 }, 'steps', false)).toBe('20 pasos');
+    expect(formatTarget({ kind: 'failure', minus: 1 }, 'reps', false)).toBe('al fallo −1');
+  });
+
+  it('starts a line with a capital and reads targets aloud', () => {
+    expect(capitalizeFirst('al fallo −1')).toBe('Al fallo −1');
+    expect(capitalizeFirst('10–12 reps')).toBe('10–12 reps');
+    expect(capitalizeFirst('')).toBe('');
+    expect(spokenTarget({ kind: 'range', min: 10, max: 12 }, 'reps', false)).toBe('de 10 a 12 repeticiones');
+    expect(spokenTarget({ kind: 'fixed', reps: 1 }, 'seconds', false)).toBe('1 segundo');
+    expect(spokenTarget({ kind: 'fixed', reps: 20 }, 'steps', false)).toBe('20 pasos');
+    expect(spokenTarget({ kind: 'failure', minus: 0 }, 'reps', false)).toBe('al fallo');
+    expect(spokenTarget({ kind: 'failure', minus: 1 }, 'reps', false)).toBe('al fallo menos 1');
+    expect(spokenTarget({ kind: 'range', min: 8, max: 10 }, 'reps', true)).toBe('de 8 a 10 repeticiones por lado');
   });
 
   it('formats cardio clock, distance and speed', () => {
     expect(formatClock(245_000)).toBe('4:05');
     expect(formatClock(52 * 60_000 + 10_000)).toBe('52:10');
     expect(formatClock(3_725_000)).toBe('1:02:05');
-    expect(formatMetres(850.4)).toBe('850 m');
-    expect(formatMetres(5234)).toBe('5,23 km');
-    expect(formatSpeedKmh(1.4)).toBe('5 km/h');
-    expect(formatSpeedKmh(1.5)).toBe('5,4 km/h');
+    expect(formatMetres(850.4)).toBe('850 m');
+    expect(formatMetres(5234)).toBe('5,23 km');
+    expect(formatSpeedKmh(1.4)).toBe('5 km/h');
+    expect(formatSpeedKmh(1.5)).toBe('5,4 km/h');
   });
 
   it('formats the result of a cardio session', () => {
-    expect(formatCardioResult(5234, 58 * 60_000)).toBe('5,23 km · 58 min');
-    expect(formatCardioResult(null, 30 * 60_000)).toBe('30 min');
+    expect(formatCardioResult(5234, 58 * 60_000)).toBe('5,23 km · 58 min');
+    expect(formatCardioResult(null, 30 * 60_000)).toBe('30 min');
   });
 
   it('formats durations, in seconds below a minute', () => {
-    expect(formatDuration(20_000)).toBe('20 s');
-    expect(formatDuration(59_600)).toBe('1 min');
-    expect(formatDuration(100 * 60_000)).toBe('1 h 40 min');
+    expect(formatDuration(20_000)).toBe('20 s');
+    expect(formatDuration(59_600)).toBe('1 min');
+    expect(formatDuration(100 * 60_000)).toBe('1 h 40 min');
+    expect(formatDuration(60 * 60_000)).toBe('1 h');
+    expect(
+      formatSetGroups(
+        [
+          { weightKg: 35, reps: 15 },
+          { weightKg: 35, reps: 15 },
+          { weightKg: 37.5, reps: 12 },
+        ],
+        false,
+      ),
+    ).toBe('35 kg × 15, 15 · 37,5 kg × 12');
+    expect(formatSetGroups([{ weightKg: null, reps: 10 }, { weightKg: 0, reps: 9 }], true)).toBe('Peso corporal × 10, 9');
+    expect(formatMinutes(1000)).toBe('0 min');
+    expect(formatTimeRange(new Date(2026, 10, 3, 9, 20).getTime(), new Date(2026, 10, 3, 10, 19).getTime())).toBe('9:20–10:19');
   });
 });

@@ -1,7 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Tabs, type BottomTabNavigationOptions } from 'expo-router/js-tabs';
-import type { ComponentProps } from 'react';
-import { colors } from '@/theme';
+import { useIsFocused } from 'expo-router';
+import { BottomTabBar, Tabs, type BottomTabBarProps, type BottomTabNavigationOptions } from 'expo-router/js-tabs';
+import { useEffect, useState, type ComponentProps } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { setTabBarHeight } from '@/components/layers';
+import { colors, headerOptions, type } from '@/theme';
 
 type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 type IconProps = Parameters<NonNullable<BottomTabNavigationOptions['tabBarIcon']>>[0];
@@ -11,12 +14,24 @@ function TabIcon({ name, color, size }: IconProps & { name: IconName }) {
 }
 
 export default function TabsLayout() {
+  // While the tabs are in front, a Snackbar goes above their bar.
+  const focused = useIsFocused();
+  const [barHeight, setBarHeight] = useState(0);
+  useEffect(() => {
+    setTabBarHeight(focused ? barHeight : 0);
+  }, [focused, barHeight]);
+
   return (
     <Tabs
+      tabBar={(props: BottomTabBarProps) => (
+        <View onLayout={(e) => setBarHeight(e.nativeEvent.layout.height)}>
+          <BottomTabBar {...props} />
+        </View>
+      )}
       screenOptions={{
-        headerStyle: { backgroundColor: colors.card },
-        headerTintColor: colors.text,
-        tabBarStyle: { backgroundColor: colors.card, borderTopColor: colors.border },
+        ...headerOptions,
+        tabBarStyle: { backgroundColor: colors.bg, borderTopColor: colors.border, borderTopWidth: StyleSheet.hairlineWidth },
+        tabBarLabelStyle: type.tag,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.muted,
       }}>

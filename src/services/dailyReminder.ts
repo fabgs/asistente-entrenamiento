@@ -23,11 +23,20 @@ async function buildWeekPlan(db: Db): Promise<DayPlan[]> {
   }));
 }
 
+// Calls run one after another: controls save at once, and two overlapping runs could leave a day
+// scheduled twice or not at all.
+let queue: Promise<void> = Promise.resolve();
+
 /**
  * Idempotent: replaces the 7 weekly reminders (PLAN.md §7.2). Call it on start-up and after any
  * change to routines, slots, weekdays, cardio or reminder settings.
  */
-export async function rescheduleDailyReminders(db: Db): Promise<void> {
+export function rescheduleDailyReminders(db: Db): Promise<void> {
+  queue = queue.catch(() => undefined).then(() => reschedule(db));
+  return queue;
+}
+
+async function reschedule(db: Db): Promise<void> {
   for (const weekday of ISO_WEEKDAYS) {
     await Notifications.cancelScheduledNotificationAsync(dailyId(weekday)).catch(() => undefined);
   }

@@ -1,190 +1,433 @@
-import { router } from 'expo-router';
-import { useState } from 'react';
-import { Pressable, View } from 'react-native';
-import { showDialog } from '@/components/Dialog';
+import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
+import { router, useNavigation } from 'expo-router';
+import { useLayoutEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
+import { showSnackbar } from '@/components/Dialog';
 import { LineChart } from '@/components/LineChart';
-import { AppText, Button, Card, Chip, DateField, Loading, Row, Screen, TextField } from '@/components/ui';
+import { Sheet } from '@/components/Sheet';
+import {
+  AppText,
+  Button,
+  Card,
+  Divider,
+  TabHeaderButton,
+  Icon,
+  ListGroup,
+  ListRow,
+  Loading,
+  NumberRow,
+  RowIcon,
+  Screen,
+  Section,
+  Segmented,
+  Stat,
+  StatRow,
+  Stepper,
+  Value,
+} from '@/components/ui';
 import {
   deleteWeight,
   getProfile,
-  latestWeight,
   listWeights,
-  loadNutritionTargets,
   logWeight,
+  nutritionTargetsOf,
   updateProfile,
   type Profile,
   type WeightEntry,
 } from '@/db/repositories/settings';
-import { formatDateWithYear, formatNumber, formatShortDate } from '@/domain/format';
-import { ageOn } from '@/domain/nutrition';
-import { localDateString } from '@/domain/schedule';
+import {
+  ACTIVITY_LEVELS,
+  activityLabel,
+  deficitFor,
+  formatWeightDelta,
+  GOAL_NAMES,
+  goalLabel,
+  goalOf,
+  missingForTargets,
+  sameFactor,
+  type Goal,
+} from '@/domain/bodyProfile';
+import { formatDateWithYear, formatNumber, formatShortDate, NBSP } from '@/domain/format';
+import { ageOn, type NutritionTargets, type Sex } from '@/domain/nutrition';
+import { localDateString, pickerStartDate, today as todayDate } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
-import { colors } from '@/theme';
+import { colors, spacing } from '@/theme';
 
-const ACTIVITY_FACTORS = [1.2, 1.375, 1.5, 1.55, 1.725];
-const parseNumber = (text: string) => Number(text.replace(',', '.'));
+const RECENT_WEIGHTS = 10;
+const FIRST_WEIGHT_KG = 70;
+const FIRST_HEIGHT_CM = 170;
+const DEFAULT_GOAL_KCAL = 400;
 
 export default function ProfileScreen() {
-  const { data, reload } = useLoader(async (db) => {
-    const today = localDateString(new Date());
-    return {
-      today,
-      profile: await getProfile(db),
-      weight: await latestWeight(db),
-      weights: await listWeights(db),
-      targets: await loadNutritionTargets(db, today),
-    };
-  });
+  const navigation = useNavigation();
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerRight: () => <TabHeaderButton icon="cog-outline" label="Ajustes" onPress={() => router.push('/ajustes')} />,
+    });
+  }, [navigation]);
+
+  const { data, reload } = useLoader(async (db) => ({
+    today: localDateString(new Date()),
+    profile: await getProfile(db),
+    weights: await listWeights(db),
+  }));
 
   if (!data) return <Loading />;
-  const t = data.targets;
+  // Remounts when the profile changed elsewhere (a restored copy), not on every edit made here.
+  return (
+    <ProfileBody
+      key={JSON.stringify(data.profile)}
+      initial={data.profile}
+      weights={data.weights}
+      today={data.today}
+      onWeightsChanged={reload}
+    />
+  );
+}
+
+type SheetState = { kind: 'weight'; entry: WeightEntry | null } | { kind: 'activity' } | { kind: 'goal' } | null;
+
+function ProfileBody({
+  initial,
+  weights,
+  today,
+  onWeightsChanged,
+}: {
+  initial: Profile;
+  /** Newest first. */
+  weights: WeightEntry[];
+  today: string;
+  onWeightsChanged: () => Promise<void>;
+}) {
+  const db = useDb();
+  const [profile, setProfile] = useState(initial);
+  const [sheet, setSheet] = useState<SheetState>(null);
+  const weight = weights[0]?.weightKg ?? null;
+  const targets = nutritionTargetsOf(profile, weight, today);
+
+  const save = (patch: Partial<Profile>) => {
+    setProfile((p) => ({ ...p, ...patch }));
+    void updateProfile(db, patch);
+  };
+
+  const saveWeight = async (date: string, kg: number) => {
+    setSheet(null);
+    await logWeight(db, date, kg);
+    await onWeightsChanged();
+  };
+
+  const removeWeight = async (entry: WeightEntry) => {
+    setSheet(null);
+    if (!(await deleteWeight(db, entry.date))) return;
+    await onWeightsChanged();
+    showSnackbar('Pesaje borrado', {
+      label: 'Deshacer',
+      onPress: async () => {
+        await logWeight(db, entry.date, entry.weightKg);
+        await onWeightsChanged();
+      },
+    });
+  };
 
   return (
     <Screen>
-      <ProfileForm key={JSON.stringify(data.profile) + data.weight} profile={data.profile} weight={data.weight} onSaved={reload} />
+      <Section label="Objetivos del día">
+        <Targets targets={targets} missing={missingForTargets({ ...profile, weightKg: weight })} />
+      </Section>
 
-      <Card>
-        <AppText variant="heading">Objetivos diarios</AppText>
-        {t ? (
-          <>
-            {data.profile.birthDate ? <Line label="Edad" value={`${ageOn(data.profile.birthDate, data.today)} años`} /> : null}
-            <Line label="Metabolismo basal (TMB)" value={`${formatNumber(t.bmr, 0)} kcal`} />
-            <Line label="Gasto total" value={`${formatNumber(t.tdee, 0)} kcal`} />
-            <Line label="Calorías objetivo" value={`${formatNumber(t.targetKcal, 0)} kcal`} strong />
-            <Line label="Proteína" value={`${formatNumber(t.proteinG, 0)} g`} />
-            <Line label="Grasa" value={`${formatNumber(t.fatG, 0)} g`} />
-            <Line label="Carbohidratos" value={`${formatNumber(t.carbsG, 0)} g`} />
-            <Line label="Agua" value={`${formatNumber(t.waterL, 1)} L`} />
-            <Line label="IMC" value={formatNumber(t.bmi, 1)} />
-          </>
-        ) : (
-          <AppText variant="muted">Rellena fecha de nacimiento, altura y peso para ver los cálculos.</AppText>
-        )}
-      </Card>
+      <Section label="Peso corporal">
+        <Button kind="secondary" icon="plus" title="Registrar peso" onPress={() => setSheet({ kind: 'weight', entry: null })} />
+        <WeightHistory weights={weights} onOpen={(entry) => setSheet({ kind: 'weight', entry })} />
+      </Section>
 
-      {data.weights.length > 0 ? <WeightCard weights={data.weights} onChanged={reload} /> : null}
+      <Section label="Mis datos">
+        <ListGroup>
+          <ListRow
+            title="Fecha de nacimiento"
+            subtitle={profile.birthDate ? `${ageOn(profile.birthDate, today)} años` : undefined}
+            right={<RowValue text={profile.birthDate ? shortDateWithYear(profile.birthDate) : null} />}
+            onPress={() => pickBirthDate(profile.birthDate, (birthDate) => save({ birthDate }))}
+          />
+          <View style={styles.inlineRow}>
+            <NumberRow
+              label="Altura"
+              value={profile.heightCm ?? FIRST_HEIGHT_CM}
+              onChange={(cm) => save({ heightCm: profile.heightCm === null ? FIRST_HEIGHT_CM : cm })}
+              min={100}
+              max={230}
+              format={(cm) => (profile.heightCm === null ? '–' : `${formatNumber(cm)}${NBSP}cm`)}
+            />
+          </View>
+          <View style={[styles.inlineRow, styles.segmentRow]}>
+            <AppText variant="rowTitle" style={{ flex: 1 }}>
+              Sexo
+            </AppText>
+            <Segmented<Sex>
+              style={styles.sex}
+              options={[
+                { value: 'male', label: 'Hombre' },
+                { value: 'female', label: 'Mujer' },
+              ]}
+              value={profile.sex}
+              onChange={(sex) => save({ sex })}
+            />
+          </View>
+          <ListRow
+            title="Actividad"
+            right={<RowValue text={activityLabel(profile.activityFactor)} />}
+            onPress={() => setSheet({ kind: 'activity' })}
+          />
+          <ListRow
+            title="Objetivo"
+            right={<RowValue text={goalLabel(profile.deficitKcal)} />}
+            onPress={() => setSheet({ kind: 'goal' })}
+          />
+        </ListGroup>
+      </Section>
 
-      <Button kind="secondary" title="Ajustes y notificaciones" onPress={() => router.push('/ajustes')} />
+      <WeightSheet
+        open={sheet?.kind === 'weight'}
+        entry={sheet?.kind === 'weight' ? sheet.entry : null}
+        start={sheet?.kind === 'weight' ? (sheet.entry?.weightKg ?? weight ?? FIRST_WEIGHT_KG) : FIRST_WEIGHT_KG}
+        canDelete={weights.length > 1}
+        onClose={() => setSheet(null)}
+        onSave={(kg) => saveWeight(sheet?.kind === 'weight' && sheet.entry ? sheet.entry.date : today, kg)}
+        onDelete={removeWeight}
+      />
+
+      <Sheet visible={sheet?.kind === 'activity'} title="Actividad" onClose={() => setSheet(null)}>
+        <View style={styles.sheetList}>
+          <ListGroup>
+            {ACTIVITY_LEVELS.map((level) => (
+              <ListRow
+                key={level.factor}
+                title={activityLabel(level.factor)}
+                right={sameFactor(level.factor, profile.activityFactor) ? <Icon name="check" size={22} color={colors.primary} /> : undefined}
+                chevron={false}
+                onPress={() => {
+                  save({ activityFactor: level.factor });
+                  setSheet(null);
+                }}
+              />
+            ))}
+          </ListGroup>
+        </View>
+      </Sheet>
+
+      <GoalSheet
+        open={sheet?.kind === 'goal'}
+        deficitKcal={profile.deficitKcal}
+        onChange={(deficitKcal) => save({ deficitKcal })}
+        onClose={() => setSheet(null)}
+      />
     </Screen>
   );
 }
 
-function ProfileForm({ profile, weight, onSaved }: { profile: Profile; weight: number | null; onSaved: () => void }) {
-  const db = useDb();
-  const [birthDate, setBirthDate] = useState(profile.birthDate);
-  const [height, setHeight] = useState(profile.heightCm ? String(profile.heightCm) : '');
-  const [weightText, setWeightText] = useState(weight ? formatNumber(weight) : '');
-  const [deficit, setDeficit] = useState(String(profile.deficitKcal));
-  const [sex, setSex] = useState(profile.sex);
-  const [factor, setFactor] = useState(profile.activityFactor);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    const heightCm = parseNumber(height);
-    const weightKg = parseNumber(weightText);
-    const deficitKcal = parseNumber(deficit);
-    if (!(heightCm > 0) || !(weightKg > 0) || Number.isNaN(deficitKcal)) return setError('Revisa altura, peso y déficit');
-    setError(null);
-    await updateProfile(db, { birthDate, heightCm, sex, activityFactor: factor, deficitKcal });
-    if (weightKg !== weight) await logWeight(db, localDateString(new Date()), weightKg);
-    onSaved();
-  };
-
-  return (
-    <Card>
-      <AppText variant="heading">Mis datos</AppText>
-      <DateField label="Fecha de nacimiento" value={birthDate} onChange={setBirthDate} yearsAgo={25} />
-      <Row>
-        <View style={{ flex: 1 }}>
-          <TextField keyboard="decimal" label="Altura (cm)" value={height} onChangeText={setHeight} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <TextField keyboard="decimal" label="Peso hoy (kg)" value={weightText} onChangeText={setWeightText} />
-        </View>
-      </Row>
-      <TextField keyboard="decimal" label="Déficit (kcal, negativo = superávit)" value={deficit} onChangeText={setDeficit} />
-      <AppText variant="small">Sexo</AppText>
-      <Row>
-        <Chip label="Hombre" selected={sex === 'male'} onPress={() => setSex('male')} />
-        <Chip label="Mujer" selected={sex === 'female'} onPress={() => setSex('female')} />
-      </Row>
-      <AppText variant="small">Factor de actividad</AppText>
-      <Row>
-        {ACTIVITY_FACTORS.map((f) => (
-          <Chip key={f} label={formatNumber(f, 3)} selected={factor === f} onPress={() => setFactor(f)} />
-        ))}
-      </Row>
-      {error ? <AppText style={{ color: colors.danger }}>{error}</AppText> : null}
-      <Button title="Guardar" onPress={save} />
-    </Card>
+/** Value of a row, or «Elegir» while it is missing. */
+function RowValue({ text }: { text: string | null }) {
+  return text ? (
+    <AppText variant="rowValue" tabular>
+      {text}
+    </AppText>
+  ) : (
+    <AppText variant="secondary">Elegir</AppText>
   );
 }
 
-const RECENT_WEIGHTS = 10;
+/** "25 jun 1995" */
+const shortDateWithYear = (iso: string) => `${formatShortDate(iso)} ${iso.slice(0, 4)}`;
 
-/** `weights` comes newest first. */
-function WeightCard({ weights, onChanged }: { weights: WeightEntry[]; onChanged: () => void }) {
-  const db = useDb();
+/** The system calendar, as DateField opens it, but from a row. */
+function pickBirthDate(value: string | null, onChange: (iso: string) => void) {
+  DateTimePickerAndroid.open({
+    value: pickerStartDate(value, 25),
+    mode: 'date',
+    maximumDate: todayDate(),
+    onChange: (event, date) => {
+      if (event.type === 'set' && date) onChange(localDateString(date));
+    },
+  });
+}
+
+function Targets({ targets, missing }: { targets: NutritionTargets | null; missing: string | null }) {
+  if (!targets) {
+    return (
+      <ListGroup>
+        <ListRow
+          left={<RowIcon name="account-alert-outline" color={colors.warning} />}
+          title="Completa tu perfil"
+          subtitle={missing ?? undefined}
+        />
+      </ListGroup>
+    );
+  }
+  const grams = (g: number) => formatNumber(g, 0);
+  return (
+    <>
+      <Card flush>
+        <View style={styles.kcal}>
+          <AppText variant="label">Calorías objetivo</AppText>
+          <Value value={formatNumber(targets.targetKcal, 0)} unit="kcal" size="numberL" />
+        </View>
+        <Divider />
+        <StatRow>
+          <Stat label="Proteína" value={grams(targets.proteinG)} unit="g" />
+          <Stat label="Grasa" value={grams(targets.fatG)} unit="g" />
+        </StatRow>
+        <Divider />
+        <StatRow>
+          <Stat label="Hidratos" value={grams(targets.carbsG)} unit="g" />
+          <Stat label="Agua" value={formatNumber(targets.waterL, 1)} unit="L" />
+        </StatRow>
+      </Card>
+      <ListGroup>
+        <ListRow title="Metabolismo basal" right={<Value value={formatNumber(targets.bmr, 0)} unit="kcal" size="rowValue" />} />
+        <ListRow title="Gasto total" right={<Value value={formatNumber(targets.tdee, 0)} unit="kcal" size="rowValue" />} />
+        <ListRow title="IMC" right={<Value value={formatNumber(targets.bmi, 1)} size="rowValue" />} />
+      </ListGroup>
+    </>
+  );
+}
+
+function WeightHistory({ weights, onOpen }: { weights: WeightEntry[]; onOpen: (entry: WeightEntry) => void }) {
   const [showAll, setShowAll] = useState(false);
+  if (weights.length === 0) return null;
   const oldest = weights[weights.length - 1];
-  const change = weights[0].weightKg - oldest.weightKg;
   const visible = showAll ? weights : weights.slice(0, RECENT_WEIGHTS);
 
-  const remove = (w: WeightEntry) =>
-    showDialog('Borrar pesaje', `${formatNumber(w.weightKg)} kg del ${formatDateWithYear(w.date)}`, [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Borrar',
-        style: 'destructive',
-        onPress: async () => {
-          await deleteWeight(db, w.date);
-          onChanged();
-        },
-      },
-    ]);
-
   return (
-    <Card>
-      <AppText variant="heading">Peso corporal</AppText>
+    <>
       {weights.length > 1 ? (
-        <>
+        <Card>
           <LineChart
             title="Evolución"
             points={[...weights].reverse().map((w) => ({ label: formatShortDate(w.date), value: w.weightKg }))}
             format={(v) => `${formatNumber(v)} kg`}
+            tickFormat={(v) => formatNumber(v, 1)}
           />
-          <AppText variant="muted">
-            {change > 0 ? '+' : ''}
-            {formatNumber(change)} kg desde el {formatDateWithYear(oldest.date)}
+          <AppText variant="caption">
+            {formatWeightDelta(weights[0].weightKg - oldest.weightKg)} desde el {formatDateWithYear(oldest.date)}
           </AppText>
-        </>
+        </Card>
       ) : null}
-      {visible.map((w) =>
-        weights.length > 1 ? (
-          <Pressable key={w.date} onLongPress={() => remove(w)} accessibilityHint="Mantén pulsado para borrarlo">
-            <Line label={formatDateWithYear(w.date)} value={`${formatNumber(w.weightKg)} kg`} />
-          </Pressable>
-        ) : (
-          <Line key={w.date} label={formatDateWithYear(w.date)} value={`${formatNumber(w.weightKg)} kg`} />
-        ),
-      )}
-      {weights.length > RECENT_WEIGHTS ? (
-        <Button kind="ghost" title={showAll ? 'Ver menos' : `Ver los ${weights.length}`} onPress={() => setShowAll(!showAll)} />
-      ) : null}
-      <AppText variant="small">
-        Se registra al guardar «Peso hoy».{weights.length > 1 ? ' Mantén pulsado un pesaje para borrarlo.' : ''}
-      </AppText>
-    </Card>
+      <ListGroup>
+        {visible.map((w) => (
+          <ListRow
+            key={w.date}
+            title={formatDateWithYear(w.date)}
+            right={<Value value={formatNumber(w.weightKg)} unit="kg" size="rowValue" />}
+            onPress={() => onOpen(w)}
+          />
+        ))}
+        {weights.length > RECENT_WEIGHTS ? (
+          <ListRow
+            title={showAll ? 'Ver menos' : `Ver los ${weights.length} pesajes`}
+            right={<Icon name={showAll ? 'chevron-up' : 'chevron-down'} size={20} color={colors.muted} />}
+            onPress={() => setShowAll(!showAll)}
+            chevron={false}
+          />
+        ) : null}
+      </ListGroup>
+    </>
   );
 }
 
-function Line({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+/**
+ * Today's weight (`entry` null) or a past weigh-in: a stepper of 0,1 kg that starts at `start`.
+ * A weigh-in can be deleted unless it is the only one (the targets need a weight).
+ */
+function WeightSheet({
+  open,
+  entry,
+  start,
+  canDelete,
+  onClose,
+  onSave,
+  onDelete,
+}: {
+  open: boolean;
+  entry: WeightEntry | null;
+  start: number;
+  canDelete: boolean;
+  onClose: () => void;
+  onSave: (kg: number) => void;
+  onDelete: (entry: WeightEntry) => void;
+}) {
   return (
-    <Row between>
-      <AppText variant={strong ? 'body' : 'muted'} style={{ flex: 1 }}>
-        {label}
-      </AppText>
-      <AppText style={strong ? { color: colors.primary, fontWeight: '800' } : undefined}>{value}</AppText>
-    </Row>
+    <Sheet
+      visible={open}
+      title={entry ? formatDateWithYear(entry.date) : 'Registrar peso'}
+      onClose={onClose}
+      action={
+        entry && canDelete ? (
+          <Button kind="danger" icon="trash-can-outline" title="Borrar" onPress={() => onDelete(entry)} />
+        ) : null
+      }>
+      {/* Keyed so that every opening starts again from the last weight. */}
+      {open ? <WeightPicker key={entry?.date ?? 'new'} start={start} onSave={onSave} /> : null}
+    </Sheet>
   );
 }
+
+function WeightPicker({ start, onSave }: { start: number; onSave: (kg: number) => void }) {
+  const [kg, setKg] = useState(start);
+  return (
+    <>
+      <AppText variant="label" style={{ textAlign: 'center' }}>
+        Peso en kg
+      </AppText>
+      <Stepper big decimal typing={false} value={kg} onChange={setKg} step={0.1} min={20} format={(v) => formatNumber(v, 1)} />
+      <Button size="lg" title="Guardar" disabled={kg <= 0} onPress={() => onSave(kg)} />
+    </>
+  );
+}
+
+/** Lose, keep or gain, and by how much a day: stored as a signed deficit. */
+function GoalSheet({
+  open,
+  deficitKcal,
+  onChange,
+  onClose,
+}: {
+  open: boolean;
+  deficitKcal: number;
+  onChange: (deficitKcal: number) => void;
+  onClose: () => void;
+}) {
+  const { goal, kcal } = goalOf(deficitKcal);
+  // Remembers the amount while «Mantener» is chosen, so going back restores it.
+  const [amount, setAmount] = useState(kcal || DEFAULT_GOAL_KCAL);
+  const [chosen, setChosen] = useState<Goal>(goal);
+
+  const choose = (next: Goal) => {
+    setChosen(next);
+    onChange(deficitFor(next, amount));
+  };
+  const changeAmount = (next: number) => {
+    setAmount(next);
+    onChange(deficitFor(chosen, next));
+  };
+
+  return (
+    <Sheet visible={open} title="Objetivo" onClose={onClose}>
+      <Segmented<Goal>
+        options={(['lose', 'keep', 'gain'] as const).map((g) => ({ value: g, label: GOAL_NAMES[g] }))}
+        value={chosen}
+        onChange={choose}
+      />
+      {chosen !== 'keep' ? (
+        <NumberRow label="kcal al día" value={amount} onChange={changeAmount} step={50} min={50} max={1500} />
+      ) : null}
+      <Button size="lg" title="Listo" onPress={onClose} />
+    </Sheet>
+  );
+}
+
+const styles = StyleSheet.create({
+  kcal: { padding: spacing.lg, gap: spacing.xs },
+  inlineRow: { paddingHorizontal: spacing.lg },
+  segmentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56 },
+  sex: { width: 200 },
+  sheetList: { marginHorizontal: -spacing.lg },
+});

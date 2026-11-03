@@ -20,6 +20,32 @@ export const CARDIO_TRACKING_DEFAULTS = `
 `;
 
 /**
+ * Foods of the first catalogue that were written without their accents: [old name, new name].
+ * It is migration 6: further fixes go in a new migration, not here.
+ */
+export const FOOD_RENAMES: [string, string][] = [
+  ['Proteina', 'Proteína'],
+  ['Colageno', 'Colágeno'],
+  ['Yogurt griego', 'Yogur griego'],
+  ['Platano', 'Plátano'],
+  ['Arandanos', 'Arándanos'],
+  ['Higado de ternera', 'Hígado de ternera'],
+  ['Salmon', 'Salmón'],
+  ['Ragu', 'Ragú'],
+  ['Atun lata', 'Atún en lata'],
+];
+
+/**
+ * Fixes those names (migration 6, old backups, the Excel test data). A food is renamed only if it
+ * still has exactly the old name and no food has the new one yet, so nothing the user wrote changes.
+ */
+export const FOOD_NAME_FIXES = FOOD_RENAMES.map(
+  ([from, to]) =>
+    `UPDATE food SET name = '${to}' WHERE name = '${from}'
+       AND NOT EXISTS (SELECT 1 FROM food WHERE name = '${to}' COLLATE NOCASE);`,
+).join('\n');
+
+/**
  * Append-only list: never edit a migration that has shipped, add a new one instead.
  * The index + 1 is stored in PRAGMA user_version.
  */
@@ -221,6 +247,16 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE cardio_log ADD COLUMN session_id INTEGER REFERENCES cardio_session(id);
   ${CARDIO_TRACKING_DEFAULTS}
   `,
+  `
+  ALTER TABLE set_log ADD COLUMN is_warmup INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE workout_session ADD COLUMN title TEXT;
+  ALTER TABLE cardio_session ADD COLUMN title TEXT;
+  ALTER TABLE settings ADD COLUMN cardio_hero TEXT NOT NULL DEFAULT 'distance';
+  ALTER TABLE settings ADD COLUMN distance_unit TEXT NOT NULL DEFAULT 'km';
+  ALTER TABLE settings ADD COLUMN cardio_chart TEXT NOT NULL DEFAULT 'pace';
+  ALTER TABLE settings ADD COLUMN cardio_live_panel TEXT NOT NULL DEFAULT 'map';
+  `,
+  FOOD_NAME_FIXES,
 ];
 
 export async function migrate(db: Db): Promise<void> {

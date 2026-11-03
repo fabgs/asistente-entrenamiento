@@ -1,20 +1,50 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { ChangeArrow } from '@/components/Recommendation';
+import { useState } from 'react';
+import { View } from 'react-native';
 import { LineChart } from '@/components/LineChart';
-import { AppText, Card, Chip, Loading, Row, Screen } from '@/components/ui';
+import {
+  AppText,
+  Card,
+  EmptyState,
+  ListGroup,
+  ListRow,
+  Loading,
+  RowIcon,
+  Screen,
+  Section,
+  Segmented,
+  Stat,
+  StatRow,
+  Tag,
+} from '@/components/ui';
 import { getExercise } from '@/db/repositories/exercises';
-import { exerciseSessions, exerciseWeightChanges } from '@/db/repositories/progress';
-import { formatKg, formatNumber, formatShortDate } from '@/domain/format';
-import { computeRecords, summarize } from '@/domain/progress';
+import { exerciseSessions, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
+import { formatKg, formatNumber, formatSetGroups, formatShortDate, NBSP } from '@/domain/format';
+import { capitalize, computeRecords, distinctRecords, formatDayMonth, summarize } from '@/domain/progress';
 import { localDateString } from '@/domain/schedule';
 import { useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
+
+type ChartMetric = 'weight' | 'reps';
+
+const METRICS: { value: ChartMetric; label: string }[] = [
+  { value: 'weight', label: 'Peso' },
+  { value: 'reps', label: 'Reps' },
+];
+
+// Remembered while the app is open: every exercise opens on the last chart looked at.
+let lastMetric: ChartMetric = 'weight';
+
+const formatReps = (reps: number) => `${formatNumber(reps, 0)}${NBSP}reps`;
+
+/** Dividers of rows with an icon start at the text: 16 + the 40 dp RowIcon + 16. */
+const ICON_ROW_INSET = spacing.lg + 40 + spacing.lg;
 
 /** Progress of one exercise across all routines (PLAN.md §6.6). */
 export default function ExerciseProgressScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const exerciseId = Number(id);
+  const [metric, setMetricState] = useState<ChartMetric>(lastMetric);
 
   const { data } = useLoader(async (db) => ({
     exercise: await getExercise(db, exerciseId),
@@ -22,121 +52,153 @@ export default function ExerciseProgressScreen() {
     changes: await exerciseWeightChanges(db, exerciseId),
   }));
 
+  const setMetric = (next: ChartMetric) => {
+    lastMetric = next;
+    setMetricState(next);
+  };
+
   if (!data) return <Loading />;
   if (!data.exercise) {
     return (
       <Screen>
-        <AppText>No se encontró el ejercicio.</AppText>
+        <EmptyState icon="alert-circle-outline" title="No se encontró el ejercicio" />
       </Screen>
     );
   }
 
-  const { sessions, changes } = data;
-  const records = computeRecords(sessions);
+  const { exercise, sessions, changes } = data;
+  const bodyweight = exercise.type === 'bodyweight';
+  const records = distinctRecords(computeRecords(sessions));
   const chronological = [...sessions].reverse().map((s) => ({ label: formatShortDate(s.date), ...summarize(s.sets) }));
   const hasWeight = chronological.some((s) => s.topWeightKg > 0);
+  // Bodyweight work without ballast only has reps to show.
+  const shown: ChartMetric = hasWeight ? metric : 'reps';
 
   return (
     <Screen>
-      <Stack.Screen options={{ title: data.exercise.name }} />
-      {sessions.length === 0 ? <AppText variant="muted">Aún no has hecho este ejercicio.</AppText> : null}
+      <Stack.Screen options={{ title: exercise.name }} />
 
-      {sessions.length > 0 ? (
-        <Card>
-          <AppText variant="heading">Récords</AppText>
-          {records.maxWeight ? (
-            <RecordRow
-              label="Peso máximo"
-              value={`${formatKg(records.maxWeight.kg)} × ${records.maxWeight.reps}`}
-              date={records.maxWeight.date}
-            />
-          ) : null}
-          {records.maxReps ? (
-            <RecordRow
-              label="Más repeticiones"
-              value={records.maxReps.kg > 0 ? `${records.maxReps.reps} con ${formatKg(records.maxReps.kg)}` : `${records.maxReps.reps}`}
-              date={records.maxReps.date}
-            />
-          ) : null}
-          {records.maxVolume ? (
-            <RecordRow label="Mayor volumen" value={`${formatNumber(records.maxVolume.kg, 0)} kg`} date={records.maxVolume.date} />
-          ) : null}
-        </Card>
+      {sessions.length === 0 ? (
+        <EmptyState
+          icon="chart-line"
+          title="Sin sesiones todavía"
+          text="Aquí verás tu progreso cuando termines un entreno con este ejercicio."
+        />
       ) : null}
 
       {chronological.length >= 2 ? (
-        <Card style={{ gap: spacing.lg }}>
-          {hasWeight ? (
+        <Card>
+          {hasWeight ? <Segmented options={METRICS} value={shown} onChange={setMetric} /> : null}
+          {shown === 'weight' ? (
             <LineChart
-              title="Peso de trabajo"
+              key="weight"
+              title="Peso de trabajo por sesión"
               points={chronological.map((s) => ({ label: s.label, value: s.topWeightKg }))}
               format={formatKg}
             />
-          ) : null}
-          <LineChart
-            title="Repeticiones totales por sesión"
-            points={chronological.map((s) => ({ label: s.label, value: s.totalReps }))}
-            format={(v) => formatNumber(v, 0)}
-          />
-          <AppText variant="small">Toca o arrastra sobre la gráfica para ver cada sesión.</AppText>
+          ) : (
+            <LineChart
+              key="reps"
+              title="Repeticiones por sesión"
+              points={chronological.map((s) => ({ label: s.label, value: s.totalReps }))}
+              format={formatReps}
+            />
+          )}
         </Card>
       ) : sessions.length === 1 ? (
-        <AppText variant="small">Con dos sesiones o más verás aquí la evolución.</AppText>
+        <AppText variant="caption">Con dos sesiones verás aquí tu evolución.</AppText>
+      ) : null}
+
+      {records.maxWeight || records.maxReps || records.maxVolume ? (
+        <Section label="Récords">
+          <StatRow>
+            {records.maxWeight ? (
+              <Stat
+                label="Mejor peso"
+                value={formatNumber(records.maxWeight.kg)}
+                unit="kg"
+                caption={`× ${records.maxWeight.reps} · ${formatShortDate(records.maxWeight.date)}`}
+              />
+            ) : null}
+            {records.maxReps ? (
+              <Stat
+                label="Más reps"
+                value={String(records.maxReps.reps)}
+                unit="reps"
+                caption={
+                  records.maxReps.kg > 0
+                    ? `${formatKg(records.maxReps.kg)} · ${formatShortDate(records.maxReps.date)}`
+                    : formatShortDate(records.maxReps.date)
+                }
+              />
+            ) : null}
+            {records.maxVolume ? (
+              <Stat
+                label="Mayor volumen"
+                value={formatNumber(records.maxVolume.kg, 0)}
+                unit="kg"
+                caption={formatShortDate(records.maxVolume.date)}
+              />
+            ) : null}
+          </StatRow>
+        </Section>
       ) : null}
 
       {sessions.length > 0 ? (
-        <Card>
-          <AppText variant="heading">Sesiones</AppText>
-          {sessions.map((s) => {
-            const weight = Math.max(0, ...s.sets.map((set) => set.weightKg ?? 0));
-            return (
-              <Pressable key={s.sessionId} style={styles.row} onPress={() => router.push(`/workout/resumen/${s.sessionId}`)}>
-                <Row between>
-                  <AppText>{formatShortDate(s.date)}</AppText>
-                  {s.imported ? <Chip label="Excel" /> : null}
-                </Row>
-                <AppText variant="muted">
-                  {weight > 0 ? `${formatKg(weight)} · ` : ''}
-                  {s.sets.map((set) => set.reps).join(' · ')}
-                </AppText>
-                {s.routineName ? <AppText variant="small">{s.routineName}</AppText> : null}
-              </Pressable>
-            );
-          })}
-        </Card>
+        <Section label="Sesiones">
+          <ListGroup>
+            {sessions.map((s) => (
+              <ListRow
+                key={s.sessionId}
+                title={formatSetGroups(s.sets, bodyweight)}
+                subtitle={[capitalize(formatDayMonth(s.date)), s.title ?? s.routineName].filter(Boolean).join(' · ')}
+                right={
+                  s.imported ? (
+                    // The Tag aligns itself to the start; wrapped, it stays centred in the row.
+                    <View>
+                      <Tag label="Importado" />
+                    </View>
+                  ) : undefined
+                }
+                onPress={() => router.push(`/workout/resumen/${s.sessionId}`)}
+              />
+            ))}
+          </ListGroup>
+        </Section>
       ) : null}
 
       {changes.length > 0 ? (
-        <Card>
-          <AppText variant="heading">Cambios de peso</AppText>
-          {changes.map((c) => (
-            <View key={c.id} style={styles.row}>
-              <ChangeArrow change={c} />
-              <AppText variant="small">
-                {c.source === 'manual' ? 'Cambio manual' : c.status === 'applied' ? 'Recomendación aplicada' : 'Recomendación ignorada'}
-                {' · '}
-                {formatShortDate(localDateString(new Date(c.decidedAt ?? c.createdAt)))} · {c.routineName}
-              </AppText>
-            </View>
-          ))}
-        </Card>
+        <Section label="Cambios de peso">
+          <ListGroup inset={ICON_ROW_INSET}>
+            {changes.map((c) => (
+              <ChangeRow key={c.id} change={c} />
+            ))}
+          </ListGroup>
+        </Section>
       ) : null}
     </Screen>
   );
 }
 
-function RecordRow({ label, value, date }: { label: string; value: string; date: string }) {
+/** A decided suggestion or a weight changed by hand, as a row of the log. */
+function ChangeRow({ change }: { change: ExerciseWeightChange }) {
+  const from = change.fromKg ?? 0;
+  const to = change.toKg ?? 0;
+  const up = to > from;
+  const applied = change.status === 'applied';
+  const how = !applied ? `Sugería ${formatKg(to)}` : change.source === 'manual' ? 'Cambio manual' : 'Sugerencia aplicada';
+  const day = formatDayMonth(localDateString(new Date(change.decidedAt ?? change.createdAt)));
   return (
-    <Row between>
-      <AppText variant="muted">{label}</AppText>
-      <AppText>
-        <AppText style={{ fontWeight: '700' }}>{value}</AppText>
-        <AppText variant="small"> · {formatShortDate(date)}</AppText>
-      </AppText>
-    </Row>
+    <ListRow
+      title={applied ? `De ${formatNumber(from)} a ${formatKg(to)}` : `Se mantuvo en ${formatKg(from)}`}
+      subtitle={`${how} · ${day} · ${change.routineName}`}
+      left={
+        applied ? (
+          <RowIcon name={up ? 'arrow-up-bold' : 'arrow-down-bold'} color={up ? colors.up : colors.down} />
+        ) : (
+          <RowIcon name="equal" color={colors.muted} />
+        )
+      }
+    />
   );
 }
-
-const styles = StyleSheet.create({
-  row: { gap: 2, paddingVertical: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
-});

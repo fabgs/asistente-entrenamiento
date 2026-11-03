@@ -395,7 +395,7 @@ export function TrackChart({
 
       <View style={styles.readout}>
         {active ? (
-          <Row style={{ gap: spacing.sm, flexShrink: 1 }}>
+          <Row style={styles.readoutValue}>
             {following ? (
               <AppText variant="bodySm" weight="600" style={{ color: colors.muted }}>
                 Ahora
@@ -404,13 +404,13 @@ export function TrackChart({
             <Value value={active.value === null ? '–' : fmt.value(active.value)} unit={fmt.unit} />
           </Row>
         ) : 'climb' in summary ? (
-          <Row style={{ gap: spacing.sm }}>
+          <Row style={styles.readoutValue}>
             <Value value={summary.climb ? `+${Math.round(summary.climb.gain)}` : '–'} unit="m" />
             <AppText variant="secondary">·</AppText>
             <Value value={summary.climb ? `−${Math.round(summary.climb.loss)}` : '–'} unit="m" />
           </Row>
         ) : (
-          <Row style={{ gap: spacing.sm }}>
+          <Row style={styles.readoutValue}>
             <AppText variant="bodySm" weight="600" style={{ color: colors.muted }}>
               {summary.label}
             </AppText>
@@ -545,6 +545,8 @@ export function TrackChart({
 const styles = StyleSheet.create({
   waiting: { alignItems: 'center', justifyContent: 'center' },
   readout: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.sm },
+  // One line always: a wrapping row inside this one is measured too narrow and «+91 m · −86 m» breaks.
+  readoutValue: { gap: spacing.sm, flexWrap: 'nowrap', flexShrink: 1 },
   hint: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   hintBox: {
     backgroundColor: colors.hintBox,

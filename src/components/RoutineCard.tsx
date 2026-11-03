@@ -8,7 +8,7 @@ import type { IsoWeekday } from '@/domain/types';
 import { useDb } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 import { OpenChange, SuggestionLine } from './Recommendation';
-import { AppText, Button, Card, Icon, IconButton, RowIcon, SectionLabel, Tag } from './ui';
+import { AppText, Button, Card, Icon, IconButton, RowIcon, SectionLabel, Tag, useBusy } from './ui';
 
 /** "Lunes", "Lunes y jueves", "Lunes, miércoles y viernes" or "Sin día". */
 export function weekdaysLabel(days: IsoWeekday[]): string {
@@ -80,10 +80,11 @@ export function RoutineCard(props: RoutineCardProps) {
     setExpanded(!expanded);
   };
 
-  const applyAll = async () => {
+  const [, run] = useBusy();
+  const applyAll = run(async () => {
     for (const change of pending) await applyChange(db, change.id);
     onChanged();
-  };
+  });
 
   return (
     <Card>
@@ -131,6 +132,7 @@ export function RoutineCard(props: RoutineCardProps) {
       {expanded && canExpand ? (
         <View>
           <SectionLabel
+            flush
             right={
               pending.length > 1 ? (
                 <Button kind="text" title={`Aplicar las ${pending.length} sugerencias`} onPress={applyAll} />

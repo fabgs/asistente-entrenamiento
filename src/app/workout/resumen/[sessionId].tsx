@@ -14,13 +14,17 @@ import {
   HeaderActions,
   Icon,
   IconButton,
+  ListGroup,
+  ListRow,
   Loading,
   Row,
+  RowIcon,
   Screen,
   Stat,
   StatRow,
   Stepper,
   Tag,
+  useBusy,
 } from '@/components/ui';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
@@ -37,11 +41,21 @@ import {
   type SetLog,
 } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
-import { applyChange, listChangesForSession } from '@/db/repositories/weightChanges';
+import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange } from '@/domain/format';
 import { recommend } from '@/domain/progression';
+import type { Recommendation } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { colors, radius, spacing } from '@/theme';
+
+/** "1 sube · 1 baja": what «Aplicar las N» will do, without scrolling to each one. */
+function directions(changes: WeightChange[]): string {
+  const up = changes.filter((c) => (c.toKg ?? 0) > (c.fromKg ?? 0)).length;
+  const down = changes.length - up;
+  return [up ? `${up} ${up === 1 ? 'sube' : 'suben'}` : null, down ? `${down} ${down === 1 ? 'baja' : 'bajan'}` : null]
+    .filter(Boolean)
+    .join(' · ');
+}
 
 export default function SummaryScreen() {
   const { sessionId, nuevo } = useLocalSearchParams<{ sessionId: string; nuevo?: string }>();
@@ -51,6 +65,7 @@ export default function SummaryScreen() {
   const [sheet, setSheet] = useState<{ set: SetLog; slot: Slot } | null>(null);
   const [sheetReps, setSheetReps] = useState(0);
   const [sheetKg, setSheetKg] = useState(0);
+  const [, run] = useBusy();
 
   const { data, reload } = useLoader(async (db) => {
     const session = await getSession(db, id);
@@ -64,12 +79,12 @@ export default function SummaryScreen() {
       const slot = slotId === null ? null : await getSlot(db, slotId);
       if (slot) slots.push(slot);
     }
-    const keepReasons = new Map<number, string>();
+    const keepReasons = new Map<number, Recommendation>();
     for (const slot of slots) {
       const history = await slotHistory(db, slot.id, 12);
       const from = history.findIndex((h) => h.sessionId === id);
       if (from >= 0) {
-        keepReasons.set(slot.id, recommend(slotRule(slot), slot.exerciseIncrementKg, history.slice(from), progression).reason);
+        keepReasons.set(slot.id, recommend(slotRule(slot), slot.exerciseIncrementKg, history.slice(from), progression));
       }
     }
     return {
@@ -97,10 +112,10 @@ export default function SummaryScreen() {
   const volume = work.reduce((sum, s) => sum + (s.weightKg ?? 0) * s.reps, 0);
   const duration = session.finishedAt ? formatDuration(session.finishedAt - session.startedAt) : '—';
 
-  const applyAll = async () => {
+  const applyAll = run(async () => {
     for (const c of pending) await applyChange(db, c.id);
     reload();
-  };
+  });
 
   const afterEdit = async () => {
     await refreshRecommendations(db, id, data.progression);
@@ -197,10 +212,14 @@ export default function SummaryScreen() {
         </View>
 
         {pending.length > 1 && !correcting ? (
-          <Row between>
-            <Tag label={`${pending.length} sugerencias`} tone="warning" icon="arrow-up-down" />
-            <Button kind="text" title={`Aplicar las ${pending.length}`} onPress={applyAll} />
-          </Row>
+          <ListGroup>
+            <ListRow
+              left={<RowIcon name="arrow-up-down" color={colors.warning} tint={colors.warningTint} />}
+              title={`${pending.length} sugerencias`}
+              subtitle={directions(pending)}
+              right={<Button kind="tonal" title={`Aplicar las ${pending.length}`} onPress={applyAll} />}
+            />
+          </ListGroup>
         ) : null}
 
         {slots.map((slot) => {
@@ -263,7 +282,10 @@ export default function SummaryScreen() {
                   {change ? (
                     <RecommendationBox change={change} onChanged={reload} />
                   ) : data.keepReasons.has(slot.id) ? (
-                    <NoChangeLine reason={data.keepReasons.get(slot.id)!} />
+                    <NoChangeLine
+                      reason={data.keepReasons.get(slot.id)!.reason}
+                      manual={data.keepReasons.get(slot.id)!.action === 'manual'}
+                    />
                   ) : null}
                 </>
               )}

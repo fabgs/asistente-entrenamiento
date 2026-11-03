@@ -1,10 +1,10 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { applyChange, dismissChange, undoChange, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatKg } from '@/domain/format';
 import { useDb } from '@/hooks/data';
 import { colors, radius, spacing } from '@/theme';
-import { AppText, Button, Icon, useArmed } from './ui';
+import { AppText, Button, Icon, useArmed, useBusy } from './ui';
 
 const isUp = (change: WeightChange) => (change.toKg ?? 0) > (change.fromKg ?? 0);
 /** "Subir a 12,5 kg" / "Bajar a 17,5 kg": the button says what happens. */
@@ -59,27 +59,6 @@ export function RecommendationBox({ change, onChanged }: { change: WeightChange;
       </View>
     </View>
   );
-}
-
-/**
- * Runs one database action at a time: taps while it is running are ignored. The ref catches the
- * second tap of a double tap, which arrives before the re-render that disables the button.
- */
-function useBusy(): [boolean, (fn: () => Promise<void>) => () => Promise<void>] {
-  const [busy, setBusy] = useState(false);
-  const running = useRef(false);
-  const run = (fn: () => Promise<void>) => async () => {
-    if (running.current) return;
-    running.current = true;
-    setBusy(true);
-    try {
-      await fn();
-    } finally {
-      running.current = false;
-      setBusy(false);
-    }
-  };
-  return [busy, run];
 }
 
 /**
@@ -208,13 +187,13 @@ export function OpenChange({
   return <SuggestionLine change={change} onChanged={onChanged} />;
 }
 
-/** Why the weight stays the same (summary). */
-export function NoChangeLine({ reason }: { reason: string }) {
+/** Why the weight stays the same (summary). `manual`: there is no rule, the reason says so itself. */
+export function NoChangeLine({ reason, manual = false }: { reason: string; manual?: boolean }) {
   return (
     <View style={styles.headRow}>
       <Icon name="equal" size={16} color={colors.muted} />
       <AppText variant="muted" style={{ flex: 1 }}>
-        Se mantiene: {reason.charAt(0).toLowerCase() + reason.slice(1)}
+        {manual ? reason : `Se mantiene: ${reason.charAt(0).toLowerCase() + reason.slice(1)}`}
       </AppText>
     </View>
   );

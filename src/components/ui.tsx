@@ -1,7 +1,8 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
-import { Children, Fragment, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { HeaderHeightContext } from 'expo-router/react-navigation';
+import { Children, Fragment, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -74,6 +75,10 @@ export function Screen({
   /** 16 between sections instead of 24 (set, rest and live walk). */
   tight?: boolean;
 }) {
+  // KeyboardAvoidingView compares its own position (measured from under the header) with the
+  // keyboard's (measured from the top of the screen): without the header height it falls short and
+  // the keyboard covers the bottom of the footer.
+  const headerHeight = useContext(HeaderHeightContext) ?? 0;
   const content = [styles.screen, { gap: tight ? spacing.lg : spacing.xl }, footer ? { paddingBottom: spacing.lg } : null];
   const body = scroll ? (
     <ScrollView style={styles.scroll} contentContainerStyle={content} keyboardShouldPersistTaps="handled">
@@ -84,7 +89,7 @@ export function Screen({
   );
   if (!footer) return body;
   return (
-    <KeyboardAvoidingView behavior="padding" style={{ flex: 1, backgroundColor: colors.bg }}>
+    <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={headerHeight} style={{ flex: 1, backgroundColor: colors.bg }}>
       {body}
       {footer}
     </KeyboardAvoidingView>
@@ -753,6 +758,27 @@ export function useArmed(key: string | number | undefined, delay = 600): boolean
   return armedKey === key;
 }
 
+/**
+ * Runs one database action at a time: taps while it is running are ignored. The ref catches the
+ * second tap of a double tap, which arrives before the re-render that disables the button.
+ */
+export function useBusy(): [boolean, (fn: () => Promise<void>) => () => Promise<void>] {
+  const [busy, setBusy] = useState(false);
+  const running = useRef(false);
+  const run = (fn: () => Promise<void>) => async () => {
+    if (running.current) return;
+    running.current = true;
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      running.current = false;
+      setBusy(false);
+    }
+  };
+  return [busy, run];
+}
+
 /** Rows of a list on one surface, separated by hairlines (instead of a card per item). */
 export function ListGroup({ children, style, inset = spacing.lg }: { children: ReactNode; style?: StyleProp<ViewStyle>; inset?: number }) {
   const rows = Children.toArray(children).filter(Boolean);
@@ -843,9 +869,14 @@ export function AddRow({ title, onPress }: { title: string; onPress: () => void 
 }
 
 /** Upper-case label above a group of a screen, with an optional value or action on the right. */
-export function SectionLabel({ children, right }: { children: ReactNode; right?: ReactNode }) {
+/**
+ * The label of a group. Over a card or a list it sits 4 dp in from their edges: a rounded corner
+ * makes a surface look narrower than it is, and a label flush with it seems to stick out (optical
+ * alignment). `flush` keeps it on the edge, for a label inside a card above text.
+ */
+export function SectionLabel({ children, right, flush = false }: { children: ReactNode; right?: ReactNode; flush?: boolean }) {
   return (
-    <View style={styles.sectionRow}>
+    <View style={[styles.sectionRow, !flush && styles.sectionInset]}>
       <Text style={[styles.sectionLabel, { flex: 1 }]}>{children}</Text>
       {typeof right === 'string' ? (
         <AppText variant="label" tabular weight="600">
@@ -868,8 +899,23 @@ export function Section({ label, right, children }: { label: string; right?: Rea
   );
 }
 
-/** Square check like a to-do list; filled when done. Only for what is ticked by hand. */
-export function CheckMark({ done, onPress }: { done: boolean; onPress?: () => void }) {
+/**
+ * Square check like a to-do list; filled when done. Only for what is ticked by hand. `round` is the
+ * circle of Hoy, the same as the one of a routine done.
+ */
+export function CheckMark({ done, onPress, round = false }: { done: boolean; onPress?: () => void; round?: boolean }) {
+  if (round) {
+    return (
+      <Pressable
+        onPress={onPress}
+        disabled={!onPress}
+        hitSlop={13}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: done }}>
+        <Icon name={done ? 'check-circle' : 'circle-outline'} size={22} color={done ? colors.primary : colors.muted} />
+      </Pressable>
+    );
+  }
   return (
     <Pressable
       onPress={onPress}
@@ -1235,6 +1281,7 @@ const styles = StyleSheet.create({
   stat: { flex: 1, minHeight: 72, gap: 2, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
   sectionLabel: { color: colors.muted, ...type.overline },
   sectionRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 20 },
+  sectionInset: { paddingHorizontal: spacing.xs },
   check: {
     width: 32,
     height: 32,

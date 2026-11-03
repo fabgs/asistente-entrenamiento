@@ -351,11 +351,12 @@ function CardioRow({
     <ListRow
       onPress={sessionId ? () => router.push(`/cardio-sesion/${sessionId}`) : undefined}
       left={
+        // Round like the routines done next to it in «Hecho».
         done ? (
-          <CheckMark done onPress={onToggle} />
+          <CheckMark round done onPress={onToggle} />
         ) : (
           <View style={styles.cardioLeft}>
-            <CheckMark done={false} onPress={onToggle} />
+            <CheckMark round done={false} onPress={onToggle} />
             <Icon name={TRACKING_ICON[activity.tracking]} size={22} color={colors.muted} />
           </View>
         )

@@ -81,3 +81,19 @@ export async function updateExercise(db: Db, id: number, fields: ExerciseFields)
 export async function archiveExercise(db: Db, id: number): Promise<void> {
   await db.runAsync('UPDATE exercise SET archived = 1 WHERE id = ?', id);
 }
+
+/**
+ * Exercises whose sets use their own increment instead of the default one: set in the catalog or in
+ * an active routine. Changing the default increment does not touch them (Ajustes says how many).
+ */
+export async function countOwnIncrements(db: Db): Promise<number> {
+  const row = await db.getFirstAsync<{ n: number }>(
+    `SELECT COUNT(DISTINCT id) AS n FROM (
+       SELECT id FROM exercise WHERE archived = 0 AND increment_kg IS NOT NULL
+       UNION
+       SELECT rs.exercise_id AS id FROM routine_slot rs JOIN routine r ON r.id = rs.routine_id
+       WHERE rs.archived = 0 AND r.archived = 0 AND rs.increment_kg IS NOT NULL
+     )`,
+  );
+  return row?.n ?? 0;
+}

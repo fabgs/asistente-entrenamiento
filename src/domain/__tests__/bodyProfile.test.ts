@@ -1,5 +1,11 @@
 import {
   ACTIVITY_LEVELS,
+  DEFAULT_PER_KG,
+  gramsPerKgLabel,
+  mlPerKgLabel,
+  PER_KG_LIMITS,
+  waterLPerKg,
+  waterMlPerKg,
   activityLabel,
   deficitFor,
   formatWeightDelta,
@@ -68,5 +74,26 @@ describe('formatWeightDelta', () => {
     expect(formatWeightDelta(1.24)).toBe('+1,2 kg');
     expect(formatWeightDelta(-2.3)).toBe('−2,3 kg');
     expect(formatWeightDelta(0.01)).toBe('0 kg');
+  });
+});
+
+describe('protein, fat and water per kg', () => {
+  it('edits water in ml per kg and keeps it in L per kg, both ways', () => {
+    expect(waterMlPerKg(0.035)).toBe(35);
+    expect(waterLPerKg(36)).toBeCloseTo(0.036);
+    expect(waterMlPerKg(waterLPerKg(41))).toBe(41);
+  });
+
+  it('writes the values with their unit', () => {
+    expect(gramsPerKgLabel(2)).toBe('2 g/kg');
+    expect(gramsPerKgLabel(1.2)).toBe('1,2 g/kg');
+    expect(mlPerKgLabel(35)).toBe('35 ml/kg');
+  });
+
+  it('starts within its limits', () => {
+    expect(DEFAULT_PER_KG.proteinGPerKg).toBeGreaterThanOrEqual(PER_KG_LIMITS.protein.min);
+    expect(DEFAULT_PER_KG.proteinGPerKg).toBeLessThanOrEqual(PER_KG_LIMITS.protein.max);
+    expect(DEFAULT_PER_KG.fatGPerKg).toBeGreaterThanOrEqual(PER_KG_LIMITS.fat.min);
+    expect(DEFAULT_PER_KG.waterMlPerKg).toBeLessThanOrEqual(PER_KG_LIMITS.water.max);
   });
 });

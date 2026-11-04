@@ -1,6 +1,6 @@
 import seedJson from '../../../data/seed/seed.json';
 import type { SeedData, SeedSlot } from '@/db/seedTypes';
-import { recommend } from '../progression';
+import { DEFAULT_PROGRESSION, lowerExamples, raiseExamples, recommend, sanitizeProgression } from '../progression';
 import type { ProgressionSettings, SlotRule } from '../types';
 
 const seed = seedJson as SeedData;
@@ -163,6 +163,8 @@ describe('recommend() rules', () => {
       recommend(slot({ allowDecrease: false }), null, [below], settings).reason,
       recommend(slot(), null, [{ weightKg: 35, reps: [11, 11, 11] }], settings).reason,
       recommend(slot({ target: { kind: 'fixed', reps: 20 }, sets: 2 }), null, [{ weightKg: 10, reps: [20, 20] }], settings).reason,
+      recommend(slot(), null, [{ weightKg: 35, reps: [14, 12, 11] }], { ...settings, mode: 'strict' }).reason,
+      recommend(slot(), null, [below], { ...settings, sessionsBelowToDecrease: 3 }).reason,
     ];
     expect(reasons).toEqual([
       'Media de 13,3 reps, por encima de 12',
@@ -170,11 +172,71 @@ describe('recommend() rules', () => {
       'Media de 8, por debajo de 10; este ejercicio no baja solo',
       'Media de 11, dentro de 10–12',
       'Completaste 2 × 20',
+      '2 de 3 series en 12 o más',
+      'Media de 8, por debajo de 10: si sigue así dos sesiones más, te sugerirá bajar',
     ]);
     for (const r of reasons) expect(r).not.toMatch(/[<>→=]/);
   });
 
   it('reports no data without history', () => {
     expect(recommend(slot(), null, [], settings).action).toBe('none');
+  });
+
+  it('says why «Todas las series» keeps the weight, even with the average above the range', () => {
+    const strict = { ...settings, mode: 'strict' as const };
+    // The average of 14, 12 and 11 is 12,3: «dentro de 10–12» would be false.
+    expect(recommend(slot(), null, [{ weightKg: 35, reps: [14, 12, 11] }], strict).reason).toBe('2 de 3 series en 12 o más');
+    expect(recommend(slot(), null, [{ weightKg: 35, reps: [11, 11, 10] }], strict).reason).toBe('Ninguna serie en 12 o más');
+    expect(recommend(slot(), null, [{ weightKg: 35, reps: [12, 12, 12] }], strict).reason).toBe('Todas las series en 12 o más');
+  });
+
+  it('counts the sessions still missing before suggesting to lower', () => {
+    const below = { weightKg: 35, reps: [8, 8, 8] };
+    const three = { ...settings, sessionsBelowToDecrease: 3 };
+    expect(recommend(slot(), null, [below], three).reason).toBe('Media de 8, por debajo de 10: si sigue así dos sesiones más, te sugerirá bajar');
+    expect(recommend(slot(), null, [below, below], three).reason).toBe('Media de 8, por debajo de 10: si se repite, te sugerirá bajar');
+    expect(recommend(slot(), null, [below, below, below], three)).toMatchObject({
+      action: 'decrease',
+      reason: 'Media de 8, por debajo de 10, tres sesiones seguidas',
+    });
+    // A session at another weight breaks the run.
+    expect(recommend(slot(), null, [below, below, { weightKg: 37.5, reps: [8, 8, 8] }], three).action).toBe('keep');
+  });
+
+  it('cleans rules a backup could bring', () => {
+    expect(sanitizeProgression(DEFAULT_PROGRESSION)).toEqual(DEFAULT_PROGRESSION);
+    expect(
+      sanitizeProgression({ defaultIncrementKg: 0, mode: 'fast' as never, sessionsBelowToDecrease: 0 }),
+    ).toEqual({ defaultIncrementKg: 2.5, mode: 'average', sessionsBelowToDecrease: 1 });
+    expect(sanitizeProgression({ defaultIncrementKg: 25, mode: 'strict', sessionsBelowToDecrease: 9 })).toEqual({
+      defaultIncrementKg: 10,
+      mode: 'strict',
+      sessionsBelowToDecrease: 4,
+    });
+    expect(sanitizeProgression({ ...DEFAULT_PROGRESSION, defaultIncrementKg: Number.NaN }).defaultIncrementKg).toBe(2.5);
+  });
+});
+
+describe('examples of the rules (Ajustes, «Sugerencias de peso»)', () => {
+  it('shows the two rules giving opposite outcomes on the same sessions', () => {
+    expect(raiseExamples(DEFAULT_PROGRESSION)).toEqual([
+      { label: '14, 12 y 11', outcome: 'Subir a 37,5 kg' },
+      { label: '12, 12 y 12', outcome: 'Mantener 35 kg' },
+    ]);
+    expect(raiseExamples({ ...DEFAULT_PROGRESSION, mode: 'strict', defaultIncrementKg: 2 })).toEqual([
+      { label: '14, 12 y 11', outcome: 'Mantener 35 kg' },
+      { label: '12, 12 y 12', outcome: 'Subir a 37 kg' },
+    ]);
+  });
+
+  it('shows when the weight goes down, one session short and then enough', () => {
+    expect(lowerExamples(DEFAULT_PROGRESSION)).toEqual([
+      { label: '9, 9 y 8 una vez', outcome: 'Mantener 20 kg' },
+      { label: '9, 9 y 8 dos veces seguidas', outcome: 'Bajar a 17,5 kg' },
+    ]);
+    expect(lowerExamples({ ...DEFAULT_PROGRESSION, sessionsBelowToDecrease: 1 })).toEqual([
+      { label: '9, 9 y 8 una vez', outcome: 'Bajar a 17,5 kg' },
+    ]);
+    expect(lowerExamples({ ...DEFAULT_PROGRESSION, sessionsBelowToDecrease: 4 })[1].label).toBe('9, 9 y 8 cuatro veces seguidas');
   });
 });

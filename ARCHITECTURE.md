@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.1** (`versionCode` 13, [app.json](app.json)) |
+| Versión de la app | **1.4.2** (`versionCode` 14, [app.json](app.json)) |
 | Esquema de la BD | **9** (`PRAGMA user_version`, 9 migraciones) |
-| Revisado | 2026-11-04, versión 1.4.1 (iconos de ejercicio y vuelta a Hoy con `dismissTo`) |
+| Revisado | 2026-11-05, versión 1.4.2 (datos por kilo y reglas de las sugerencias editables) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -242,11 +242,11 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [cardio.tsx](src/app/cardio.tsx) | `/cardio` · `?dia=1..7` | «Cardio semanal» o el nombre del día | Cardio de la semana, o editor de un día (sus rutinas y su cardio) |
 | [cardio/actividad/[id].tsx](src/app/cardio/actividad/[id].tsx) | `/cardio/actividad/:id` · `/cardio/actividad/nueva?dia=N` | «Editar actividad» o «Nueva actividad» | Editor de una actividad de cardio |
 | [musculos.tsx](src/app/musculos.tsx) | `/musculos` | Músculos | Series por músculo de la semana frente al plan |
-| [objetivos.tsx](src/app/objetivos.tsx) | `/objetivos` | Objetivos del día | Calorías y macros, objetivo y actividad |
+| [objetivos.tsx](src/app/objetivos.tsx) | `/objetivos` | Objetivos del día | Calorías y macros, objetivo, actividad y proteína, grasa y agua por kilo |
 | [pesos.tsx](src/app/pesos.tsx) | `/pesos` | Pesajes | Todos los pesajes, por meses, de 30 en 30 |
 | [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
 | [alimento/[id].tsx](src/app/alimento/[id].tsx) | `/alimento/:id` · `/alimento/nuevo?nombre=` | «Alimento» o «Nuevo alimento» | Editor de alimento |
-| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, recordatorio, permisos, copia, modo pruebas |
+| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, copia, modo pruebas |
 | [cifrado.tsx](src/app/cifrado.tsx) | `/cifrado` | «Cifrar las copias» o «Cambiar la contraseña» | Contraseña de las copias |
 | [dev/componentes.tsx](src/app/dev/componentes.tsx) | `/dev/componentes` | Componentes | Catálogo de componentes; solo `__DEV__` (en release redirige a `/`) |
 
@@ -364,7 +364,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Objetivos del día · `/objetivos`
 - **Llega desde**: Perfil («Objetivos del día»); ⋮ de Dieta.
 - **Lleva a**: «Completa tu perfil» → `/perfil` (`navigate`).
-- **Capas**: hojas «Objetivo» (Perder · Mantener · Ganar y kcal de 50 en 50) y «Actividad» (5 niveles); guardan al momento.
+- **Capas**: hojas «Objetivo» (Perder · Mantener · Ganar y kcal de 50 en 50) y «Actividad» (5 niveles), y «Proteína», «Grasa» y «Agua» por kilo (`NumberRow`, gramos al día, hidratos que quedan, «Volver a…»); guardan al momento. Fila ámbar «No quedan hidratos» si proteína y grasa pasan de las kcal.
 
 #### Pesajes · `/pesos`
 - **Llega desde**: Perfil «Todos los pesajes» (solo con más de 3).
@@ -381,7 +381,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Ajustes · `/ajustes`
 - **Llega desde**: engranaje del Perfil; etiqueta «Pruebas» de Hoy.
 - **Lleva a**: «Cifrar las copias» / «Copias cifradas» → `/cifrado`; modo pruebas: «Reiniciar datos ahora» y «Cargar datos de prueba (Excel)» ⤒; «Añadir caminata de prueba» / «Añadir sprints de prueba» → `/cardio-sesion/:id`; «Catálogo de componentes» → `/dev/componentes` (estas tres y «Cargar datos de prueba», solo en desarrollo). Las filas de permisos piden el permiso o abren el ajuste de Android correspondiente (`expo-intent-launcher`).
-- **Capas**: hoja «Descanso entre series», hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
+- **Capas**: hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
 
 #### Cifrar las copias · `/cifrado`
 - **Llega desde**: Ajustes.
@@ -891,8 +891,8 @@ erDiagram
 
 | Tabla | Qué guarda | Notas |
 |---|---|---|
-| `profile` | Datos del cuerpo y de los objetivos | El peso no va aquí: es el último de `weight_log`. `name` y los g/kg (proteína, grasa, agua) no tienen pantalla: valen los del seed. |
-| `settings` | Ajustes de la app y estado de la copia | `progression_mode`, `sessions_below_to_decrease` y `default_increment_kg` no tienen pantalla. `cardio_*` y `distance_unit` recuerdan la vista de la caminata. |
+| `profile` | Datos del cuerpo y de los objetivos | El peso no va aquí: es el último de `weight_log`. Los g/kg de proteína y grasa y los L/kg de agua se editan en Objetivos del día (el agua en ml/kg). `name` no se usa. |
+| `settings` | Ajustes de la app y estado de la copia | `progression_mode`, `sessions_below_to_decrease` y `default_increment_kg` se editan en Ajustes → «Sugerencias de peso» y `getSettings` los limpia (`sanitizeProgression`). `cardio_*` y `distance_unit` recuerdan la vista de la caminata. |
 | `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas) y `hint:<pista>` (pistas de un solo uso). No va en la copia. |
 | `weight_log` | Un pesaje por día | `logWeight` hace *upsert* por fecha. |
 | `exercise` | Catálogo de ejercicios | `pair = 1`: el peso es de cada mancuerna y el volumen cuenta las dos. Crear uno con el nombre de un archivado lo recupera. |
@@ -1142,7 +1142,7 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 - **Músculos** (`/musculos`): barra por músculo frente al plan con la franja de 10 a 20; la hoja de un músculo lista los ejercicios que suman.
 - **Peso**: `WeightSheet` → `logWeight` (uno por fecha) o `deleteWeight` (nunca el único) con «Deshacer»; la gráfica usa `LineChart`; `/pesos` pagina con `listWeightsPage`.
 - **Mis datos**: fecha de nacimiento (calendario nativo), altura y sexo → `updateProfile` al momento.
-- **Objetivos** (`/objetivos`): objetivo con signo en `deficit_kcal` y actividad (`activity_factor`) → `updateProfile`; recalcula TMB, gasto, IMC, calorías y macros en la misma pantalla.
+- **Objetivos** (`/objetivos`): objetivo con signo en `deficit_kcal`, actividad (`activity_factor`) y proteína, grasa y agua por kilo → `updateProfile`; recalcula TMB, gasto, IMC, calorías y macros en la misma pantalla (`computeTargets`: hidratos ≥ 0 y `kcalOver`).
 
 ### 5.11 Recordatorio diario
 

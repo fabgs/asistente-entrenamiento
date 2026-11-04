@@ -87,7 +87,10 @@ export default function SummaryScreen() {
       const history = await slotHistory(db, slot.id, 12);
       const from = history.findIndex((h) => h.sessionId === id);
       if (from >= 0) {
-        keepReasons.set(slot.id, recommend(slotRule(slot), slot.exerciseIncrementKg, history.slice(from), progression));
+        const rec = recommend(slotRule(slot), slot.exerciseIncrementKg, history.slice(from), progression);
+        // Only a reason to keep is shown as «Se mantiene»: with the rules changed since, the same
+        // session may now call for a change, and its own (expired) suggestion is not shown.
+        if (rec.action === 'keep' || rec.action === 'manual') keepReasons.set(slot.id, rec);
       }
     }
     return {

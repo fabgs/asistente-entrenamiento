@@ -18,7 +18,10 @@ export interface NutritionTargets {
   targetKcal: number;
   proteinG: number;
   fatG: number;
+  /** What is left for carbohydrates once protein and fat are counted, never below 0. */
   carbsG: number;
+  /** Kcal by which protein and fat alone pass the target (0 when carbohydrates fit). */
+  kcalOver: number;
   waterL: number;
   bmi: number;
 }
@@ -51,7 +54,10 @@ export function computeTargets(p: BodyProfile): NutritionTargets {
   const targetKcal = tdee - p.deficitKcal;
   const proteinG = p.weightKg * p.proteinGPerKg;
   const fatG = p.weightKg * p.fatGPerKg;
-  const carbsG = (targetKcal - proteinG * 4 - fatG * 9) / 4;
+  // A high protein or fat per kg, or a large deficit, can leave nothing for carbohydrates: it is
+  // warned about (Objetivos del día), never a negative target that Dieta would show as met.
+  const macroKcal = proteinG * 4 + fatG * 9;
+  const carbsG = Math.max(0, (targetKcal - macroKcal) / 4);
   const heightM = p.heightCm / 100;
   return {
     bmr,
@@ -60,6 +66,7 @@ export function computeTargets(p: BodyProfile): NutritionTargets {
     proteinG,
     fatG,
     carbsG,
+    kcalOver: Math.max(0, macroKcal - targetKcal),
     waterL: p.weightKg * p.waterLPerKg,
     bmi: p.weightKg / (heightM * heightM),
   };

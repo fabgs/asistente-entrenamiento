@@ -32,7 +32,7 @@ No objetivos (por ahora): multiusuario, cuentas, servidor propio, publicar en Pl
 | Plataforma | **Android primero** (APK instalado a mano). iOS posible más adelante con el mismo código. | Uso personal, desarrollo desde Windows; iOS exige Mac o cuenta de Apple Developer para instalar. |
 | Framework | **Expo (React Native) + TypeScript**, última SDK estable (`npx create-expo-app@latest`). | Multiplataforma, ecosistema grande, builds en la nube con EAS desde Windows, muy bien conocido por agentes. |
 | Navegación | **expo-router**: rutas en `src/app/` (convención de SDK 58), `Stack` raíz con las pestañas JS (`expo-router/js-tabs`) dentro, para que el modo entrenamiento se abra a pantalla completa encima. | Estándar en Expo; facilita deep links desde notificaciones. `NativeTabs` no documenta pantallas apiladas por encima. |
-| Base de datos | **expo-sqlite con SQL escrito a mano** (sin ORM). Migraciones en `src/db/migrations.ts` con `PRAGMA user_version`; repositorios tipados en `src/db/repositories/`. | Son ~14 tablas sencillas: sin generación de código, ni ficheros `.sql`, ni plugins de Babel. Los repositorios dependen de una interfaz mínima (`src/db/db.ts`) y se testean en Jest con el SQLite integrado de Node 22. *(Se descartó Drizzle el 2026-11-01.)* |
+| Base de datos | **expo-sqlite con SQL escrito a mano** (sin ORM). Migraciones en `src/db/migrations.ts` con `PRAGMA user_version`; repositorios tipados en `src/db/repositories/`. | Son 18 tablas sencillas: sin generación de código, ni ficheros `.sql`, ni plugins de Babel. Los repositorios dependen de una interfaz mínima (`src/db/db.ts`) y se testean en Jest con el SQLite integrado de Node 22. *(Se descartó Drizzle el 2026-11-01.)* |
 | Estado UI | Datos persistentes → SQLite (fuente de verdad), recargados al enfocar cada pantalla (`useLoader`). El estado del entrenamiento activo (ejercicio actual, fin del descanso, ejercicios saltados) también vive en `workout_session`. | Si la app muere, todo lo importante ya está en la BD. No hace falta Zustand por ahora. |
 | Notificaciones | **expo-notifications**, solo **notificaciones locales programadas** (nada de push remoto). El descanso usa trigger `DATE` con **`delivery: 'alarmClock'`** (→ `AlarmManager.setAlarmClock()`). | Funcionan sin internet y con la app cerrada; `setAlarmClock` no lo retrasa Doze. Plan B nativo en §7.4 solo si falla en el móvil real. |
 | Gráficas | Propias con **react-native-svg** (`LineChart`, `TrackChart`). *(react-native-gifted-charts se descartó en la fase 5.)* | Control total de marcas, zoom y cursor; sin dependencias pesadas. |
@@ -58,7 +58,7 @@ Identificadores: nombre visible **"Entreno"**, Android package **`com.fabgs.entr
 Contenido:
 
 - `profile`: altura 184 cm, peso 84 kg, hombre, factor actividad 1,5, déficit 400 kcal, 2 g/kg proteína, 1 g/kg grasa, 0,035 L/kg agua. **`birthDate` es `null` a propósito**: se pide en el onboarding.
-- `settings`: descanso 150 s, incremento 2,5 kg, modo de progresión `average`, 2 sesiones por debajo para bajar, recordatorio diario 06:00 (el entreno empieza a las 06:30).
+- `settings`: descanso 150 s, incremento 2,5 kg, modo de progresión `average`, 2 sesiones por debajo para bajar, recordatorio diario 06:00 (el entreno empieza a las 06:30). Una instalación nueva (`SEED`, `src/db/seedData.ts`) trae el recordatorio a las 07:00 y apagado.
 - `exercises` (22): `name`, `type` (`external` = carga externa / `bodyweight` = peso corporal con lastre opcional), `equipment`.
 - `routines` (4): nombre, `weekdays` (ISO, 1 = lunes), `slots` con: `sets`, `weightKg` (peso actual = "Peso HOY" del Excel; `null` = peso corporal sin lastre), `target` (`range` {min,max} | `fixed` {reps} | `failure` {minus}), `perSide`, `unit` (`reps`/`steps`), `progression` (`load`/`manual`), `allowDecrease`, `incrementKg`, `restSeconds`, `note` (la regla original del Excel) e `history` (rendimientos "anterior" y "hoy" del Excel, del más antiguo al más reciente).
 - `cardio` (9): actividad por día de la semana con objetivo, intensidad y notas.
@@ -83,7 +83,7 @@ Calendario semanal resultante:
 
 ## 4. Perfil y cálculos
 
-Campos: nombre, sexo, fecha de nacimiento, altura (cm), factor de actividad (selector: 1,2 · 1,375 · 1,5 · 1,55 · 1,725, por defecto 1,5), déficit kcal (por defecto 400; negativo = superávit), g/kg de proteína (2), g/kg de grasa (1), L/kg de agua (0,035). **El peso no se guarda en el perfil**: se usa el último registro de `weight_log`.
+Campos: sexo, fecha de nacimiento, altura (cm), factor de actividad (selector: 1,2 · 1,375 · 1,5 · 1,55 · 1,725, por defecto 1,5), déficit kcal (por defecto 400; negativo = superávit), g/kg de proteína (2), g/kg de grasa (1), L/kg de agua (0,035), editables desde la 1.4.2 en Objetivos del día. **El peso no se guarda en el perfil**: se usa el último registro de `weight_log`. La columna `profile.name` existe pero no se usa ni se edita (cada instalación es de una persona y nada lo mostraría; decidido en la 1.4.2).
 
 Fórmulas (`src/domain/nutrition.ts`, funciones puras):
 
@@ -95,7 +95,7 @@ gastoTotal    = TMB · factorActividad
 kcalObjetivo  = gastoTotal − déficit
 proteína (g)  = peso · proteinGPerKg
 grasa (g)     = peso · fatGPerKg
-carbos (g)    = (kcalObjetivo − proteína·4 − grasa·9) / 4
+carbos (g)    = max(0, (kcalObjetivo − proteína·4 − grasa·9) / 4)   ← y kcalOver = lo que pasan proteína y grasa
 agua (L)      = peso · waterLPerKg
 IMC           = peso / (altura_m)²
 kcal alimento = grasa·9 + carbos·4 + proteína·4
@@ -108,6 +108,10 @@ kcal alimento = grasa·9 + carbos·4 + proteína·4
 Pantalla Perfil (reorganizada en la 1.4.0, tras un debate con agentes: tres propuestas, dos críticos y un juez): «Completa tu perfil» arriba si falta algo; **Esta semana**, los músculos de la semana (§6.9); el **peso corporal** («Registrar peso» abre una hoja con un stepper de 0,1 kg que empieza en el último peso; la gráfica; los 3 últimos pesajes como filas y «Todos los pesajes», que abre `pesos.tsx`: todos por meses, cargando de 30 en 30 al bajar (`listWeightsPage`). Tocar uno, aquí o allí, permite corregirlo o borrarlo con «Deshacer», nunca el único); una fila **Objetivos del día** («Perder 400 kcal» y las kcal objetivo) y al final **mis datos** como filas: fecha de nacimiento con el calendario nativo, altura con − / + y sexo con segmentado. Nada abre el teclado. El engranaje de la cabecera abre Ajustes. Al cambiar el peso se recalculan los objetivos (y la dieta los muestra actualizados).
 
 Pantalla **Objetivos del día** (`src/app/objetivos.tsx`, desde el Perfil y desde el ⋮ de Dieta): la tarjeta de calorías y macros (proteína, grasa, hidratos y agua), el **objetivo** (Perder · Mantener · Ganar con las kcal al día de 50 en 50; por dentro sigue siendo `deficit_kcal` con signo, `src/domain/bodyProfile.ts`) y la **actividad** en una hoja de 5 niveles (de «Sedentaria · 1,2» a «Alta · 1,725»), y debajo metabolismo basal, gasto total e IMC. Objetivo y actividad están aquí para que su efecto se vea en la misma pantalla. Si falta algún dato, «Completa tu perfil» lleva al Perfil.
+
+**Por kilo de peso** (1.4.2, decidido con agentes: tres propuestas, dos críticos y un juez): filas «Proteína · 2 g/kg», «Grasa · 1 g/kg» y «Agua · 35 ml/kg»; cada una abre una hoja con un `NumberRow` (proteína de 0,8 a 3 y grasa de 0,5 a 2, de 0,1 en 0,1; agua de 20 a 60 ml/kg, de 1 en 1: se edita en ml porque los steppers guardan 2 decimales y 0,035 L/kg no se podría volver a poner; se guarda en L/kg), «Al día con 84 kg · 168 g», «Quedan para hidratos · 246 g», «Volver a 2 g/kg» si no es el valor por defecto (`DEFAULT_PER_KG`) y «Listo»; guarda al momento. Sin peso: «Registra tu peso en el Perfil para ver los gramos». Se descartaron niveles con nombre («Alta · 2 g/kg»): meten un criterio que la app no puede respaldar; el número con su efecto en gramos lo entiende cualquiera.
+
+**Hidratos**: si proteína y grasa ya pasan de las kcal del día (mucho g/kg o mucho déficit), el objetivo de hidratos es 0, nunca negativo (antes Dieta enseñaba «de −30» en verde), y Objetivos y sus hojas (también la de Objetivo) avisan con una fila ámbar «No quedan hidratos · Proteína y grasa ya pasan de tus 827 kcal». No se bloquea ni se avisa de «pocos hidratos» (quien hace keto viviría con el aviso).
 
 ---
 
@@ -162,9 +166,11 @@ Reglas:
 7. Por encima → `increase`, `peso + inc`.
 8. Por debajo y `slot.allowDecrease`:
    - Si las últimas `settings.sessionsBelowToDecrease` (2) sesiones están por debajo **con el mismo peso** → `decrease`, `peso − inc`; si eso da < 0 → `keep` ("Sin carga que quitar: usa una variante más fácil").
-   - Si no → `keep` con aviso ("Por debajo del rango; si se repite, bajará").
+   - Si no → `keep` con aviso: «si se repite, te sugerirá bajar» cuando falta una sesión, y «si sigue así dos sesiones más, te sugerirá bajar» cuando faltan más (1.4.2; antes decía «si se repite» aunque faltaran dos).
    - Motivo de esperar 2 sesiones: en el Excel, tras una sesión floja se mantenía el peso (hip thrust, laterales).
-9. Por debajo sin `allowDecrease` → `keep`. En rango → `keep`.
+9. Por debajo sin `allowDecrease` → `keep`. En rango → `keep`; en modo `strict`, el motivo dice cuántas series llegaron al máximo («2 de 3 series en 12 o más», «Ninguna serie en 12 o más»): con 14, 12 y 11 la media (12,3) ya pasa de 12 y decir «dentro de 10–12» era falso (arreglado en la 1.4.2).
+10. **Reglas editables** (1.4.2, Ajustes → «Sugerencias de peso», §8): incremento por defecto (de 0,25 a 10 kg, de 0,25 en 0,25: llega a un disco de 1,25 en el cinturón; los editores de ejercicio y de ejercicio de la rutina usan el mismo paso), cuándo subir (`average` «La media pasa del máximo» / `strict` «Todas las series llegan al máximo»: no es «más estricto», con 12, 12 y 12 en 10–12 sube solo `strict` y con 14, 12 y 11 solo `average`) y cuándo bajar (de 1 a 4 sesiones seguidas). Valen **desde el próximo entreno**: las sugerencias abiertas no se recalculan (recalcularlas aplicaría a la vez otros cambios del ejercicio hechos después, como el rango, y rompería el «Deshacer» de las aplicadas; una instalación nueva no tiene ninguna abierta). `getSettings` limpia valores imposibles de una copia (`sanitizeProgression`: incremento ≤ 0, modo desconocido, sesiones fuera de 1–4).
+11. Los motivos «Se mantiene» del resumen se recalculan con las reglas actuales; si con ellas la sesión pediría un cambio (y su sugerencia ya caducó), no se enseña ninguno, para no decir «Se mantiene: media por encima de 12».
 
 **Aplicación: nunca automática.** Al terminar una sesión, para cada slot hecho se llama a `recommend()` y, si es `increase` o `decrease`, se crea una **recomendación pendiente** en `weight_change` (`from_kg`, `to_kg`, `reason`, `session_id`, `source = 'progression'`, `status = 'pending'`). `routine_slot.weight_kg` **solo cambia cuando pulso "Aplicar"** (`status = 'applied'`); "Ignorar" la pasa a `status = 'dismissed'`, **pero no desaparece**: se queda en el propio ejercicio como **sugerencia discreta** ("Sugerencia: ↑ 37,5 kg · Aplicar") que se puede aplicar en cualquier momento. Justo después de aplicar hay "Deshacer" (restaura `from_kg` y vuelve a `pending`). Las recomendaciones "abiertas" son las `pending` y las `dismissed` (`listOpenChanges`).
 
@@ -246,7 +252,7 @@ Máquina de estados (`src/domain/workoutMachine.ts`, pura y testeada):
 Diseño (`src/services/restTimer.ts`):
 
 1. Al pulsar "Serie hecha": `endsAt = Date.now() + restSeconds·1000`.
-2. **Programar una notificación local con trigger de fecha en `endsAt` y `delivery: 'alarmClock'`** (canal `rest-timer-v1`, identificador `rest-<sessionId>`, título "¡Descanso terminado!", cuerpo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg", `data.url = entreno://workout/<sessionId>`). La programa el sistema operativo, así que **suena con la pantalla bloqueada, con la app en segundo plano e incluso si el proceso muere**.
+2. **Programar una notificación local con trigger de fecha en `endsAt` y `delivery: 'alarmClock'`** (canal `rest-timer-v1`, identificador `rest-<sessionId>`, título "¡Descanso terminado!", cuerpo "Siguiente: Serie 3/3 · Remo con barra · 37,5 kg", `data.url = /workout/<sessionId>`). La programa el sistema operativo, así que **suena con la pantalla bloqueada, con la app en segundo plano e incluso si el proceso muere**.
 3. Guardar `rest_ends_at` y `rest_notification_id` en `workout_session`.
 4. La cuenta atrás de la UI **se calcula siempre como `endsAt − Date.now()`** (nunca restando ticks), refrescando cada ~250 ms; al volver a primer plano (`AppState` → `active`) se recalcula.
 5. −30 s / +30 s / Saltar / editar → cancelar la notificación y reprogramarla (o no).
@@ -276,7 +282,7 @@ Android:
 
 - **Rutinas** (pestaña): arriba la tarjeta **Semana**, plegada por defecto (1.3.4) en una tira de 7 días con la letra y un icono (mancuerna si hay rutina, figura corriendo si solo hay cardio, sofá si es descanso; hoy resaltado), y desplegada con el chevron junto al título en un día por fila con lo que toca (se recuerda mientras la app está abierta); tocar un día abre su editor (`cardio.tsx?dia=N`: las rutinas de ese día como casillas, que se guardan al momento, y su cardio) y «Editar cardio» abre el de toda la semana (`cardio.tsx`). Después, las rutinas plegadas (`RoutineCard` en modo Rutinas: días, ejercicios y series, sugerencias pendientes y un lápiz que abre su editor; desplegada, cada ejercicio es una fila con su icono, el nombre, el peso como cifra a la derecha y la prescripción debajo (`SlotRow`, 1.4.1), abre el suyo y su sugerencia va en una caja con «Aplicar» dentro, pegada a él) y las filas «Series por músculo» (§6.9) y «Catálogo de ejercicios». El «+» de la cabecera crea una rutina: pide el nombre en un diálogo y solo la crea al confirmar.
 - **Editor de rutina** (`rutina/[id].tsx`): el nombre se cambia tocando el título; los días (`DayPicker`) y el orden (modo «Ordenar») se guardan al momento; los ejercicios con la misma fila que las tarjetas (`SlotRow`; el icono ocupa el sitio del antiguo número de orden, también en «Ordenar»); añadir ejercicios desde el catálogo; «Borrar rutina» en el ⋮ (desaparece de Rutinas y de la semana, los entrenos hechos siguen en el historial; por dentro `archived = 1`).
-- **Ejercicio de la rutina** (`slot/[id].tsx`, con el nombre del ejercicio como título y el de la rutina debajo; la prescripción ya no se repite ahí desde la 1.4.1, porque está justo debajo en sus controles): **peso actual** (se registra como cambio `manual` solo si cambia), series, objetivo `range`/`fixed`/`failure`, por lado, unidad, progresión `load`/`manual`, permitir bajada, incremento y descanso propios y nota, con `NumberRow`, `DurationField` y segmentados. Un único «Guardar» abajo, deshabilitado sin cambios, que guarda y vuelve; al salir con cambios, «¿Guardar los cambios?». En el ⋮, «Quitar de la rutina» (soft delete: `archived = 1`, conserva el historial) y «Borrar ejercicio». La fila «Últimas sesiones» abre el progreso.
+- **Ejercicio de la rutina** (`slot/[id].tsx`, con el nombre del ejercicio como título y el de la rutina debajo; la prescripción ya no se repite ahí desde la 1.4.1, porque está justo debajo en sus controles): **peso actual** (se registra como cambio `manual` solo si cambia), series, objetivo `range`/`fixed`/`failure`, por lado, unidad, progresión `load`/`manual`, permitir bajada, incremento y descanso propios y nota, con `NumberRow`, `DurationField` y segmentados. Un único «Guardar» abajo, deshabilitado sin cambios, que guarda y vuelve; al salir con cambios, «¿Guardar los cambios?». En el ⋮, «Quitar de la rutina» (soft delete: `archived = 1`, conserva el historial); el ejercicio se borra desde su editor del catálogo. La fila «Últimas sesiones» abre el progreso.
 - **Catálogo de ejercicios** (`ejercicios.tsx`, `ejercicio/[id].tsx`): buscador (por nombre o por músculo: «bíceps» encuentra el curl y las supinas; igual en «Ejercicio suelto») y filas por orden alfabético con el icono de su movimiento y sus músculos principales debajo (§6.9); el «+» crea uno. Nombre, tipo, material, **músculos principales y secundarios** (dos filas que abren una hoja con chips por grupo; un músculo es principal o secundario, no ambos), incremento propio y notas, con el mismo «Guardar»; «Borrar ejercicio» en el ⋮ (se archiva: nunca se pierde su historial). Con `?sinMusculos=ids`, el catálogo muestra solo esos ejercicios mientras sigan sin músculos («Sin músculos»).
 - **Cardio semanal** (`cardio.tsx`): por día, las actividades como filas (icono del tipo, «Caminar · 5 km» e intensidad) y «Añadir actividad». Cada actividad se edita en su pantalla (`cardio/actividad/[id].tsx`; `id` es un número o `nueva`, con `?dia=N` al crear): nombre, objetivo, intensidad, cómo se registra (Marcar · GPS · Fases · Sprints; «Fases» es el temporizador) y su plan: el del temporizador (LISS · MISS · HIIT) o el de los sprints (cuántos, de 1 a 20, y el descanso, de 0:30 a 10:00, 1:30 por defecto); «Añadir» o «Guardar» abajo y «Quitar actividad» en el ⋮, al momento y con «Deshacer».
 - Las escrituras se encolan (`src/hooks/editing.ts`, para que dos toques rápidos no abran dos transacciones) y cualquier cambio aquí llama a `rescheduleDailyReminders()` (§7).
@@ -286,7 +292,7 @@ Android:
 Cada actividad de cardio tiene un **tipo de seguimiento** (`cardio_activity.tracking`): `check` (solo marcar, como hasta ahora), `gps` (caminar, correr) o `timer` (bici, HIIT). En Hoy, las de GPS y temporizador muestran **«Iniciar»**, que abre `src/app/cardio-sesion/[id].tsx`. Una sesión (`cardio_session`) se guarda en la BD desde el principio, así que sobrevive a que se cierre la app, igual que el entreno de fuerza. Al terminarla se marca el cardio del día en `cardio_log` con el resumen («5,2 km · 58 min» o «30 min») y el enlace a la sesión.
 
 **GPS** (`src/services/gpsTracker.ts`, `expo-location` + `expo-task-manager`):
-- `Location.startLocationUpdatesAsync` con *foreground service* (notificación fija «Grabando caminata»), precisión alta, cada ~3 s o 5 m. La tarea (`TaskManager.defineTask`, definida al cargar el módulo) solo **añade puntos** a `cardio_point`; así sigue grabando con la pantalla bloqueada y la app en segundo plano. Android pide el permiso de ubicación «Permitir siempre» (`ACCESS_BACKGROUND_LOCATION`, válido porque la app no va a Play Store); la app explica cómo darlo.
+- `Location.startLocationUpdatesAsync` con *foreground service* (notificación fija «Grabando la ruta»), precisión alta, un punto cada 3 s sin mínimo de distancia (`WALK_GPS`; los sprints, cada segundo). La tarea (`TaskManager.defineTask`, definida al cargar el módulo) solo **añade puntos** a `cardio_point`; así sigue grabando con la pantalla bloqueada y la app en segundo plano. Solo pide la ubicación **mientras se usa la app**: el servicio en primer plano basta y la ubicación en segundo plano está desactivada en `app.json` (fase 10).
 - Pausar detiene la grabación; al reanudar empieza un **tramo** nuevo (`segment`), y la distancia nunca une tramos.
 - Distancia, velocidad y ritmo los calcula la función pura `summarizeTrack()` (`src/domain/gps.ts`, con tests): descarta puntos con precisión peor de 30 m, saltos imposibles (> 10 m/s) y el ruido de estar parado (movimientos menores que la precisión). Velocidad media = distancia / tiempo en movimiento (sin pausas). Ritmo en min/km.
 - Al terminar, la ruta se guarda **comprimida** (polilínea codificada, `encodePolyline`) en `cardio_session.route` y un **perfil** con una muestra cada 10 s de actividad (segundos activos, metros acumulados y altitud, `buildSamples`) en `cardio_session.samples`; después se borran sus puntos. Una caminata de 1 h ocupa ~10 KB en la copia de seguridad en vez de miles de filas.
@@ -309,7 +315,7 @@ Cada actividad de cardio tiene un **tipo de seguimiento** (`cardio_activity.trac
 - **LISS**: un bloque continuo (p. ej. 30 min suave, Z2).
 - **MISS**: calentamiento + bloque medio (Z3-4) + enfriamiento (p. ej. 5 + 20 + 5 min).
 - **HIIT**: calentamiento + N rondas de trabajo/descanso + enfriamiento (p. ej. 3 min + 8 × (30 s + 60 s) + 3 min).
-- Al iniciar se programan **todas las alarmas de cambio de fase** a la vez (`delivery: 'alarmClock'`, canal del descanso, identificadores `cardio-<sesión>-<n>`), así que suenan con la pantalla bloqueada aunque el JS esté parado; el módulo `rest-timer` muestra la cuenta atrás hasta el final en la pantalla de bloqueo. Pausar cancela las alarmas; reanudar las reprograma con lo que falte. La pantalla muestra la fase actual en grande, lo que queda de ella, la siguiente y una barra con todas las fases coloreadas por intensidad.
+- Al iniciar se programan **todas las alarmas de cambio de fase** a la vez (`delivery: 'alarmClock'`, canal del descanso, identificadores `cardio-<sesión>-<n>` y `cardio-<sesión>-end`), así que suenan con la pantalla bloqueada aunque el JS esté parado; el módulo `rest-timer` muestra la cuenta atrás hasta el final en la pantalla de bloqueo. Pausar cancela las alarmas; reanudar las reprograma con lo que falte. La pantalla muestra la fase actual en grande, lo que queda de ella, la siguiente y una barra con todas las fases coloreadas por intensidad.
 
 ### 6.9 Músculos (fase 17, 1.4.0)
 
@@ -327,7 +333,7 @@ Diseñado con agentes en dos rondas: cuatro propuestas sobre la idea (datos, pro
 
 ### 7.1 Comportamiento
 
-- Ajustes: activar/desactivar y **hora** (por defecto 06:00).
+- Ajustes: activar/desactivar y **hora** (por defecto 07:00 y apagado en una instalación nueva).
 - Cada día a esa hora, sin internet y con la app cerrada: notificación con lo que toca, por ejemplo:
   - **Lunes · Día 1: Torso (Empuje Pesado + Tirón Volumen)** — "🚶 Caminar 5 km · 🚴 Bici estática 30 min · 🏋️ 7 ejercicios"
   - **Miércoles · HIIT** — "⚡ Sprints + Bouncing 15 min (sesión de mañana)"
@@ -336,7 +342,7 @@ Diseñado con agentes en dos rondas: cuatro propuestas sobre la idea (datos, pro
 
 ### 7.2 Implementación (`src/services/dailyReminder.ts`)
 
-- Se programan **7 notificaciones semanales** (una por día, trigger `WEEKLY` con `weekday`, `hour`, `minute`), identificadores `daily-1` … `daily-7`, canal `daily-reminder` (importancia alta, sonido por defecto). El texto de cada una lo genera la función pura `buildDailyMessage(isoWeekday, data)` en `src/domain/schedule.ts`.
+- Se programan **7 notificaciones semanales** (una por día, trigger `WEEKLY` con `weekday`, `hour`, `minute`), identificadores `daily-1` … `daily-7`, canal `daily-reminder-v1` (importancia alta, sonido por defecto). El texto de cada una lo genera la función pura `buildDailyMessage(isoWeekday, data)` en `src/domain/schedule.ts`.
 - `rescheduleDailyReminders()` es **idempotente**: cancela `daily-*` y las vuelve a crear. Se llama al arrancar la app, al cambiar hora/activación y tras cualquier cambio en rutinas, slots, días asignados o cardio.
 - ⚠️ **Convención de días**: en todo el dominio y la BD se usa **ISO (1 = lunes … 7 = domingo)**. `expo-notifications` usa **1 = domingo … 7 = sábado**. Convertir solo en el borde con `isoToExpoWeekday(iso) = iso === 7 ? 1 : iso + 1`, con test.
 
@@ -352,7 +358,7 @@ Desde SDK 58, `expo-notifications` ya programa con `setAlarmClock()` cuando se p
 
 ## 8. Ajustes generales
 
-Una lista que guarda al momento (fase 12): **Entrenamiento** (descanso entre series en una hoja, pantalla encendida, burbuja flotante), **Recordatorio diario** (avisar cada día y la hora), **Avisos y permisos** (§7.3), **Copia de seguridad** (§9) y **Modo pruebas**; al pie, la versión.
+Una lista que guarda al momento (fase 12): **Entrenamiento** (descanso entre series en una hoja, pantalla encendida, burbuja flotante), **Sugerencias de peso** (1.4.2, `src/components/WeightRules.tsx`: «Incremento · 2,5 kg», «Cuándo subir · Por la media» y «Cuándo bajar · Tras 2 sesiones», cada una con su hoja; las de subir y bajar enseñan un ejemplo calculado con el propio `recommend()` —«Ejemplo en 10–12 reps con 35 kg: 14, 12 y 11 · Subir a 37,5 kg / 12, 12 y 12 · Mantener 35 kg»— y la de incremento cuántos ejercicios tienen el suyo; todas dicen «Cuenta desde el próximo entreno»; el nombre de la sección es el de la caja «Sugerencia de peso»), **Recordatorio diario** (avisar cada día y la hora), **Avisos y permisos** (§7.3), **Copia de seguridad** (§9) y **Modo pruebas**; al pie, la versión.
 
 **Modo pruebas** (`settings.dev_mode`, desactivado por defecto desde que el usuario usa la app de verdad; la columna conserva `DEFAULT 1` de la migración 3, así que `importSeed` lo escribe a 0): en el primer arranque tras instalar un APK nuevo se borran todos los datos y la app queda como recién instalada (solo catálogos, §3). Se detecta comparando `Application.getLastUpdateTimeAsync()` (Android lo actualiza en cada instalación) con el valor guardado en `app_meta('install-stamp')`. Con el modo pruebas activo no se hacen copias automáticas a GitHub. En Ajustes hay un interruptor para activarlo si se vuelve a necesitar y un botón "Reiniciar datos ahora". Reiniciar (a mano o al instalar en modo pruebas) **conserva la configuración de la copia en GitHub** (usuario, repositorio, fichero; el token vive aparte, en secure-store) para poder restaurarla justo después, **y también el modo pruebas y la fecha de la última copia** (`resetData`): si no, la copia automática subiría los datos vacíos encima de la buena. Al final de Ajustes se ve la versión instalada (p. ej. `Entreno v1.2.0`).
 
@@ -364,7 +370,7 @@ Código: `src/db/maintenance.ts` (exportar, validar, restaurar, borrar), `src/se
 
 1. **Exportar/Importar fichero**: volcado de las tablas de `BACKUP_TABLES` → `{ app: 'entreno', schemaVersion, exportedAt, tables }` en `entreno-backup-AAAA-MM-DD.json` (caché) compartido con el menú del sistema (`expo-sharing`). Importar con `File.pickFileAsync` de `expo-file-system` → `parseBackup` → confirmación → `restoreBackup`: borra e inserta **en una sola transacción** (si algo falla, los datos actuales no se tocan), ignora columnas desconocidas y rechaza copias de un `schemaVersion` más nuevo. Después se cancelan y reprograman las notificaciones.
 2. **Copia automática en GitHub**: repo **privado** del usuario (usuario, repositorio y ruta del fichero en Ajustes) y un **fine-grained personal access token** con permiso *Contents: Read and write* solo sobre ese repo, guardado en **expo-secure-store** (nunca en la BD ni en el JSON).
-   - Cuándo: al arrancar la app y al terminar un entreno, como mucho una vez cada 24 h, nunca en modo pruebas; si falla, se guarda el error (`settings.last_backup_error`) y se reintenta la próxima vez. Manual: «Subir ahora».
+   - Cuándo: al arrancar la app, al terminar un entreno o un cardio y al cerrar desde Hoy un entreno que llevaba más de 12 h abierto, como mucho una vez cada 24 h, nunca en modo pruebas; si falla, se guarda el error (`settings.last_backup_error`) y se reintenta la próxima vez. Manual: «Subir ahora».
    - Cómo: `GET /repos/{owner}/{repo}/contents/{path}` para obtener el `sha` → `PUT` con el JSON en base64 (`File.base64()`). Cada copia es un commit → historial de versiones.
    - Restaurar: descarga con `Accept: application/vnd.github.raw+json`, confirmación y `restoreBackup`.
 3. **Copias cifradas** (1.3.4, 16.15; `src/domain/backupCipher.ts` puro y con tests, `src/services/backupCipher.ts`, pantalla `src/app/cifrado.tsx`): con una contraseña puesta en Ajustes («Cifrar las copias»), tanto la de GitHub como la exportada salen del móvil cifradas.
@@ -386,7 +392,7 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 
 | Tabla | Columnas |
 |---|---|
-| `profile` (1 fila) | `id`=1, `name`, `sex` ('male'/'female'), `birth_date`, `height_cm`, `activity_factor`, `deficit_kcal`, `protein_g_per_kg`, `fat_g_per_kg`, `water_l_per_kg` |
+| `profile` (1 fila) | `id`=1, `name` (sin uso), `sex` ('male'/'female'), `birth_date`, `height_cm`, `activity_factor`, `deficit_kcal`, `protein_g_per_kg`, `fat_g_per_kg`, `water_l_per_kg` |
 | `settings` (1 fila) | `id`=1, `rest_seconds_default`, `default_increment_kg`, `progression_mode`, `sessions_below_to_decrease`, `daily_reminder_enabled`, `daily_reminder_time` ('HH:mm'), `keep_awake`, `rest_overlay`, `dev_mode`, `backup_owner`, `backup_repo`, `backup_path`, `last_backup_at`, `last_backup_error`, `cardio_hero` (cifra grande de la caminata), `distance_unit` ('km'/'m'), `cardio_chart` ('pace'/'speed'/'altitude'), `cardio_live_panel` ('map'/'chart'/'splits') |
 | `app_meta` | `key`, `value` — datos internos que sobreviven a un borrado (p. ej. `install-stamp` y las pistas de un solo uso `hint:*`) |
 | `weight_log` | `id`, `date` (único), `weight_kg` |
@@ -399,7 +405,7 @@ Convenciones: ids `INTEGER PRIMARY KEY AUTOINCREMENT`; pesos en **kg (REAL)**; f
 | `cardio_log` | `id`, `date`, `activity_id` (nullable), `name`, `done`, `value`, `notes`, `session_id` (nullable → `cardio_session`) |
 | `cardio_session` | `id`, `activity_id` (nullable), `name`, `date`, `tracking` ('gps'/'timer'/'sprint'), `status` ('in_progress'/'finished'), `started_at`, `finished_at`, `paused_at` (null = corriendo), `paused_ms`, `segment`, `plan` (copia del plan), `distance_m`, `route` (polilínea codificada), `samples` (JSON `[[s, d, a], …]`), `title` (null = `name`), `laps` (sprints: todo su estado, §6.8), `lap_fixes` (los puntos de cada sprint, para recalcular) |
 | `cardio_point` | `id`, `session_id`, `segment`, `t`, `lat`, `lon`, `accuracy`, `speed`, `altitude`, `received_at` (cuándo lo guardó la tarea, para diagnosticar desfases) — puntos de la sesión en curso; se borran al terminar (no van en la copia) |
-| `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'/'abandoned'), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id`, `skipped_slot_ids` (JSON), `title` (null = nombre de la rutina) |
+| `workout_session` | `id`, `routine_id` (nullable), `date`, `started_at`, `finished_at`, `status` ('in_progress'/'finished'; 'abandoned' existe en el tipo pero no se escribe: descartar borra la sesión y sus series), `imported`, `notes`, `rest_ends_at`, `rest_notification_id`, `current_slot_id`, `skipped_slot_ids` (JSON), `title` (null = nombre de la rutina) |
 | `set_log` | `id`, `session_id`, `slot_id` (nullable: ejercicio puntual), `exercise_id`, `set_index`, `weight_kg` (copia del peso del slot al registrar; en las de aproximación, el peso usado; nullable), `reps`, `is_extra`, `is_warmup`, `completed_at` |
 | `weight_change` | `id`, `slot_id`, `session_id` (nullable), `from_kg`, `to_kg`, `reason`, `source` ('progression'/'manual'/'import'), `status` ('pending'/'applied'/'dismissed'/'expired'), `created_at`, `decided_at` |
 | `food` | `id`, `name` (único), `fat_per_100g`, `carbs_per_100g`, `protein_per_100g`, `archived` |
@@ -415,7 +421,7 @@ La migración 8 añade `cardio_session.laps`, `cardio_session.lap_fixes` y `card
 
 La migración 9 crea `exercise_muscle` y asigna los músculos de los 22 ejercicios del catálogo por su nombre, sin tocar un ejercicio que ya tenga (`EXERCISE_MUSCLE_DEFAULTS`; también el seed y las copias anteriores a la 9). Está congelada como la 6: corregir una asignación por defecto pide otra migración.
 
-Índices: `set_log(session_id)`, `set_log(slot_id, completed_at)`, `set_log(exercise_id, completed_at)`, `workout_session(status)`, `workout_session(date)`, `diet_item(weekday)`, `cardio_log(date)`.
+Índices: `set_log(session_id)`, `set_log(slot_id, completed_at)`, `set_log(exercise_id, completed_at)`, `workout_session(status)`, `workout_session(date)`, `diet_item(weekday)`, `cardio_log(date)`, `cardio_point(session_id, t)`, `cardio_session(status)`; y la restricción única `cardio_log(date, activity_id)`, que impide marcar dos veces la misma actividad el mismo día.
 
 `recommend()` se calcula al terminar cada sesión y su resultado se guarda como fila `pending` en `weight_change`; `routine_slot.weight_kg` solo cambia al aplicar. Índice adicional: `weight_change(slot_id, status)`.
 
@@ -462,11 +468,10 @@ src/
   theme.ts
 modules/rest-timer/                 # módulo nativo local (Kotlin): cuenta atrás en bloqueo + burbuja flotante
 assets/sounds/rest_end.wav          # generado (sin derechos)
-assets/sounds/sprint_go.wav         # pitido de salida de los sprints (scripts/generate_sounds.py)
 data/seed/seed.json
 ```
 
-Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % testeable). Las pantallas no hablan con SQLite directamente: usan `src/db/repositories`. Las notificaciones solo se tocan desde `src/services`. Las pantallas no llaman a `Date.now()` (lo marca la regla de pureza del React Compiler): los repositorios y servicios reciben `now` con valor por defecto.
+Reglas: `src/domain` no importa nada de React Native ni de Expo (TS puro, 100 % testeable). Las pantallas no hablan con SQLite directamente: usan `src/db/repositories`. Las notificaciones solo se tocan desde `src/services` (excepción: `src/app/_layout.tsx` escucha el toque en una notificación con `expo-notifications` para abrir su ruta). Las pantallas no llaman a `Date.now()` (lo marca la regla de pureza del React Compiler): los repositorios y servicios reciben `now` con valor por defecto.
 
 ---
 
@@ -713,6 +718,17 @@ Pedido del usuario del 2026-11-04 tras usar la 1.4.0: los iconos de los ejercici
 - [x] Verificación en emulador a 360 × 780 dp con la fuente al 100 % y al 130 %: tarjetas de los Días 1 y 2, editor y «Ordenar», «Ejercicio suelto», descanso, resumen, Historial → Ejercicios y «Atrás» tras «Listo».
 - [ ] Verificación en móvil real.
 
+### Fase 19 — Versión 1.4.2
+Pedido del usuario del 2026-11-05: que PLAN.md refleje lo que hay en la app, con el recordatorio por defecto a las 07:00, y que se puedan editar los datos que solo tenía él («quizás otra persona prefiere algo distinto»), diseñado con agentes (tres propuestas, dos críticos y un juez). Sin migración.
+
+- [x] 19.1 PLAN.md al día con el código (diferencias que encontró ARCHITECTURE.md): ⋮ del ejercicio de la rutina, GPS solo en uso, canal `daily-reminder-v1`, estado `abandoned`, ficheros de sonido, tablas e índices, cuándo se hace la copia automática, recordatorio a las 07:00 en una instalación nueva y la excepción de `_layout.tsx` con las notificaciones.
+- [x] 19.2 Proteína, grasa y agua por kilo editables en Objetivos del día, con su efecto en gramos y lo que queda para hidratos (§4).
+- [x] 19.3 Ajustes → «Sugerencias de peso»: incremento, cuándo subir y cuándo bajar, con ejemplos calculados por el motor (§6.2, §8); paso de 0,25 kg también en los editores.
+- [x] 19.4 Hidratos nunca negativos y aviso «No quedan hidratos» (§4).
+- [x] 19.5 Motivos que mentían: «Todas las series» decía «dentro de 10–12» con la media por encima; «si se repite» con 3 o 4 sesiones; el resumen podía decir «Se mantiene» con un motivo de subida (§6.2). Valores imposibles de una copia se limpian al leerlos.
+- [x] Verificación en emulador.
+- [ ] Verificación en móvil real.
+
 ---
 
 ## 14. Pruebas
@@ -828,3 +844,4 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-04 — **1.3.4, seguridad y pitido nativo** (16.14–16.18), tras probar en el OnePlus. El pitido por notificación llegaba de 0,4 a 0,8 s tarde y cada vez distinto (Android retiene ~200 ms la notificación y SystemUI prepara el reproductor después): ahora lo toca la app desde su propio proceso con un `AudioTrack` ya cargado (y una alarma de respaldo si el proceso muere), y mide y aprende su latencia: en el OnePlus suena de 2 a 41 ms después de la salida. Copias cifradas con contraseña (PBKDF2-HMAC-SHA256 nativo, 600 000 iteraciones, + AES-256-GCM; scrypt en JavaScript tardaba ~50 s en el OnePlus) en GitHub y al exportar, con `scripts/decrypt-backup.mjs` para el ordenador; base de datos cifrada con SQLCipher y clave en el Keystore, migrando la que había; sin copia automática de Android. Los días del pool de cardio en su línea. Apuntado para debatir (§16): autenticación y servidor. En el OnePlus (Android 12) se comprobó: «Entreno en curso», «Parar» sobre la pantalla de bloqueo con PIN, `am crash` en la cuenta atrás, «¿Se te olvidó parar?» y el pool con los datos reales; ciclo copia → modo pruebas → pruebas → restaurar sin perder nada. Hace falta recompilar (SQLCipher, módulo nativo).
 - 2026-11-04 — **Versión 1.4.0** (fase 17, versionCode 12, migración 9). Músculos principales y secundarios en cada ejercicio (18 en español, el hombro en tres partes; los 22 del catálogo ya asignados), con su editor, iconos por movimiento, búsqueda por músculo y etiquetas en el progreso. Perfil reorganizado tras un debate con agentes: «Esta semana» con la silueta de frente y de espalda (`react-native-body-highlighter`) pintada por las series hechas (1 por serie al principal, 0,5 al secundario; cortes en 3, 6 y 10) y el plan en las cifras; pantallas Músculos (barras frente al plan con la franja de 10 a 20) y Objetivos del día (con el objetivo y la actividad, también desde Dieta). Solo cambia el JS (la librería es JS puro): basta con recargar el bundle o recompilar el APK. Verificado en el emulador; falta el móvil.
 - 2026-11-04 — **Versión 1.4.1** (fase 18, versionCode 13, sin migración). Iconos de ejercicio en las rutinas y demás sitios, decididos con agentes (tres propuestas, dos críticos y un juez): una fila común `SlotRow` (icono, nombre, la carga como cifra y la prescripción debajo) en las tarjetas de Rutinas y Hoy, el editor de rutina y «Ejercicio suelto»; el icono del siguiente en el descanso y en las tarjetas del resumen; menos texto repetido. Volver a Hoy con `dismissTo` (con `replace` quedaban dos pilas de pestañas). Nuevo [ARCHITECTURE.md](ARCHITECTURE.md). Solo cambia el JS.
+- 2026-11-05 — **Versión 1.4.2** (fase 19, versionCode 14, sin migración). PLAN.md al día con el código. Proteína, grasa y agua por kilo editables en Objetivos del día (con su efecto en gramos y los hidratos que quedan, que ya no salen negativos), y en Ajustes la sección «Sugerencias de peso» (incremento de 0,25 en 0,25, cuándo subir, cuándo bajar), con ejemplos calculados por el motor; las reglas valen desde el próximo entreno. Arreglados motivos que mentían en el modo «Todas las series» y con 3 o 4 sesiones para bajar. Diseñado con agentes. Solo cambia el JS.

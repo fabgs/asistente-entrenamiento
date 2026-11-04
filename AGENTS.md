@@ -10,7 +10,7 @@
 - **UI en español (es-ES)**; código, identificadores y nombres de ficheros en inglés (salvo las rutas de expo-router, que son en español como en el plan).
 - TypeScript estricto. Nada de `any` sin justificar.
 - La lógica de negocio va en `src/domain/` como **TS puro** (sin React Native ni Expo) y **siempre con tests**. Los casos de PLAN.md §4, §5 y §6.2 son obligatorios.
-- Las pantallas acceden a datos solo a través de `src/db/repositories/`; las notificaciones solo desde `src/services/`.
+- Las pantallas acceden a datos solo a través de `src/db/repositories/`; las notificaciones solo desde `src/services/` (la única excepción es `src/app/_layout.tsx`, que escucha el toque en una notificación para abrir su ruta).
 - Unidades: peso en **kg**; fechas locales `YYYY-MM-DD`; instantes en epoch ms; día de la semana **ISO 1 = lunes … 7 = domingo** (convertir a la convención de expo-notifications solo en `src/services`).
 - Cualquier cambio en rutinas, slots, días o cardio debe llamar a `rescheduleDailyReminders()`.
 - Usa **dev build** (`expo-dev-client`), no Expo Go.

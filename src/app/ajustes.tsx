@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { View } from 'react-native';
 import { BackupSection, DevModeSection, SettingSwitch } from '@/components/DataSettings';
 import { Sheet } from '@/components/Sheet';
+import { WeightRulesSection } from '@/components/WeightRules';
 import {
   AppText,
   Button,
@@ -18,6 +19,7 @@ import {
   type IconName,
 } from '@/components/ui';
 import type { Db } from '@/db/db';
+import { countOwnIncrements } from '@/db/repositories/exercises';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatCountdown } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
@@ -41,6 +43,7 @@ interface Loaded {
   scheduled: number;
   hasToken: boolean;
   encrypted: boolean;
+  ownIncrements: number;
 }
 
 const load = async (db: Db): Promise<Loaded> => ({
@@ -49,6 +52,7 @@ const load = async (db: Db): Promise<Loaded> => ({
   scheduled: await countScheduledNotifications(),
   hasToken: (await githubToken.get()) !== null,
   encrypted: await hasBackupPassword(),
+  ownIncrements: await countOwnIncrements(db),
 });
 
 /** Everything is saved as soon as it changes (PLAN.md §8). */
@@ -104,6 +108,8 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
           />
         </ListGroup>
       </Section>
+
+      <WeightRulesSection rules={settings} ownIncrements={data.ownIncrements} onChange={save} />
 
       <Section label="Recordatorio diario">
         <ListGroup>

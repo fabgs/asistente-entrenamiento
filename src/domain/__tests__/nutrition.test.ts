@@ -42,6 +42,25 @@ describe('computeTargets (PLAN.md §4)', () => {
     });
     expect(female.bmr).toBeCloseTo(1875 - 166);
   });
+
+  it('leaves 0 g of carbohydrates, never a negative target, when protein and fat pass the kcal', () => {
+    // 50 kg, 160 cm, 30 years, sedentary, losing 600 a day: 827 kcal, and protein and fat take 850.
+    const small = computeTargets({
+      sex: 'female',
+      heightCm: 160,
+      weightKg: 50,
+      age: 30,
+      activityFactor: 1.2,
+      deficitKcal: 600,
+      proteinGPerKg: 2,
+      fatGPerKg: 1,
+      waterLPerKg: 0.035,
+    });
+    expect(small.targetKcal).toBeCloseTo(826.8);
+    expect(small.carbsG).toBe(0);
+    expect(small.kcalOver).toBeCloseTo(23.2);
+    expect(t.kcalOver).toBe(0);
+  });
 });
 
 describe('ageOn', () => {

@@ -39,6 +39,7 @@ import { slotHistory, type SlotPerformance } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
 import { listOpenChanges, setSlotWeightManually, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatCountdown, formatKg, formatSetGroups } from '@/domain/format';
+import { INCREMENT_LIMITS } from '@/domain/progression';
 import type { ProgressionKind, RepTarget, RepUnit } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
@@ -319,7 +320,15 @@ function SlotForm({
             ) : null}
             {automatic && ownIncrement ? (
               <FormRow>
-                <NumberRow label="Incremento" value={increment} onChange={setIncrement} step={0.5} min={0.5} format={formatKg} />
+                <NumberRow
+              label="Incremento"
+              value={increment}
+              onChange={setIncrement}
+              step={INCREMENT_LIMITS.step}
+              min={INCREMENT_LIMITS.min}
+              max={INCREMENT_LIMITS.max}
+              format={formatKg}
+            />
               </FormRow>
             ) : null}
           </ListGroup>

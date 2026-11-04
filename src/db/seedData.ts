@@ -1,4 +1,6 @@
 import catalog from '../../data/seed/catalog.json';
+import { DEFAULT_PER_KG, waterLPerKg } from '@/domain/bodyProfile';
+import { DEFAULT_PROGRESSION } from '@/domain/progression';
 import type { SeedData } from './seedTypes';
 
 /**
@@ -14,15 +16,15 @@ export const SEED: SeedData = {
     weightKg: null,
     activityFactor: 1.5,
     deficitKcal: 400,
-    proteinGPerKg: 2,
-    fatGPerKg: 1,
-    waterLPerKg: 0.035,
+    proteinGPerKg: DEFAULT_PER_KG.proteinGPerKg,
+    fatGPerKg: DEFAULT_PER_KG.fatGPerKg,
+    waterLPerKg: waterLPerKg(DEFAULT_PER_KG.waterMlPerKg),
   },
   settings: {
     restSecondsDefault: 150,
-    defaultIncrementKg: 2.5,
-    progressionMode: 'average',
-    sessionsBelowToDecrease: 2,
+    defaultIncrementKg: DEFAULT_PROGRESSION.defaultIncrementKg,
+    progressionMode: DEFAULT_PROGRESSION.mode,
+    sessionsBelowToDecrease: DEFAULT_PROGRESSION.sessionsBelowToDecrease,
     dailyReminderTime: '07:00',
     // Nothing to remind about until there is a plan; it is switched on in Ajustes.
     dailyReminderEnabled: false,

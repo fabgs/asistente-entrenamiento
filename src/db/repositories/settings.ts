@@ -1,4 +1,5 @@
 import { ageOn, computeTargets, type NutritionTargets, type Sex } from '@/domain/nutrition';
+import { sanitizeProgression } from '@/domain/progression';
 import type { ProgressionMode, ProgressionSettings } from '@/domain/types';
 import type { TrackMetric } from '@/domain/trackChart';
 import { isWalkMetric, type DistanceUnit, type WalkMetric } from '@/domain/walkStats';
@@ -56,11 +57,17 @@ interface SettingsRow {
 export async function getSettings(db: Db): Promise<Settings> {
   const row = await db.getFirstAsync<SettingsRow>('SELECT * FROM settings WHERE id = 1');
   if (!row) throw new Error('settings row missing');
+  // Rules out of range (a backup edited by hand) are read as the engine can use them.
+  const rules = sanitizeProgression({
+    defaultIncrementKg: row.default_increment_kg,
+    mode: row.progression_mode,
+    sessionsBelowToDecrease: row.sessions_below_to_decrease,
+  });
   return {
     restSecondsDefault: row.rest_seconds_default,
-    defaultIncrementKg: row.default_increment_kg,
-    progressionMode: row.progression_mode,
-    sessionsBelowToDecrease: row.sessions_below_to_decrease,
+    defaultIncrementKg: rules.defaultIncrementKg,
+    progressionMode: rules.mode,
+    sessionsBelowToDecrease: rules.sessionsBelowToDecrease,
     dailyReminderEnabled: bool(row.daily_reminder_enabled),
     dailyReminderTime: row.daily_reminder_time,
     keepAwake: bool(row.keep_awake),

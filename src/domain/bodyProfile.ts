@@ -24,6 +24,26 @@ export function goalLabel(deficitKcal: number): string {
   return goal === 'keep' ? GOAL_NAMES.keep : `${GOAL_NAMES[goal]} ${formatNumber(kcal, 0)}${NBSP}kcal`;
 }
 
+/**
+ * Protein, fat and water per kg of body weight: what a new install uses and what «Volver a…»
+ * returns to (Objetivos del día). Water is edited in ml per kg: steppers keep 2 decimals, and
+ * 0,035 L/kg could not be reached again.
+ */
+export const DEFAULT_PER_KG = { proteinGPerKg: 2, fatGPerKg: 1, waterMlPerKg: 35 } as const;
+
+export const PER_KG_LIMITS = {
+  protein: { min: 0.8, max: 3, step: 0.1 },
+  fat: { min: 0.5, max: 2, step: 0.1 },
+  water: { min: 20, max: 60, step: 1 },
+} as const;
+
+export const waterMlPerKg = (lPerKg: number) => Math.round(lPerKg * 1000);
+export const waterLPerKg = (mlPerKg: number) => mlPerKg / 1000;
+
+/** «2 g/kg», «1,2 g/kg», «35 ml/kg». */
+export const gramsPerKgLabel = (g: number) => `${formatNumber(g, 1)}${NBSP}g/kg`;
+export const mlPerKgLabel = (ml: number) => `${formatNumber(ml, 0)}${NBSP}ml/kg`;
+
 /** The activity factors of PLAN.md §4, from the least to the most active. */
 export const ACTIVITY_LEVELS: { factor: number; name: string }[] = [
   { factor: 1.2, name: 'Sedentaria' },

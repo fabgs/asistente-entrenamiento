@@ -20,7 +20,9 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import type { CardioTracking } from '@/domain/cardioPlan';
 import { formatCountdown, formatDateWithYear, formatNumber, parseDecimal } from '@/domain/format';
+import { movementPattern, muscleLabel, type ExerciseMuscles, type MovementPattern } from '@/domain/muscles';
 import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { colors, maxFontScale, quietTypes, radius, spacing, type, unitSize, weight, type TypeName } from '@/theme';
@@ -314,14 +316,31 @@ export function Tag({ label, tone = 'neutral', icon }: { label: string; tone?: T
   );
 }
 
-export type TagTone = 'neutral' | 'success' | 'warning' | 'info' | 'danger';
+export type TagTone = 'neutral' | 'success' | 'warning' | 'info' | 'danger' | 'muscle' | 'muscleSoft';
 const TAG_TONES: Record<TagTone, { bg: string; fg: string }> = {
   neutral: { bg: colors.cardAlt, fg: colors.muted },
   success: { bg: colors.primaryTint, fg: colors.primary },
   warning: { bg: colors.warningTint, fg: colors.warning },
   info: { bg: colors.accentTint, fg: colors.accent },
   danger: { bg: colors.dangerTint, fg: colors.danger },
+  muscle: { bg: colors.muscleTint, fg: colors.muscleText },
+  muscleSoft: { bg: colors.muscleTintSoft, fg: colors.muted },
 };
+
+/** The muscles of an exercise as tags: the primary ones first and stronger, then the secondary ones. */
+export function MuscleTags({ muscles }: { muscles: ExerciseMuscles }) {
+  if (muscles.primary.length === 0 && muscles.secondary.length === 0) return null;
+  return (
+    <View style={styles.muscleTags}>
+      {muscles.primary.map((m) => (
+        <Tag key={m} label={muscleLabel(m)} tone="muscle" />
+      ))}
+      {muscles.secondary.map((m) => (
+        <Tag key={m} label={muscleLabel(m)} tone="muscleSoft" />
+      ))}
+    </View>
+  );
+}
 
 /**
  * One choice among a few (2–4), all in view and in one line. `onMap` is the same control over a map
@@ -694,8 +713,39 @@ export const WeekdayPicker = (props: { value: IsoWeekday[]; onChange: (days: Iso
 
 export type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
+/** The icon of each way of recording cardio (Hoy, the weekly cardio, the history). */
+export const TRACKING_ICON: Record<CardioTracking, IconName> = {
+  gps: 'walk',
+  timer: 'timer-outline',
+  check: 'check-circle-outline',
+  sprint: 'run-fast',
+};
+
+/** The icon of an exercise, by the movement pattern of its first primary muscle (catalog, history). */
+export const PATTERN_ICON: Record<MovementPattern, IconName> = {
+  push: 'weight-lifter',
+  pull: 'rowing',
+  arms: 'arm-flex',
+  legs: 'yoga',
+  hinge: 'kettlebell',
+  core: 'human-handsup',
+};
+
+/** Icon of an exercise for the start of a row; the dumbbell while it has no muscles. */
+export function ExerciseIcon({ muscles }: { muscles: ExerciseMuscles | undefined }) {
+  const pattern = movementPattern(muscles);
+  return <RowIcon name={pattern ? PATTERN_ICON[pattern] : 'dumbbell'} color={pattern ? colors.text : colors.muted} />;
+}
+
+/**
+ * Glyphs drawn mirrored: the dumbbell rises to the right, like the app icon. A plain string list on
+ * purpose: a Set<IconName> (thousands of names) makes tsc run out of memory comparing its methods.
+ */
+const MIRRORED: readonly string[] = ['dumbbell'];
+const mirrored = { transform: [{ scaleX: -1 }] };
+
 export function Icon({ name, size = 22, color = colors.text }: { name: IconName; size?: number; color?: string }) {
-  return <MaterialCommunityIcons name={name} size={size} color={color} />;
+  return <MaterialCommunityIcons name={name} size={size} color={color} style={MIRRORED.includes(name) ? mirrored : undefined} />;
 }
 
 /** A page title with a pencil: tapping it calls `onEdit` (which opens the title dialog). */
@@ -964,12 +1014,14 @@ export function DurationField({
   presets = [90, 120, 150, 180],
   step = 15,
   min = 15,
+  max = Infinity,
 }: {
   value: number;
   onChange: (seconds: number) => void;
   presets?: number[];
   step?: number;
   min?: number;
+  max?: number;
 }) {
   const label = (s: number) => formatCountdown(s * 1000);
   return (
@@ -979,7 +1031,7 @@ export function DurationField({
           <Chip key={s} label={label(s)} selected={value === s} onPress={() => onChange(s)} style={{ flex: 1 }} />
         ))}
       </View>
-      <NumberRow label="Otro" value={value} onChange={onChange} step={step} min={min} format={label} />
+      <NumberRow label="Otro" value={value} onChange={onChange} step={step} min={min} max={max} format={label} />
     </View>
   );
 }
@@ -1229,6 +1281,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   tagText: { ...type.tag },
+  muscleTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
   segmented: {
     flexDirection: 'row',
     minHeight: 40,

@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { showActions, showDialog } from '@/components/Dialog';
 import { FormRow } from '@/components/FormRow';
+import { MusclePickerSheet } from '@/components/MusclePicker';
 import {
   AppText,
   BottomBar,
@@ -27,10 +28,12 @@ import {
   type Exercise,
   type ExerciseFields,
 } from '@/db/repositories/exercises';
+import { getExerciseMuscles, setExerciseMuscles } from '@/db/repositories/muscles';
 import { exerciseSessions } from '@/db/repositories/progress';
 import { addSlot } from '@/db/repositories/routines';
 import { getSettings } from '@/db/repositories/settings';
 import { formatEquipment, formatKg, formatSetGroups } from '@/domain/format';
+import { muscleLabel, NO_MUSCLES, type ExerciseMuscles, type Muscle } from '@/domain/muscles';
 import type { ExerciseType } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
@@ -55,6 +58,7 @@ export default function ExerciseEditorScreen() {
     const last = exercise && !isNew ? ((await exerciseSessions(db, exercise.id))[0] ?? null) : null;
     return {
       exercise,
+      muscles: exercise && !isNew ? await getExerciseMuscles(db, exercise.id) : NO_MUSCLES,
       lastTime: last ? formatSetGroups(last.sets, exercise?.type === 'bodyweight', exercise?.pair) : null,
       defaultIncrement: (await getSettings(db)).defaultIncrementKg,
     };
@@ -79,6 +83,7 @@ export default function ExerciseEditorScreen() {
     <ExerciseForm
       key={data.exercise.id}
       exercise={data.exercise}
+      savedMuscles={data.muscles}
       isNew={isNew}
       lastTime={data.lastTime}
       defaultIncrement={data.defaultIncrement}
@@ -89,12 +94,14 @@ export default function ExerciseEditorScreen() {
 
 function ExerciseForm({
   exercise,
+  savedMuscles,
   isNew,
   lastTime,
   defaultIncrement,
   pickFor,
 }: {
   exercise: Exercise;
+  savedMuscles: ExerciseMuscles;
   isNew: boolean;
   lastTime: string | null;
   defaultIncrement: number;
@@ -108,8 +115,18 @@ function ExerciseForm({
   const [increment, setIncrement] = useState(exercise.incrementKg ?? defaultIncrement);
   const [notes, setNotes] = useState(exercise.notes ?? '');
   const [pair, setPair] = useState(exercise.pair);
+  const [muscles, setMuscles] = useState(savedMuscles);
+  const [picking, setPicking] = useState<'primary' | 'secondary' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  // A muscle is either primary or secondary: choosing it as one takes it out of the other.
+  const pickMuscles = (list: Muscle[]) =>
+    setMuscles((m) =>
+      picking === 'primary'
+        ? { primary: list, secondary: m.secondary.filter((x) => !list.includes(x)) }
+        : { primary: m.primary, secondary: list },
+    );
 
   const fields: ExerciseFields = {
     name: name.trim(),
@@ -129,7 +146,7 @@ function ExerciseForm({
     notes: exercise.notes?.trim() || null,
     pair: exercise.type === 'external' && exercise.pair,
   };
-  const dirty = JSON.stringify(fields) !== JSON.stringify(initial);
+  const dirty = JSON.stringify(fields) !== JSON.stringify(initial) || JSON.stringify(muscles) !== JSON.stringify(savedMuscles);
   const canSave = fields.name !== '' && (isNew || dirty);
 
   /** Saves; for a new exercise picked for a routine, also adds it and returns its slot. */
@@ -146,9 +163,12 @@ function ExerciseForm({
       return await queueWrite(async () => {
         if (!isNew) {
           await updateExercise(db, exercise.id, fields);
+          await setExerciseMuscles(db, exercise.id, muscles);
           return true;
         }
         const id = await createExercise(db, fields);
+        // A deleted exercise brought back by its name keeps its muscles unless new ones were chosen.
+        if (muscles.primary.length + muscles.secondary.length > 0) await setExerciseMuscles(db, id, muscles);
         return pickFor === null ? true : addSlot(db, pickFor, { id, type });
       });
     } catch {
@@ -234,6 +254,11 @@ function ExerciseForm({
       </View>
 
       <ListGroup>
+        <MuscleRow title="Músculos principales" muscles={muscles.primary} onPress={() => setPicking('primary')} />
+        <MuscleRow title="Músculos secundarios" muscles={muscles.secondary} onPress={() => setPicking('secondary')} />
+      </ListGroup>
+
+      <ListGroup>
         {type === 'external' ? (
           <FormRow>
             <SwitchRow
@@ -270,7 +295,24 @@ function ExerciseForm({
           />
         </ListGroup>
       ) : null}
+
+      <MusclePickerSheet
+        visible={picking !== null}
+        title={picking === 'secondary' ? 'Músculos secundarios' : 'Músculos principales'}
+        selected={picking === 'secondary' ? muscles.secondary : muscles.primary}
+        hidden={picking === 'secondary' ? muscles.primary : []}
+        onChange={pickMuscles}
+        onClose={() => setPicking(null)}
+      />
     </Screen>
+  );
+}
+
+function MuscleRow({ title, muscles, onPress }: { title: string; muscles: Muscle[]; onPress: () => void }) {
+  return muscles.length > 0 ? (
+    <ListRow title={title} subtitle={muscles.map(muscleLabel).join(', ')} onPress={onPress} />
+  ) : (
+    <ListRow title={title} right={<AppText variant="secondary">Elegir</AppText>} onPress={onPress} />
   );
 }
 

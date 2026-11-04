@@ -7,6 +7,7 @@ import {
   AppText,
   BottomBar,
   Button,
+  DurationField,
   EmptyState,
   HeaderButton,
   ListGroup,
@@ -36,6 +37,7 @@ import {
   type PlanKind,
 } from '@/domain/cardioPlan';
 import { formatDuration, NBSP } from '@/domain/format';
+import { DEFAULT_SPRINT_PLAN, describeSprintPlan, REST_RANGE_S, SPRINTS_RANGE, type SprintPlan } from '@/domain/sprint';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
@@ -45,7 +47,8 @@ import { spacing } from '@/theme';
 const TRACKING: { value: CardioTracking; label: string }[] = [
   { value: 'check', label: 'Marcar' },
   { value: 'gps', label: 'GPS' },
-  { value: 'timer', label: 'Temporizador' },
+  { value: 'timer', label: 'Fases' },
+  { value: 'sprint', label: 'Sprints' },
 ];
 
 /** The one line of help of the screen: what each way of recording does. */
@@ -53,6 +56,7 @@ const TRACKING_HELP: Record<CardioTracking, string> = {
   check: 'Se marca como hecha en Hoy',
   gps: 'Graba la ruta, la distancia y el ritmo',
   timer: 'Cuenta atrás por fases, con aviso en cada cambio',
+  sprint: 'Un pitido da la salida y paras tú: tiempo, metros y velocidad máxima',
 };
 
 const PLAN_KINDS: { value: PlanKind; label: string }[] = [
@@ -97,6 +101,7 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
   const [notes, setNotes] = useState(activity?.notes ?? '');
   const [tracking, setTracking] = useState<CardioTracking>(activity?.tracking ?? 'check');
   const [plan, setPlan] = useState<CardioPlan>(activity?.plan ?? DEFAULT_PLANS.liss);
+  const [sprint, setSprint] = useState<SprintPlan>(activity?.sprint ?? DEFAULT_SPRINT_PLAN);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -107,6 +112,7 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
     notes: notes.trim() || null,
     tracking,
     plan: tracking === 'timer' ? plan : null,
+    sprint: tracking === 'sprint' ? sprint : null,
   };
   const dirty = activity
     ? !sameCardioFields(fields, cardioFieldsOf(activity))
@@ -197,8 +203,8 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
           error={error ?? undefined}
         />
         <TextField label="Objetivo" value={target} onChangeText={setTarget} placeholder="5 km, 30 min…" />
-        {/* With the timer, the plan says the intensity. */}
-        {tracking !== 'timer' ? (
+        {/* With the timer or the sprints, the plan says the intensity. */}
+        {tracking !== 'timer' && tracking !== 'sprint' ? (
           <TextField label="Intensidad" value={intensity} onChangeText={setIntensity} placeholder="Baja, media o alta" />
         ) : null}
       </View>
@@ -212,6 +218,35 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
         <Section label="Plan">
           <PlanEditor plan={plan} onChange={setPlan} />
         </Section>
+      ) : null}
+
+      {tracking === 'sprint' ? (
+        <>
+          <Section label="Sprints">
+            <ListGroup>
+              <FormRow>
+                <NumberRow
+                  label="Sprints"
+                  value={sprint.sprints}
+                  onChange={(sprints) => setSprint({ ...sprint, sprints })}
+                  min={SPRINTS_RANGE[0]}
+                  max={SPRINTS_RANGE[1]}
+                />
+              </FormRow>
+            </ListGroup>
+          </Section>
+          <Section label="Descanso">
+            <DurationField
+              value={sprint.restSec}
+              onChange={(restSec) => setSprint({ ...sprint, restSec })}
+              presets={[60, 90, 120, 180]}
+              step={15}
+              min={REST_RANGE_S[0]}
+              max={REST_RANGE_S[1]}
+            />
+            <AppText variant="secondary">{describeSprintPlan(sprint)}</AppText>
+          </Section>
+        </>
       ) : null}
 
       <TextField label="Notas" value={notes} onChangeText={setNotes} />

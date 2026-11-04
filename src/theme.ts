@@ -45,6 +45,19 @@ export const colors = {
   intensityHigh: '#F87171',
   /** Series colour for charts: validated for lightness band and contrast on `card` (dataviz). */
   chart: '#16A34A',
+  /** Muscles: a violet no state uses. Text and tint of a primary muscle; a secondary one is quieter. */
+  muscleText: '#C4B5FD',
+  muscleTint: 'rgba(139, 92, 246, 0.22)',
+  muscleTintSoft: 'rgba(139, 92, 246, 0.10)',
+  /**
+   * Body map, from nothing (heat0) to the most (heat4): an ordinal ramp validated in the dark theme on
+   * `card` (dataviz: one hue, lightness steps ≥ 2,4:1 apart).
+   */
+  heat0: '#2A313C',
+  heat1: '#6D28D9',
+  heat2: '#8B5CF6',
+  heat3: '#A78BFA',
+  heat4: '#C4B5FD',
   /** The share image: white text and lines with a soft shadow (sticker), and its separators. */
   onImage: '#FFFFFF',
   imageShadow: 'rgba(0, 0, 0, 0.45)',
@@ -105,6 +118,7 @@ export const shareType = {
 
 /** Unit next to a figure of each size: about 40 % of it, never below 12. */
 export const unitSize: Partial<Record<TypeName, number>> = {
+  countdown: 36,
   display: 28,
   heroSm: 22,
   numberL: 15,

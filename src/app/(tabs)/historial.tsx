@@ -7,11 +7,13 @@ import {
   Button,
   Divider,
   EmptyState,
+  ExerciseIcon,
   ListRow,
   Loading,
   RowIcon,
   SectionLabel,
   Segmented,
+  TRACKING_ICON,
   Value,
 } from '@/components/ui';
 import {
@@ -21,9 +23,11 @@ import {
   type CardioEntry,
   type ExerciseOverview,
 } from '@/db/repositories/progress';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import type { SessionSummaryRow } from '@/db/repositories/sessions';
-import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatTimeOfDay } from '@/domain/format';
+import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatSpeedKmh, formatTimeOfDay, workoutTitle } from '@/domain/format';
 import { decodeRoute } from '@/domain/gps';
+import type { ExerciseMuscles } from '@/domain/muscles';
 import { capitalize, countOf, formatDayMonth, formatMonth, groupByMonth, splitUnit, thinSegments } from '@/domain/progress';
 import { useLoader } from '@/hooks/data';
 import { colors, radius, spacing } from '@/theme';
@@ -41,7 +45,7 @@ let lastView: HistoryView = 'entrenos';
 
 type Item =
   | { kind: 'workout'; key: string; session: SessionSummaryRow }
-  | { kind: 'exercise'; key: string; exercise: ExerciseOverview }
+  | { kind: 'exercise'; key: string; exercise: ExerciseOverview; muscles: ExerciseMuscles | undefined }
   | { kind: 'cardio'; key: string; entry: CardioEntry };
 
 interface MonthSection {
@@ -55,6 +59,7 @@ interface MonthSection {
 interface HistoryData {
   workouts: SessionSummaryRow[];
   exercises: ExerciseOverview[];
+  muscles: Map<number, ExerciseMuscles>;
   cardio: CardioEntry[];
 }
 
@@ -88,7 +93,7 @@ function sectionsFor(view: HistoryView, data: HistoryData): MonthSection[] {
       return monthSections(
         data.exercises,
         (e) => e.lastDate,
-        (e) => ({ kind: 'exercise', key: `e${e.id}`, exercise: e }),
+        (e) => ({ kind: 'exercise', key: `e${e.id}`, exercise: e, muscles: data.muscles.get(e.id) }),
         ['ejercicio', 'ejercicios'],
       );
     case 'cardio':
@@ -109,6 +114,7 @@ export default function HistoryScreen() {
     async (db): Promise<HistoryData> => ({
       workouts: await workoutHistory(db),
       exercises: await exercisesWithHistory(db),
+      muscles: await allExerciseMuscles(db),
       cardio: await cardioEntries(db),
     }),
   );
@@ -166,7 +172,7 @@ function HistoryRow({ item }: { item: Item }) {
     case 'workout':
       return <WorkoutRow session={item.session} />;
     case 'exercise':
-      return <ExerciseRow exercise={item.exercise} />;
+      return <ExerciseRow exercise={item.exercise} muscles={item.muscles} />;
     case 'cardio':
       return <CardioRow entry={item.entry} />;
   }
@@ -181,6 +187,7 @@ function WorkoutRow({ session }: { session: SessionSummaryRow }) {
     session.finishedAt !== null && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : null,
     // In the subtitle, not as a tag on the right: there it left the long routine names unreadable.
     session.imported ? 'Importado' : null,
+    session.routineId === null ? 'Suelto' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -189,7 +196,7 @@ function WorkoutRow({ session }: { session: SessionSummaryRow }) {
   // One line: routine names are long, and two-line rows would leave only five entrenos on screen.
   return (
     <ListRow
-      title={session.title ?? session.routineName ?? 'Entreno'}
+      title={workoutTitle(session)}
       titleLines={1}
       subtitle={routine ? <SubtitleLines lines={[facts, routine]} /> : facts}
       left={<RowIcon name="dumbbell" />}
@@ -198,9 +205,10 @@ function WorkoutRow({ session }: { session: SessionSummaryRow }) {
   );
 }
 
-function ExerciseRow({ exercise }: { exercise: ExerciseOverview }) {
+function ExerciseRow({ exercise, muscles }: { exercise: ExerciseOverview; muscles: ExerciseMuscles | undefined }) {
   return (
     <ListRow
+      left={<ExerciseIcon muscles={muscles} />}
       title={exercise.name}
       subtitle={`${countOf(exercise.sessions, 'sesión', 'sesiones')} · última el ${formatShortDate(exercise.lastDate)}`}
       right={exercise.topWeightKg ? <Figure text={formatKg(exercise.topWeightKg)} caption="máx." /> : undefined}
@@ -238,13 +246,22 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
       subtitle={entry.startedAt !== null ? `${day} · ${formatTimeOfDay(entry.startedAt)}` : day}
       left={
         thumbnail ? (
-          <RouteThumbnail segments={thumbnail} size={THUMBNAIL_SIZE} />
+          // Centred on the column of the round icons, so every title starts at the same place.
+          <View style={styles.thumbnail}>
+            <RouteThumbnail segments={thumbnail} size={THUMBNAIL_SIZE} />
+          </View>
         ) : (
-          <RowIcon name={entry.kind === 'gps' ? 'walk' : 'timer-outline'} />
+          <RowIcon name={TRACKING_ICON[entry.kind]} />
         )
       }
       right={
-        entry.distanceM !== null ? (
+        entry.sprint ? (
+          entry.sprint.topSpeedMs !== null ? (
+            <Figure text={formatSpeedKmh(entry.sprint.topSpeedMs)} caption={countOf(entry.sprint.count, 'sprint', 'sprints')} />
+          ) : (
+            countOf(entry.sprint.count, 'sprint', 'sprints')
+          )
+        ) : entry.distanceM !== null ? (
           <Figure text={formatMetres(entry.distanceM)} caption={formatClock(active)} />
         ) : (
           formatDuration(active)
@@ -289,14 +306,10 @@ function RowSeparator({ leadingItem }: { leadingItem?: Item }) {
   );
 }
 
-/** RowIcon is a 40 dp circle. */
+/** RowIcon is a 40 dp circle; route thumbnails take the same width. */
 const ROW_ICON_SIZE = 40;
 
-function leadingWidth(item: Item | undefined): number {
-  if (!item || item.kind === 'exercise') return 0;
-  const thumbnail = item.kind === 'cardio' && item.entry.kind === 'gps' && item.entry.route !== null;
-  return (thumbnail ? THUMBNAIL_SIZE : ROW_ICON_SIZE) + spacing.lg;
-}
+const leadingWidth = (item: Item | undefined) => (!item || item.kind === 'exercise' ? 0 : ROW_ICON_SIZE + spacing.lg);
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
@@ -308,5 +321,6 @@ const styles = StyleSheet.create({
   groupBottom: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
   separatorBox: { backgroundColor: colors.card },
   figure: { alignItems: 'flex-end' },
+  thumbnail: { width: ROW_ICON_SIZE, alignItems: 'center' },
   emptyBox: { flex: 1 },
 });

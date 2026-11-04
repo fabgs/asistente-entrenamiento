@@ -2,8 +2,10 @@ import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import { View } from 'react-native';
 import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
+import { BodyMap, HEAT } from '@/components/BodyMap';
 import { SuggestionAction, SuggestionLine } from '@/components/Recommendation';
 import { Sheet } from '@/components/Sheet';
+import { SprintTable } from '@/components/Sprint';
 import {
   AddRow,
   AppText,
@@ -15,11 +17,13 @@ import {
   DayPicker,
   EmptyState,
   ErrorState,
+  ExerciseIcon,
   FloatingButton,
   Icon,
   IconButton,
   ListGroup,
   ListRow,
+  MuscleTags,
   ProgressBar,
   Row,
   RowIcon,
@@ -36,6 +40,8 @@ import {
   type TagTone,
 } from '@/components/ui';
 import type { WeightChange } from '@/db/repositories/weightChanges';
+import { MUSCLE_KEYS, PATTERN_LABEL, type MovementPattern, type Muscle } from '@/domain/muscles';
+import type { LapRow } from '@/domain/sprint';
 import type { IsoWeekday } from '@/domain/types';
 import { colors, spacing, type, type TypeName } from '@/theme';
 
@@ -62,6 +68,27 @@ const SAMPLE_DOWN: WeightChange = {
  * Every component in each of its states, to check the system on the phone (in the sun: whether 500,
  * 600 and 700 can be told apart and whether borderless cards stand out). Development builds only.
  */
+/** Every state of a row: good, the fastest, weak GPS (≈), no GPS (–) and still measuring (…). */
+const SPRINT_ROWS: LapRow[] = [
+  { number: 1, timeMs: 11_800, distanceM: 74.2, topSpeedMs: 8.3, quality: 'good', settled: true },
+  { number: 2, timeMs: 11_400, distanceM: 75.6, topSpeedMs: 8.6, quality: 'good', settled: true },
+  { number: 3, timeMs: 12_300, distanceM: 71.9, topSpeedMs: 7.9, quality: 'weak', settled: true },
+  { number: 4, timeMs: 12_000, distanceM: null, topSpeedMs: null, quality: 'none', settled: true },
+  { number: 5, timeMs: 12_600, distanceM: null, topSpeedMs: null, quality: null, settled: false },
+];
+
+const PATTERN_MUSCLE: Record<MovementPattern, Muscle> = {
+  push: 'chest',
+  pull: 'lats',
+  arms: 'biceps',
+  legs: 'quads',
+  hinge: 'hamstrings',
+  core: 'abs',
+};
+
+/** Every muscle at a level, 0 to 4 in turn, to see each step of the ramp on the body. */
+const SAMPLE_LEVELS = Object.fromEntries(MUSCLE_KEYS.map((m, i) => [m, i % 5])) as Record<Muscle, number>;
+
 export default function ComponentCatalog() {
   const [segment, setSegment] = useState<'a' | 'b' | 'c'>('a');
   const [days, setDays] = useState<IsoWeekday[]>([1, 3, 5]);
@@ -254,6 +281,32 @@ export default function ComponentCatalog() {
             onUndo={async () => setLineApplied(false)}
           />
         </Card>
+      </Section>
+
+      <Section label="Músculos">
+        <ListGroup inset={72}>
+          {(Object.keys(PATTERN_LABEL) as MovementPattern[]).map((p) => (
+            <ListRow key={p} left={<ExerciseIcon muscles={{ primary: [PATTERN_MUSCLE[p]], secondary: [] }} />} title={PATTERN_LABEL[p]} />
+          ))}
+          <ListRow left={<ExerciseIcon muscles={undefined} />} title="Sin músculos" />
+        </ListGroup>
+        <Card>
+          <MuscleTags muscles={{ primary: ['lats', 'upper_back'], secondary: ['lower_back', 'rear_delts', 'biceps'] }} />
+        </Card>
+        <Card>
+          <AppText variant="label">Cada nivel, de 0 a 4</AppText>
+          <View style={{ flexDirection: 'row', gap: spacing.sm }}>
+            {HEAT.map((c) => (
+              <View key={c} style={{ flex: 1, height: 24, borderRadius: 6, backgroundColor: c }} />
+            ))}
+          </View>
+          <BodyMap levels={SAMPLE_LEVELS} sex="male" width={140} selected="rear_delts" />
+          <BodyMap levels={SAMPLE_LEVELS} sex="female" width={140} />
+        </Card>
+      </Section>
+
+      <Section label="Sprints">
+        <SprintTable rows={SPRINT_ROWS} onPickLast={() => showSnackbar('Quitar el último sprint')} />
       </Section>
 
       <Section label="Estados">

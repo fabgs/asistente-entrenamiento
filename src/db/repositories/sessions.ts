@@ -1,9 +1,9 @@
 import { recommend } from '@/domain/progression';
-import { slotToOpen } from '@/domain/workoutMachine';
+import { looseSlotIds, slotToOpen } from '@/domain/workoutMachine';
 import { localDateString } from '@/domain/schedule';
 import type { ProgressionSettings, SessionPerformance } from '@/domain/types';
 import { bool, type Db } from '../db';
-import { listSlots, slotRule, type Slot } from './routines';
+import { listSlots, listSlotsByIds, slotRule, type Slot } from './routines';
 import { createRecommendation, expireOpenChanges } from './weightChanges';
 
 export type SessionStatus = 'in_progress' | 'finished' | 'abandoned';
@@ -23,6 +23,10 @@ export interface Session {
   restNotificationId: string | null;
   currentSlotId: number | null;
   skippedSlotIds: number[];
+  /** A loose session (no routine): its first exercise, for its name. */
+  looseFirst: string | null;
+  /** A loose session: how many exercises it has sets of. */
+  looseCount: number;
 }
 
 export interface SetLog {
@@ -53,10 +57,23 @@ interface SessionRow {
   rest_notification_id: string | null;
   current_slot_id: number | null;
   skipped_slot_ids: string;
+  loose_first: string | null;
+  loose_count: number;
 }
 
+/**
+ * A loose session (routine_id NULL, PLAN.md §6.4) is named after its first exercise: the one of its
+ * first set or, before any, the one in course. Its exercises are the slots of its sets.
+ */
+const LOOSE_COLUMNS = `
+  CASE WHEN ws.routine_id IS NULL THEN COALESCE(
+    (SELECT e.name FROM set_log sl JOIN exercise e ON e.id = sl.exercise_id
+     WHERE sl.session_id = ws.id ORDER BY sl.completed_at, sl.id LIMIT 1),
+    (SELECT e.name FROM routine_slot rs JOIN exercise e ON e.id = rs.exercise_id WHERE rs.id = ws.current_slot_id)) END AS loose_first,
+  CASE WHEN ws.routine_id IS NULL THEN (SELECT COUNT(DISTINCT sl.slot_id) FROM set_log sl WHERE sl.session_id = ws.id) ELSE 0 END AS loose_count`;
+
 const SESSION_SELECT = `
-  SELECT ws.*, r.name AS routine_name
+  SELECT ws.*, r.name AS routine_name, ${LOOSE_COLUMNS}
   FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id`;
 
 function toSession(row: SessionRow): Session {
@@ -74,6 +91,8 @@ function toSession(row: SessionRow): Session {
     restNotificationId: row.rest_notification_id,
     currentSlotId: row.current_slot_id,
     skippedSlotIds: JSON.parse(row.skipped_slot_ids) as number[],
+    looseFirst: row.loose_first,
+    looseCount: row.loose_count,
   };
 }
 
@@ -97,6 +116,45 @@ export async function startSession(db: Db, routineId: number, now: Date): Promis
     now.getTime(),
   );
   return result.lastInsertRowId;
+}
+
+/**
+ * Starts a loose session on a slot of any routine: one exercise with its weight and prescription,
+ * outside any routine. Null if another workout is in progress.
+ */
+export async function startLooseSession(db: Db, slotId: number, now: Date): Promise<number | null> {
+  let id: number | null = null;
+  await db.withTransactionAsync(async () => {
+    if (await db.getFirstAsync(`SELECT id FROM workout_session WHERE status = 'in_progress'`)) return;
+    const result = await db.runAsync(
+      `INSERT INTO workout_session (routine_id, date, started_at, status, current_slot_id) VALUES (NULL, ?, ?, 'in_progress', ?)`,
+      localDateString(now),
+      now.getTime(),
+      slotId,
+    );
+    id = result.lastInsertRowId;
+  });
+  return id;
+}
+
+/** «Añadir otro ejercicio» to a loose session: it becomes the one in course (not while resting). */
+export async function addLooseExercise(db: Db, sessionId: number, slotId: number): Promise<boolean> {
+  const result = await db.runAsync(
+    `UPDATE workout_session SET current_slot_id = ?
+     WHERE id = ? AND status = 'in_progress' AND routine_id IS NULL AND rest_ends_at IS NULL`,
+    slotId,
+    sessionId,
+  );
+  return result.changes > 0;
+}
+
+/**
+ * The exercises of a session: those of its routine or, for a loose one, the slots of its sets and
+ * the one in course (archived ones included, so their sets do not vanish).
+ */
+export async function sessionSlots(db: Db, session: Session, sets: SetLog[]): Promise<Slot[]> {
+  if (session.routineId !== null) return listSlots(db, session.routineId);
+  return listSlotsByIds(db, looseSlotIds(sets, session.currentSlotId));
 }
 
 export async function updateSessionState(
@@ -301,8 +359,12 @@ export async function lastReps(db: Db, slotId: number): Promise<number[]> {
   return (await slotHistory(db, slotId, 1))[0]?.reps ?? [];
 }
 
-/** Proposes the next load for a slot from its history; never changes the slot weight. */
-async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: ProgressionSettings, now: number) {
+/**
+ * Proposes the next load for a slot from its history; never changes the slot weight. Without
+ * `expireOnKeep` (a loose session) a «keep» leaves an open suggestion alone: a few loose sets must
+ * not wipe the routine's «Subir a 37,5 kg».
+ */
+async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: ProgressionSettings, now: number, expireOnKeep: boolean) {
   const history = await slotHistory(db, slot.id);
   const rec = recommend(slotRule(slot), slot.exerciseIncrementKg, history, settings);
   if (rec.action === 'increase' || rec.action === 'decrease') {
@@ -315,16 +377,17 @@ async function proposeForSlot(db: Db, slot: Slot, sessionId: number, settings: P
       source: 'progression',
       now,
     });
-  } else {
+  } else if (expireOnKeep) {
     await expireOpenChanges(db, slot.id, now);
   }
 }
 
-/** Active routine slots that have working sets (not just warm-ups) in the session. */
+/** Active slots that have working sets (not just warm-ups) in the session, loose ones included. */
 async function trainedSlots(db: Db, session: Session): Promise<Slot[]> {
-  if (!session.routineId) return [];
   const sets = (await listSets(db, session.id)).filter((s) => !s.isWarmup);
-  return (await listSlots(db, session.routineId)).filter((slot) => sets.some((s) => s.slotId === slot.id));
+  const slots =
+    session.routineId !== null ? await listSlots(db, session.routineId) : await listSlotsByIds(db, looseSlotIds(sets, null), true);
+  return slots.filter((slot) => sets.some((s) => s.slotId === slot.id));
 }
 
 /**
@@ -336,9 +399,14 @@ export async function finishSession(
   sessionId: number,
   settings: ProgressionSettings,
   now = Date.now(),
-): Promise<void> {
+): Promise<'finished' | 'discarded' | null> {
   const session = await getSession(db, sessionId);
-  if (!session || session.status !== 'in_progress') return;
+  if (!session || session.status !== 'in_progress') return null;
+  // A loose session with nothing done leaves nothing behind.
+  if (session.routineId === null && (await listSets(db, sessionId)).length === 0) {
+    await discardSession(db, sessionId);
+    return 'discarded';
+  }
   const slots = await trainedSlots(db, session);
 
   await db.withTransactionAsync(async () => {
@@ -349,8 +417,9 @@ export async function finishSession(
       now,
       sessionId,
     );
-    for (const slot of slots) await proposeForSlot(db, slot, sessionId, settings, now);
+    for (const slot of slots) await proposeForSlot(db, slot, sessionId, settings, now, session.routineId !== null);
   });
+  return 'finished';
 }
 
 /**
@@ -383,7 +452,7 @@ export async function refreshRecommendations(
       sessionId,
     );
     if (applied) continue;
-    await db.withTransactionAsync(() => proposeForSlot(db, slot, sessionId, settings, now));
+    await db.withTransactionAsync(() => proposeForSlot(db, slot, sessionId, settings, now, session.routineId !== null));
   }
 }
 
@@ -419,6 +488,7 @@ export async function discardSession(db: Db, sessionId: number): Promise<void> {
 
 export interface SessionSummaryRow {
   id: number;
+  routineId: number | null;
   date: string;
   routineName: string | null;
   title: string | null;
@@ -426,40 +496,40 @@ export interface SessionSummaryRow {
   finishedAt: number | null;
   imported: boolean;
   setCount: number;
+  looseFirst: string | null;
+  looseCount: number;
 }
+
+const SUMMARY_SELECT = `
+  SELECT ws.id, ws.routine_id AS routineId, ws.date, r.name AS routineName, ws.title, ws.started_at AS startedAt,
+         ws.finished_at AS finishedAt, ws.imported,
+         (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id AND sl.is_warmup = 0) AS setCount,
+         ${LOOSE_COLUMNS.replace(' AS loose_first', ' AS looseFirst').replace(' AS loose_count', ' AS looseCount')}
+  FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id`;
+
+type SummaryRow = Omit<SessionSummaryRow, 'imported'> & { imported: number };
+const toSummary = (r: SummaryRow): SessionSummaryRow => ({ ...r, imported: bool(r.imported) });
 
 export async function listFinishedSessions(db: Db, limit = 100): Promise<SessionSummaryRow[]> {
-  const rows = await db.getAllAsync<Omit<SessionSummaryRow, 'imported'> & { imported: number }>(
-    `SELECT ws.id, ws.date, r.name AS routineName, ws.title, ws.started_at AS startedAt, ws.finished_at AS finishedAt,
-            ws.imported, (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id AND sl.is_warmup = 0) AS setCount
-     FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id
-     WHERE ws.status = 'finished'
-     ORDER BY ws.started_at DESC LIMIT ?`,
-    limit,
-  );
-  return rows.map((r) => ({ ...r, imported: bool(r.imported) }));
+  const rows = await db.getAllAsync<SummaryRow>(`${SUMMARY_SELECT} WHERE ws.status = 'finished' ORDER BY ws.started_at DESC LIMIT ?`, limit);
+  return rows.map(toSummary);
 }
 
-/** Routines finished on a date, with the session to open its summary. */
-export async function finishedRoutinesOn(db: Db, date: string): Promise<Map<number, SessionSummaryRow>> {
-  const rows = await db.getAllAsync<Omit<SessionSummaryRow, 'imported'> & { imported: number; routineId: number }>(
-    `SELECT ws.id, ws.routine_id AS routineId, ws.date, r.name AS routineName, ws.title, ws.started_at AS startedAt,
-            ws.finished_at AS finishedAt, ws.imported,
-            (SELECT COUNT(*) FROM set_log sl WHERE sl.session_id = ws.id AND sl.is_warmup = 0) AS setCount
-     FROM workout_session ws LEFT JOIN routine r ON r.id = ws.routine_id
-     WHERE ws.status = 'finished' AND ws.imported = 0 AND ws.date = ? AND ws.routine_id IS NOT NULL
-     ORDER BY ws.started_at`,
+/** Every workout finished on a date (routines and loose ones, the same routine twice too), by start. */
+export async function finishedSessionsOn(db: Db, date: string): Promise<SessionSummaryRow[]> {
+  const rows = await db.getAllAsync<SummaryRow>(
+    `${SUMMARY_SELECT} WHERE ws.status = 'finished' AND ws.imported = 0 AND ws.date = ? ORDER BY ws.started_at`,
     date,
   );
-  return new Map(rows.map(({ routineId, ...r }) => [routineId, { ...r, imported: bool(r.imported) }]));
+  return rows.map(toSummary);
 }
 
 /** Starting or continuing a workout goes straight to the set to do next (see slotToOpen). */
 export async function openNextSet(db: Db, sessionId: number): Promise<void> {
   const session = await getSession(db, sessionId);
-  if (!session || session.status !== 'in_progress' || session.routineId === null) return;
-  const slots = await listSlots(db, session.routineId);
+  if (!session || session.status !== 'in_progress') return;
   const sets = await listSets(db, sessionId);
+  const slots = await sessionSlots(db, session, sets);
   const slotId = slotToOpen(
     slots.map((s) => ({ slotId: s.id, sets: s.sets })),
     sets,

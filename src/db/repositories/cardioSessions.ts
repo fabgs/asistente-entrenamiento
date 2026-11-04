@@ -11,10 +11,20 @@ import {
   type TrackSample,
 } from '@/domain/gps';
 import { localDateString } from '@/domain/schedule';
+import {
+  DEFAULT_SPRINT_PLAN,
+  decodeLaps,
+  encodeLaps,
+  formatSprintResult,
+  parseSprintPlan,
+  type Lap,
+  type SprintFix,
+  type SprintPlan,
+} from '@/domain/sprint';
 import type { Db } from '../db';
 import type { CardioActivity } from './cardio';
 
-export type CardioSessionTracking = 'gps' | 'timer';
+export type CardioSessionTracking = 'gps' | 'timer' | 'sprint';
 
 export interface CardioSession {
   id: number;
@@ -37,6 +47,12 @@ export interface CardioSession {
   route: string | null;
   /** Time, distance and altitude profile of a finished GPS session, for its charts and splits. */
   samples: TrackSample[];
+  /** The plan of a sprints session (in the `plan` column, which `plan` above reads as a timer). */
+  sprint: SprintPlan | null;
+  /** The sprints of the session: its whole state (PLAN.md §6.8). */
+  laps: Lap[];
+  /** `laps` as stored, for the optimistic writes of `setSprintLaps`. */
+  lapsJson: string | null;
 }
 
 interface SessionRow {
@@ -56,6 +72,7 @@ interface SessionRow {
   distance_m: number | null;
   route: string | null;
   samples: string | null;
+  laps: string | null;
 }
 
 const toSession = (r: SessionRow): CardioSession => ({
@@ -75,18 +92,24 @@ const toSession = (r: SessionRow): CardioSession => ({
   distanceM: r.distance_m,
   route: r.route,
   samples: decodeSamples(r.samples),
+  sprint: r.tracking === 'sprint' ? parseSprintPlan(r.plan) : null,
+  laps: decodeLaps(r.laps),
+  lapsJson: r.laps,
 });
 
 export async function startCardioSession(db: Db, activity: CardioActivity, now = Date.now()): Promise<number> {
   if (activity.tracking === 'check') throw new Error('This activity is only checked off');
+  const sprints = activity.tracking === 'sprint';
+  const plan = sprints ? (activity.sprint ?? DEFAULT_SPRINT_PLAN) : activity.tracking === 'timer' ? activity.plan : null;
   const result = await db.runAsync(
-    `INSERT INTO cardio_session (activity_id, name, date, tracking, started_at, plan) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cardio_session (activity_id, name, date, tracking, started_at, plan, laps) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     activity.id,
     activity.name,
     localDateString(new Date(now)),
     activity.tracking,
     now,
-    activity.tracking === 'timer' && activity.plan ? JSON.stringify(activity.plan) : null,
+    plan ? JSON.stringify(plan) : null,
+    sprints ? '[]' : null,
   );
   return result.lastInsertRowId;
 }
@@ -110,16 +133,18 @@ export interface NewPoint {
   accuracy: number | null;
   speed: number | null;
   altitude: number | null;
+  /** When the task stored it (diagnosis of clock skew); null in older callers. */
+  receivedAt?: number | null;
 }
 
 /**
- * Stores fixes from the background GPS task in the running (not paused) GPS session.
+ * Stores fixes from the background GPS task in the running (not paused) GPS or sprints session.
  * Returns how many were stored: none when nothing is being recorded.
  */
 export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number> {
   const session = await db.getFirstAsync<{ id: number; segment: number; started_at: number }>(
     `SELECT id, segment, started_at FROM cardio_session
-     WHERE status = 'in_progress' AND tracking = 'gps' AND paused_at IS NULL
+     WHERE status = 'in_progress' AND tracking IN ('gps', 'sprint') AND paused_at IS NULL
      ORDER BY started_at DESC LIMIT 1`,
   );
   if (!session) return 0;
@@ -127,8 +152,8 @@ export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number
   const fresh = points.filter((p) => p.t >= session.started_at - 5_000);
   for (const p of fresh) {
     await db.runAsync(
-      `INSERT INTO cardio_point (session_id, segment, t, lat, lon, accuracy, speed, altitude)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO cardio_point (session_id, segment, t, lat, lon, accuracy, speed, altitude, received_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       session.id,
       session.segment,
       p.t,
@@ -137,6 +162,7 @@ export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number
       p.accuracy,
       p.speed,
       p.altitude,
+      p.receivedAt ?? null,
     );
   }
   return fresh.length;
@@ -212,6 +238,71 @@ export async function finishCardioSession(db: Db, id: number, now = Date.now()):
   });
 }
 
+/**
+ * Writes the laps of a sprints session only if they are still what was read: the second write of a
+ * double tap finds them changed and does nothing. True when it wrote.
+ */
+export async function setSprintLaps(db: Db, id: number, expected: string | null, next: string): Promise<boolean> {
+  const result = await db.runAsync(
+    `UPDATE cardio_session SET laps = ? WHERE id = ? AND status = 'in_progress' AND laps IS ?`,
+    next,
+    id,
+    expected,
+  );
+  return result.changes === 1;
+}
+
+/** Fixes of a session between two instants, with their Doppler speed. */
+export async function listSprintFixes(db: Db, id: number, from: number, to: number): Promise<SprintFix[]> {
+  return db.getAllAsync<SprintFix>(
+    `SELECT t, lat, lon, accuracy, speed, received_at AS receivedAt FROM cardio_point
+     WHERE session_id = ? AND t BETWEEN ? AND ? ORDER BY t, id`,
+    id,
+    from,
+    to,
+  );
+}
+
+export async function lastTrackPoint(db: Db, id: number): Promise<{ t: number; accuracy: number | null; receivedAt: number | null } | null> {
+  return db.getFirstAsync(
+    'SELECT t, accuracy, received_at AS receivedAt FROM cardio_point WHERE session_id = ? ORDER BY t DESC, id DESC LIMIT 1',
+    id,
+  );
+}
+
+/**
+ * Closes a sprints session with its measured laps and the fixes around each sprint (to measure it
+ * again some day), deletes its points and marks the activity as done today («6 sprints · máx. …»).
+ */
+export async function finishSprintSession(db: Db, id: number, finishedAt: number, laps: Lap[], lapFixes: string | null): Promise<void> {
+  const session = await getCardioSession(db, id);
+  if (!session || session.status !== 'in_progress') return;
+  const distances = laps.map((l) => l.distanceM).filter((d): d is number => d !== null);
+  const distance = distances.length > 0 ? distances.reduce((sum, d) => sum + d, 0) : null;
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      `UPDATE cardio_session
+       SET status = 'finished', finished_at = ?, paused_at = NULL, distance_m = ?, route = NULL, samples = NULL, laps = ?, lap_fixes = ?
+       WHERE id = ?`,
+      finishedAt,
+      distance,
+      encodeLaps(laps),
+      lapFixes,
+      id,
+    );
+    await db.runAsync('DELETE FROM cardio_point WHERE session_id = ?', id);
+    await db.runAsync(
+      `INSERT INTO cardio_log (date, activity_id, name, done, value, session_id) VALUES (?, ?, ?, 1, ?, ?)
+       ON CONFLICT(date, activity_id) DO UPDATE SET done = 1, value = excluded.value, session_id = excluded.session_id`,
+      session.date,
+      session.activityId,
+      session.name,
+      formatSprintResult(laps),
+      id,
+    );
+  });
+}
+
 /** An empty title goes back to the activity name. */
 export async function setCardioTitle(db: Db, id: number, title: string): Promise<void> {
   await db.runAsync('UPDATE cardio_session SET title = ? WHERE id = ?', title.trim() || null, id);
@@ -220,7 +311,8 @@ export async function setCardioTitle(db: Db, id: number, title: string): Promise
 export async function discardCardioSession(db: Db, id: number): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync('DELETE FROM cardio_point WHERE session_id = ?', id);
-    await db.runAsync('UPDATE cardio_log SET session_id = NULL WHERE session_id = ?', id);
+    // Its day's log goes too: «Hecho» on Hoy must not keep a cardio that is no longer anywhere.
+    await db.runAsync('DELETE FROM cardio_log WHERE session_id = ?', id);
     await db.runAsync('DELETE FROM cardio_session WHERE id = ?', id);
   });
 }

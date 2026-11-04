@@ -9,6 +9,7 @@ import {
   getCardio,
   sameCardioFields,
   unarchiveCardio,
+  updateCardio,
 } from '../repositories/cardio';
 import {
   getSlot,
@@ -99,5 +100,18 @@ describe('weekly cardio editor', () => {
     expect(sameCardioFields({ ...fields, target: ' 30 min ' }, { ...fields, target: '30 min' })).toBe(true);
     expect(sameCardioFields({ ...fields, notes: '' }, { ...fields, notes: null })).toBe(true);
     expect(cardioFieldsOf({ ...(await getCardio(db, id))!, tracking: 'check' }).plan).toBeNull();
+  });
+
+  it('keeps the plan of the sprints in the same column', async () => {
+    const db = await seededDb();
+    const sprint = { kind: 'sprint', sprints: 8, restSec: 120 } as const;
+    const id = await addCardio(db, 3, { name: 'Sprints', target: null, intensity: null, notes: null, tracking: 'sprint', sprint });
+    const saved = (await getCardio(db, id))!;
+    expect(saved).toMatchObject({ tracking: 'sprint', plan: null, sprint });
+    const fields = cardioFieldsOf(saved);
+    expect(sameCardioFields(fields, { ...fields, sprint: { restSec: 120, sprints: 8, kind: 'sprint' } })).toBe(true);
+    expect(sameCardioFields(fields, { ...fields, sprint: { ...sprint, sprints: 6 } })).toBe(false);
+    await updateCardio(db, id, { ...fields, tracking: 'timer', plan: DEFAULT_PLANS.hiit, sprint: null });
+    expect(await getCardio(db, id)).toMatchObject({ tracking: 'timer', plan: DEFAULT_PLANS.hiit, sprint: null });
   });
 });

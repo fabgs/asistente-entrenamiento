@@ -4,7 +4,7 @@ import { listRoutines, listSlots, type Slot } from '../repositories/routines';
 import {
   deleteSet,
   finishSession,
-  finishedRoutinesOn,
+  finishedSessionsOn,
   getSession,
   lastWarmups,
   listFinishedSessions,
@@ -64,7 +64,7 @@ describe('warm-up sets', () => {
     expect((await listOpenChanges(db)).some((c) => c.slotId === floor.id)).toBe(false);
     expect((await slotHistory(db, floor.id, 1))[0]).toMatchObject({ weightKg: 35, reps: [12, 12] });
     expect((await listFinishedSessions(db)).find((s) => s.id === sessionId)?.setCount).toBe(2);
-    expect((await finishedRoutinesOn(db, '2026-11-02')).get(floor.routineId)?.setCount).toBe(2);
+    expect((await finishedSessionsOn(db, '2026-11-02')).find((s) => s.routineId === floor.routineId)?.setCount).toBe(2);
     expect((await exerciseSessions(db, floor.exerciseId))[0].sets).toEqual([
       { weightKg: 35, reps: 12 },
       { weightKg: 35, reps: 12 },

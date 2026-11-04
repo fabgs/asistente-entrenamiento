@@ -79,6 +79,13 @@ export function formatCardioResult(distanceM: number | null, activeMs: number): 
   return distanceM !== null ? `${formatMetres(distanceM)} · ${formatDuration(activeMs)}` : formatDuration(activeMs);
 }
 
+/** Sprint time, truncated to tenths like a stopwatch: «12,4 s», or «1:02,3» from a minute. */
+export function formatSprintTime(ms: number): string {
+  const tenths = Math.max(0, Math.floor(ms / 100));
+  const s = Math.floor(tenths / 10);
+  return s < 60 ? `${s},${tenths % 10}${NBSP}s` : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')},${tenths % 10}`;
+}
+
 export function formatSpeedKmh(metresPerSecond: number): string {
   return `${formatNumber(metresPerSecond * 3.6, 1)}${NBSP}km/h`;
 }
@@ -214,4 +221,15 @@ export function normalizeForSearch(text: string): string {
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase();
+}
+
+/**
+ * The name of a workout: its own title, its routine, or for a loose one its first exercise
+ * («Remo con barra (90º)», «Remo con barra (90º) y 1 más»).
+ */
+export function workoutTitle(s: { title: string | null; routineName: string | null; looseFirst: string | null; looseCount: number }): string {
+  if (s.title) return s.title;
+  if (s.routineName) return s.routineName;
+  if (s.looseFirst) return s.looseCount > 1 ? `${s.looseFirst} y ${s.looseCount - 1} más` : s.looseFirst;
+  return 'Entreno';
 }

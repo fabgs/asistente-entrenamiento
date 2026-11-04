@@ -1,4 +1,6 @@
 import {
+  formatSprintTime,
+  workoutTitle,
   formatCardioResult,
   formatClock,
   formatCountdown,
@@ -162,5 +164,27 @@ describe('format', () => {
     expect(formatSetGroups([{ weightKg: 10, reps: 12 }, { weightKg: 10, reps: 11 }], false, true)).toBe('2 × 10 kg × 12, 11');
     expect(formatMinutes(1000)).toBe('0 min');
     expect(formatTimeRange(new Date(2026, 10, 3, 9, 20).getTime(), new Date(2026, 10, 3, 10, 19).getTime())).toBe('9:20–10:19');
+  });
+});
+
+describe('formatSprintTime', () => {
+  it('truncates to tenths like a stopwatch', () => {
+    expect(formatSprintTime(12_449)).toBe('12,4\u00A0s');
+    expect(formatSprintTime(9_999)).toBe('9,9\u00A0s');
+    expect(formatSprintTime(10_000)).toBe('10,0\u00A0s');
+    expect(formatSprintTime(62_340)).toBe('1:02,3');
+    expect(formatSprintTime(0)).toBe('0,0\u00A0s');
+  });
+});
+
+describe('workoutTitle', () => {
+  const base = { title: null, routineName: null, looseFirst: null, looseCount: 0 };
+  it('names a workout by its title, its routine or its first loose exercise', () => {
+    expect(workoutTitle({ ...base, title: 'Pierna fuerte', routineName: 'Día 2' })).toBe('Pierna fuerte');
+    expect(workoutTitle({ ...base, routineName: 'Día 2: Pierna y Core' })).toBe('Día 2: Pierna y Core');
+    expect(workoutTitle({ ...base, looseFirst: 'Remo con barra (90º)', looseCount: 1 })).toBe('Remo con barra (90º)');
+    expect(workoutTitle({ ...base, looseFirst: 'Remo con barra (90º)', looseCount: 0 })).toBe('Remo con barra (90º)');
+    expect(workoutTitle({ ...base, looseFirst: 'Remo con barra (90º)', looseCount: 3 })).toBe('Remo con barra (90º) y 2 más');
+    expect(workoutTitle(base)).toBe('Entreno');
   });
 });

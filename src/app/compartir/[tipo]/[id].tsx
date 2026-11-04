@@ -4,14 +4,17 @@ import { ActivityIndicator, Linking, StyleSheet, useWindowDimensions, View } fro
 import Svg, { Defs, Pattern, Rect } from 'react-native-svg';
 import { showSnackbar } from '@/components/Dialog';
 import { WalkStory, WorkoutStory, type StoryExercise, type StoryFigure, type StoryStyle } from '@/components/ShareCard';
+import { sprintMetres, sprintSpeed } from '@/components/Sprint';
 import { AppText, BottomBar, Button, EmptyState, Loading, Screen, Segmented, TextField } from '@/components/ui';
 import { getCardioSession, setCardioTitle } from '@/db/repositories/cardioSessions';
 import { getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { getSession, listSets, setSessionTitle } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { formatDuration, formatLoad, formatLongDate, formatNumber, formatTimeRange } from '@/domain/format';
+import { formatDuration, formatLoad, formatLongDate, formatMetres, formatNumber, formatSpeedKmh, formatSprintTime, formatTimeRange, workoutTitle } from '@/domain/format';
+import { activeMs } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
-import { volumeOf } from '@/domain/progress';
+import { splitUnit, volumeOf } from '@/domain/progress';
+import { lapRows, sprintSummary } from '@/domain/sprint';
 import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useLoader } from '@/hooks/data';
 import { canLoadMapTiles } from '@/services/network';
@@ -61,6 +64,40 @@ export default function ShareScreen() {
     if (isWalk) {
       const session = await getCardioSession(db, sessionId);
       if (!session) return null;
+      const subtitle = `${formatLongDate(parseLocalDate(session.date))} · ${formatTimeRange(session.startedAt, session.finishedAt ?? session.startedAt)}`;
+      if (session.tracking === 'sprint') {
+        // Like a workout: the figures, then a row per sprint.
+        const rows = lapRows(session.laps);
+        const summary = sprintSummary(rows);
+        const fig = (label: string, text: string): StoryFigure => ({ label, ...splitUnit(text) });
+        return {
+          kind: 'sprint' as const,
+          defaultTitle: session.name,
+          title: session.title ?? '',
+          subtitle,
+          figures:
+            summary.topSpeedMs !== null
+              ? [
+                  { label: 'Sprints', value: String(summary.count) },
+                  fig('Vel. máx.', formatSpeedKmh(summary.topSpeedMs)),
+                  ...(summary.totalDistanceM !== null ? [fig('Metros', formatMetres(summary.totalDistanceM))] : []),
+                ]
+              : [
+                  { label: 'Sprints', value: String(summary.count) },
+                  ...(summary.bestTimeMs !== null ? [fig('Mejor', formatSprintTime(summary.bestTimeMs))] : []),
+                  { label: 'Duración', value: formatDuration(activeMs(session, session.finishedAt ?? session.startedAt)) },
+                ],
+          exercises: rows.map(
+            (r): StoryExercise => ({
+              name: `Sprint ${r.number}`,
+              detail:
+                r.quality === 'none' || r.quality === null
+                  ? formatSprintTime(r.timeMs)
+                  : `${formatSprintTime(r.timeMs)} · ${sprintMetres(r)} · ${sprintSpeed(r)}`,
+            }),
+          ),
+        };
+      }
       const walk = walkSnapshot(session, null, 0);
       const unit = (await getSettings(db)).distanceUnit;
       const climb = walk.numbers.climbM ?? 0;
@@ -68,7 +105,7 @@ export default function ShareScreen() {
         kind: 'walk' as const,
         defaultTitle: session.name,
         title: session.title ?? '',
-        subtitle: `${formatLongDate(parseLocalDate(session.date))} · ${formatTimeRange(session.startedAt, session.finishedAt ?? session.startedAt)}`,
+        subtitle,
         segments: walk.segments,
         figures: (['distance', 'time', 'avgPace', climb > 20 ? 'climb' : 'avgSpeed'] as const).map(
           (m): StoryFigure => walkMetric(m, walk.numbers, unit),
@@ -86,7 +123,7 @@ export default function ShareScreen() {
     const volume = slots.reduce((sum, slot) => sum + volumeOf(sets.filter((s) => s.slotId === slot.id), slot.exercisePair), 0);
     return {
       kind: 'workout' as const,
-      defaultTitle: session.routineName ?? 'Entreno',
+      defaultTitle: workoutTitle({ ...session, title: null }),
       title: session.title ?? '',
       subtitle: `${formatLongDate(new Date(session.startedAt))}${session.finishedAt ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}`,
       figures: [
@@ -129,8 +166,8 @@ export default function ShareScreen() {
     setBusy(true);
     try {
       if (typed.trim() !== data.title) {
-        if (data.kind === 'walk') await setCardioTitle(db, sessionId, typed);
-        else await setSessionTitle(db, sessionId, typed);
+        if (data.kind === 'workout') await setSessionTitle(db, sessionId, typed);
+        else await setCardioTitle(db, sessionId, typed);
       }
       if (action === 'share') {
         await shareViewAsImage(card, fileName, px);

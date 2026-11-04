@@ -42,7 +42,7 @@ import {
 } from '@/db/repositories/sessions';
 import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange } from '@/domain/format';
+import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange, workoutTitle } from '@/domain/format';
 import { volumeOf } from '@/domain/progress';
 import { recommend } from '@/domain/progression';
 import type { Recommendation } from '@/domain/types';
@@ -184,9 +184,9 @@ export default function SummaryScreen() {
       <Screen footer={footer}>
         <View style={{ gap: spacing.xs }}>
           <EditableTitle
-            value={session.title ?? session.routineName ?? 'Entreno'}
+            value={workoutTitle(session)}
             onEdit={async () => {
-              const name = session.routineName ?? 'Entreno';
+              const name = workoutTitle({ ...session, title: null });
               const title = await showPrompt('Título', { value: session.title ?? '', placeholder: name, maxLength: 40, confirm: 'Guardar' });
               if (title === null) return;
               await setSessionTitle(db, id, title);

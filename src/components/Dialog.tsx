@@ -3,7 +3,7 @@ import { Modal, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '@/theme';
 import { getBottomInset, onBottomInset } from './layers';
-import { AppText, Button, Icon, TextField, type IconName } from './ui';
+import { AppText, Button, Icon, TextField, useArmed, type IconName } from './ui';
 
 export interface DialogButton {
   text: string;
@@ -20,9 +20,12 @@ export interface SheetAction {
 
 interface Prompt {
   title: string;
+  message?: string;
   value: string;
   placeholder?: string;
   maxLength?: number;
+  /** Hides what is typed (a password). */
+  secure?: boolean;
   confirm: string;
   resolve: (text: string | null) => void;
 }
@@ -54,7 +57,7 @@ export function showActions(actions: SheetAction[], title?: string): void {
  */
 export function showPrompt(
   title: string,
-  options: { value: string; placeholder?: string; maxLength?: number; confirm?: string },
+  options: { value: string; message?: string; placeholder?: string; maxLength?: number; secure?: boolean; confirm?: string },
 ): Promise<string | null> {
   return new Promise((resolve) => {
     if (!present) return resolve(null);
@@ -93,6 +96,8 @@ export function SnackbarHost() {
     const timer = setTimeout(() => setSnack(null), snack.action ? 5000 : 4000);
     return () => clearTimeout(timer);
   }, [snack]);
+  // The action waits 600 ms: the second tap of a double tap on the button below must not undo.
+  const armed = useArmed(snack?.key);
 
   if (!snack) return null;
   return (
@@ -106,6 +111,7 @@ export function SnackbarHost() {
         {snack.action ? (
           <Pressable
             hitSlop={12}
+            disabled={!armed}
             onPress={() => {
               setSnack(null);
               snack.action!.onPress();
@@ -179,11 +185,13 @@ export function DialogHost() {
         <Pressable style={[styles.backdrop, styles.top, { paddingTop: insets.top + spacing.xxl }]} onPress={() => finish(null)}>
           <Pressable style={styles.dialog}>
             <AppText variant="headerTitle">{request.title}</AppText>
+            {request.message ? <AppText variant="secondary">{request.message}</AppText> : null}
             <TextField
               value={text}
               onChangeText={setText}
               placeholder={request.placeholder}
               maxLength={request.maxLength}
+              secure={request.secure}
               autoFocus
             />
             <View style={styles.buttons}>

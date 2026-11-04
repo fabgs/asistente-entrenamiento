@@ -1,4 +1,5 @@
-import { DEFAULT_PLANS, describePlan, expandPlan, parsePlan, phaseAt, planAlarms, planSeconds } from '../cardioPlan';
+import { DEFAULT_PLANS, describePlan, expandPlan, parsePlan, phaseAt, planAlarms, planSeconds, sharesLockCountdown, trackingDetails } from '../cardioPlan';
+import { DEFAULT_SPRINT_PLAN } from '../sprint';
 
 describe('cardio plans', () => {
   it('expands MISS into warm-up, main block and cool-down', () => {
@@ -59,5 +60,27 @@ describe('cardio plans', () => {
     const alarms = planAlarms(DEFAULT_PLANS.miss, 'Bici', 1_000_000 - 600_000, 1_000_000);
     expect(alarms.map((a) => a.key)).toEqual(['2', 'end']);
     expect(planAlarms(DEFAULT_PLANS.miss, 'Bici', 0, 2_000_000)).toEqual([]);
+  });
+});
+
+describe('trackingDetails', () => {
+  const base = { plan: null, sprint: null, intensity: 'Alta (HIIT)' };
+  it('describes the plan of a timer or of the sprints, or the intensity', () => {
+    expect(trackingDetails({ ...base, tracking: 'timer', plan: DEFAULT_PLANS.liss })).toBe('LISS · continuo suave');
+    expect(trackingDetails({ ...base, tracking: 'timer', plan: DEFAULT_PLANS.hiit })).toBe(
+      'HIIT · intervalos · 3 min + 6 × (30 s / 1 min) + 3 min',
+    );
+    expect(trackingDetails({ ...base, tracking: 'sprint', sprint: DEFAULT_SPRINT_PLAN })).toBe('6 sprints · descanso 1:30');
+    expect(trackingDetails({ ...base, tracking: 'check' })).toBe('Alta (HIIT)');
+    expect(trackingDetails({ ...base, tracking: 'gps', intensity: null })).toBeNull();
+  });
+});
+
+describe('sharesLockCountdown', () => {
+  it('is true for the cardio that uses the lock-screen countdown', () => {
+    expect(sharesLockCountdown('sprint')).toBe(true);
+    expect(sharesLockCountdown('timer')).toBe(true);
+    expect(sharesLockCountdown('gps')).toBe(false);
+    expect(sharesLockCountdown('check')).toBe(false);
   });
 });

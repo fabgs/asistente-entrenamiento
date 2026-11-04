@@ -2,11 +2,10 @@ import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { Redirect, router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
-import Animated, { cancelAnimation, Easing, useAnimatedProps, useSharedValue, withTiming } from 'react-native-reanimated';
-import Svg, { Circle } from 'react-native-svg';
+import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import { showActions, showDialog, showSnackbar } from '@/components/Dialog';
 import { SuggestionAction, SuggestionLine } from '@/components/Recommendation';
+import { Ring } from '@/components/Ring';
 import { Sheet } from '@/components/Sheet';
 import {
   AddRow,
@@ -29,7 +28,7 @@ import {
   Tag,
   Value,
 } from '@/components/ui';
-import { isBodyweight, listSlots, type Slot } from '@/db/repositories/routines';
+import { getRoutine, isBodyweight, type Slot } from '@/db/repositories/routines';
 import {
   deleteSet,
   discardSession,
@@ -41,6 +40,7 @@ import {
   logSet,
   logWarmupSet,
   restoreSet,
+  sessionSlots,
   updateSessionState,
   updateSetReps,
   updateSetWeight,
@@ -79,6 +79,7 @@ import {
   scheduleRestEnd,
   shiftDeadline,
 } from '@/services/restTimer';
+import { clearWorkoutInProgress, completedLabel, describeNext, showWorkoutInProgress } from '@/services/workoutInProgress';
 import { colors, maxFontScale, radius, spacing, type } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'workout';
@@ -97,16 +98,6 @@ function defaultReps(target: RepTarget): number {
 
 const restSecondsOf = (slot: Slot | undefined, fallback: number) => slot?.restSeconds ?? fallback;
 
-/** What comes next, for the rest notification and the bar of the list: "Serie 2 de 3 · Remo con barra · 37,5 kg". */
-function describeNext(next: NextStep, slots: Slot[]): string {
-  if (next.kind === 'finished') return 'Rutina completada';
-  const slot = slots.find((s) => s.id === next.slotId)!;
-  const load = formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair);
-  return next.kind === 'next_set'
-    ? `Serie ${next.setNumber} de ${slot.sets} · ${slot.exerciseName} · ${load}`
-    : `Siguiente ejercicio: ${slot.exerciseName} · ${load}`;
-}
-
 export default function WorkoutScreen() {
   const { sessionId } = useLocalSearchParams<{ sessionId: string }>();
   const id = Number(sessionId);
@@ -117,7 +108,16 @@ export default function WorkoutScreen() {
   const { data, reload } = useLoader(async (db) => {
     const session = await getSession(db, id);
     if (!session) return null;
-    const slots = session.routineId ? await listSlots(db, session.routineId) : [];
+    const sets = await listSets(db, id);
+    const slots = await sessionSlots(db, session, sets);
+    // A loose workout borrows its exercises from routines: «Cambiar peso» says which one it changes.
+    const routineNames = new Map<number, string>();
+    if (session.routineId === null) {
+      for (const routineId of new Set(slots.map((s) => s.routineId))) {
+        const routine = await getRoutine(db, routineId);
+        if (routine) routineNames.set(routineId, routine.name);
+      }
+    }
     const lastBySlot = new Map<number, number[]>();
     const warmupsBySlot = new Map<number, WarmupSet[]>();
     for (const s of slots) {
@@ -129,7 +129,8 @@ export default function WorkoutScreen() {
       slots,
       lastBySlot,
       warmupsBySlot,
-      sets: await listSets(db, id),
+      routineNames,
+      sets,
       settings: await getSettings(db),
       overlayAllowed: canDrawOverlays(),
       openChanges: await listOpenChanges(db),
@@ -139,10 +140,21 @@ export default function WorkoutScreen() {
   // Back from a set or from the rest shows the exercise list instead of leaving the workout.
   const resting = !!data?.session.restEndsAt;
   const inSet = !resting && data?.session.currentSlotId != null;
-  usePreventRemove(data?.session.status === 'in_progress' && ((resting && !browsing) || inSet), () => {
+  // A loose workout with nothing done yet is dropped on the way out: there is nothing to keep.
+  const [leaving, setLeaving] = useState(false);
+  const emptyLoose = data?.session.routineId === null && data.sets.length === 0;
+  usePreventRemove(!leaving && data?.session.status === 'in_progress' && ((resting && !browsing) || inSet), () => {
     if (resting) setBrowsing(true);
-    else updateSessionState(db, id, { currentSlotId: null }).then(reload);
+    else if (emptyLoose) {
+      clearWorkoutInProgress();
+      discardSession(db, id).then(() => setLeaving(true));
+    } else updateSessionState(db, id, { currentSlotId: null }).then(reload);
   });
+  useEffect(() => {
+    if (!leaving) return;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [leaving]);
 
   const keepAwake = data?.settings.keepAwake ?? false;
   useEffect(() => {
@@ -152,6 +164,11 @@ export default function WorkoutScreen() {
       deactivateKeepAwake(KEEP_AWAKE_TAG);
     };
   }, [keepAwake]);
+
+  // Every change of the workout updates its notification, which takes the user back here.
+  useEffect(() => {
+    if (data?.session.status === 'in_progress') showWorkoutInProgress(data.session, data.slots, data.sets);
+  }, [data]);
 
   if (data === undefined) return <Loading />;
   if (data === null) {
@@ -164,6 +181,8 @@ export default function WorkoutScreen() {
   const planned = slots.map((s) => ({ slotId: s.id, sets: s.sets }));
   const skipped = session.skippedSlotIds;
   const current = slots.find((s) => s.id === session.currentSlotId) ?? null;
+  const loose = session.routineId === null;
+  const done = completedLabel(session, slots);
 
   const update = async (patch: Parameters<typeof updateSessionState>[2]) => {
     await updateSessionState(db, id, patch);
@@ -171,9 +190,11 @@ export default function WorkoutScreen() {
   };
 
   const finish = async () => {
+    clearWorkoutInProgress();
     await cancelRestEnd(id);
-    await finishSession(db, id, toProgressionSettings(settings));
-    router.replace(`/workout/resumen/${id}?nuevo=1`);
+    const result = await finishSession(db, id, toProgressionSettings(settings));
+    if (result === 'discarded') router.replace('/');
+    else router.replace(`/workout/resumen/${id}?nuevo=1`);
     maybeAutoBackup(db);
   };
 
@@ -199,6 +220,7 @@ export default function WorkoutScreen() {
         text: 'Descartar',
         style: 'destructive',
         onPress: async () => {
+          clearWorkoutInProgress();
           await cancelRestEnd(id);
           await discardSession(db, id);
           router.replace('/');
@@ -214,7 +236,7 @@ export default function WorkoutScreen() {
     if (session.restEndsAt && !restIsOver(session.restEndsAt) && setsDone(slotId, sets) < slot.sets) {
       // Still resting: the chosen exercise becomes the next one, the rest keeps counting.
       const next = nextStep(planned, sets, unskipped, slotId);
-      await scheduleRestEnd(id, session.restEndsAt, describeNext(next, slots), settings.restOverlay).catch(() => null);
+      await scheduleRestEnd(id, session.restEndsAt, describeNext(next, slots, done), settings.restOverlay).catch(() => null);
       await update({ currentSlotId: slotId, skippedSlotIds: unskipped });
       return;
     }
@@ -235,7 +257,7 @@ export default function WorkoutScreen() {
     const endsAt = restDeadline(restSecondsOf(slot, settings.restSecondsDefault));
     let notificationId: string | null = null;
     try {
-      notificationId = await scheduleRestEnd(id, endsAt, describeNext(next, slots), settings.restOverlay);
+      notificationId = await scheduleRestEnd(id, endsAt, describeNext(next, slots, done), settings.restOverlay);
     } catch (e) {
       console.warn('Could not schedule rest alarm', e);
     }
@@ -246,7 +268,7 @@ export default function WorkoutScreen() {
     if (!session.restEndsAt) return;
     const endsAt = shiftDeadline(session.restEndsAt, deltaSeconds);
     const next = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
-    await scheduleRestEnd(id, endsAt, describeNext(next, slots), settings.restOverlay).catch(() => null);
+    await scheduleRestEnd(id, endsAt, describeNext(next, slots, done), settings.restOverlay).catch(() => null);
     await update({ restEndsAt: endsAt });
   };
 
@@ -285,7 +307,7 @@ export default function WorkoutScreen() {
     });
   };
 
-  const title = session.routineName ?? 'Entreno';
+  const title = session.routineName ?? 'Ejercicio suelto';
 
   if (session.restEndsAt && !browsing) {
     const restSlot = slots.find((s) => s.id === session.currentSlotId);
@@ -299,6 +321,7 @@ export default function WorkoutScreen() {
           totalSeconds={restSecondsOf(restSlot, settings.restSecondsDefault)}
           next={restNext}
           nextSlot={nextSlot}
+          nextSlotDone={nextSlot ? setsDone(nextSlot.id, sets) : 0}
           lastSet={lastSet}
           lastSlot={lastSet ? slots.find((s) => s.id === lastSet.slotId) : undefined}
           onCorrect={correctSet}
@@ -351,6 +374,8 @@ export default function WorkoutScreen() {
           reload();
         }}
         onSkip={skip}
+        canSkip={!loose}
+        weightNote={loose ? `también en «${data.routineNames.get(current.routineId) ?? 'su rutina'}»` : 'también para las próximas sesiones'}
       />
     );
   }
@@ -378,12 +403,13 @@ export default function WorkoutScreen() {
         slots={slots}
         sets={sets}
         openChanges={data.openChanges}
+        completedTitle={done}
         rest={
           session.restEndsAt
             ? {
                 endsAt: session.restEndsAt,
                 totalSeconds: restSecondsOf(slots.find((s) => s.id === session.currentSlotId), settings.restSecondsDefault),
-                nextLabel: describeNext(restNext, slots),
+                nextLabel: describeNext(restNext, slots, done),
                 onOpen: () => setBrowsing(false),
               }
             : null
@@ -401,6 +427,7 @@ function ExerciseList({
   sets,
   openChanges,
   rest,
+  completedTitle,
   onChoose,
   onFinish,
 }: {
@@ -408,6 +435,8 @@ function ExerciseList({
   slots: Slot[];
   sets: SetLog[];
   openChanges: WeightChange[];
+  /** «Rutina completada», «Ejercicio completado» or «Ejercicios completados». */
+  completedTitle: string;
   rest: { endsAt: number; totalSeconds: number; nextLabel: string; onOpen: () => void } | null;
   onChoose: (slotId: number) => void;
   onFinish: () => void;
@@ -448,7 +477,7 @@ function ExerciseList({
           <View style={styles.completedIcon}>
             <Icon name="check-bold" size={34} color={colors.onPrimary} />
           </View>
-          <AppText variant="title">Rutina completada</AppText>
+          <AppText variant="title">{completedTitle}</AppText>
           <AppText variant="secondary" style={{ textAlign: 'center' }}>
             {doneCount} {doneCount === 1 ? 'ejercicio' : 'ejercicios'} · {setsLabel(working)} · {formatMinutes(elapsed)}
           </AppText>
@@ -500,8 +529,13 @@ function ExerciseList({
         })}
         {session.routineId !== null ? (
           <AddRow
-            title="Añadir ejercicio"
+            title="Añadir ejercicio a la rutina"
             onPress={() => router.push({ pathname: '/ejercicios', params: { pickFor: String(session.routineId) } })}
+          />
+        ) : !rest ? (
+          <AddRow
+            title="Añadir otro ejercicio"
+            onPress={() => router.push({ pathname: '/ejercicio-suelto', params: { sesion: String(session.id) } })}
           />
         ) : null}
       </ListGroup>
@@ -554,77 +588,6 @@ function RestBar({ endsAt, totalSeconds, nextLabel, onOpen }: { endsAt: number; 
       </AppText>
       <Icon name="chevron-right" size={20} color={colors.muted} />
     </Pressable>
-  );
-}
-
-const AnimatedCircle = Animated.createAnimatedComponent(Circle);
-
-/**
- * A ring that empties clockwise from 12 o'clock, like a clock hand, until `endsAt`, and is full
- * once `over`. It moves on the UI thread in one continuous animation, not in the steps of the
- * countdown; coming back to the app starts it again from where it should be.
- */
-function Ring({
-  size,
-  stroke,
-  endsAt,
-  totalMs,
-  over,
-  color,
-}: {
-  size: number;
-  stroke: number;
-  endsAt: number;
-  totalMs: number;
-  over: boolean;
-  color: string;
-}) {
-  const r = (size - stroke) / 2;
-  const length = 2 * Math.PI * r;
-  const progress = useSharedValue(1);
-
-  useEffect(() => {
-    const run = () => {
-      cancelAnimation(progress);
-      const left = endsAt - Date.now();
-      if (over || left <= 0) {
-        progress.set(over ? 1 : 0);
-        return;
-      }
-      // +30 s can leave more than the rest planned: the ring then starts full.
-      progress.set(Math.min(1, left / Math.max(totalMs, left)));
-      progress.set(withTiming(0, { duration: left, easing: Easing.linear }));
-    };
-    run();
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') run();
-    });
-    return () => {
-      subscription.remove();
-      cancelAnimation(progress);
-    };
-  }, [endsAt, totalMs, over, progress]);
-
-  // The dash pattern repeats every 2 × length: this offset leaves only the last part of the
-  // circle, from the moving end to 12 o'clock.
-  const animatedProps = useAnimatedProps(() => ({ strokeDashoffset: length * (1 + progress.get()) }));
-
-  return (
-    <Svg width={size} height={size}>
-      <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.cardAlt} strokeWidth={stroke} fill="none" />
-      <AnimatedCircle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        stroke={color}
-        strokeWidth={stroke}
-        fill="none"
-        strokeLinecap="round"
-        strokeDasharray={`${length} ${length}`}
-        animatedProps={animatedProps}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-      />
-    </Svg>
   );
 }
 
@@ -694,6 +657,8 @@ function SetView({
   onDelete,
   onWeight,
   onSkip,
+  canSkip,
+  weightNote,
 }: {
   title: string;
   slot: Slot;
@@ -710,6 +675,10 @@ function SetView({
   onDelete: (set: SetLog) => void;
   onWeight: (kg: number | null) => Promise<void>;
   onSkip: () => void;
+  /** A loose exercise is not skipped: going back drops it if it has no sets. */
+  canSkip: boolean;
+  /** Where else the new weight applies: «también para las próximas sesiones» or the routine it belongs to. */
+  weightNote: string;
 }) {
   const db = useDb();
   const done = slotSets.length;
@@ -776,7 +745,7 @@ function SetView({
 
   const menu = () =>
     showActions([
-      { text: 'Saltar ejercicio', icon: 'skip-next-outline', onPress: onSkip },
+      ...(canSkip ? [{ text: 'Saltar ejercicio', icon: 'skip-next-outline' as const, onPress: onSkip }] : []),
       ...(done > 0 ? [{ text: 'Añadir aproximación', icon: 'plus' as const, onPress: () => openWarmup(null) }] : []),
       { text: 'Editar ejercicio de la rutina', icon: 'pencil-outline', onPress: () => router.push(`/slot/${slot.id}`) },
     ]);
@@ -963,7 +932,7 @@ function SetView({
       <Sheet visible={sheet?.kind === 'weight'} title={bodyweight ? 'Cambiar lastre' : 'Cambiar peso'} onClose={() => setSheet(null)}>
         <Stepper big decimal value={sheetKg} onChange={setSheetKg} step={increment} format={loadText} typing={false} />
         <AppText variant="caption">
-          {slot.exercisePair ? 'De cada mancuerna; también para las próximas sesiones' : 'También para las próximas sesiones'}
+          {slot.exercisePair ? `De cada mancuerna; ${weightNote}` : capitalizeFirst(weightNote)}
         </AppText>
         <Button
           size="lg"
@@ -1113,6 +1082,7 @@ function RestView({
   totalSeconds,
   next,
   nextSlot,
+  nextSlotDone,
   lastSet,
   lastSlot,
   onCorrect,
@@ -1127,6 +1097,8 @@ function RestView({
   totalSeconds: number;
   next: NextStep;
   nextSlot: Slot | null;
+  /** Sets already done of the next exercise: one left half done does not start at «Primera serie». */
+  nextSlotDone: number;
   lastSet: SetLog | null;
   lastSlot: Slot | undefined;
   onCorrect: (set: SetLog, reps: number) => void;
@@ -1158,6 +1130,9 @@ function RestView({
       : next.kind === 'next_exercise'
         ? 'Siguiente ejercicio'
         : 'Terminar';
+  const nextSetNumber = next.kind === 'next_set' ? next.setNumber : nextSlotDone + 1;
+  const nextSetLabel =
+    next.kind === 'next_exercise' && nextSetNumber === 1 ? 'Primera serie' : `Serie ${nextSetNumber} de ${nextSlot?.sets ?? 0}`;
   const ringSize = 264;
   const ink = over ? colors.primary : colors.text;
 
@@ -1230,7 +1205,7 @@ function RestView({
                 </AppText>
               </View>
             }
-            subtitle={`${next.kind === 'next_set' ? `Serie ${next.setNumber} de ${nextSlot.sets}` : 'Primera serie'} · ${formatLoad(
+            subtitle={`${nextSetLabel} · ${formatLoad(
               nextSlot.weightKg,
               isBodyweight(nextSlot),
               nextSlot.exercisePair,

@@ -1,4 +1,7 @@
+import { CATALOG_MUSCLES } from '@/domain/muscles';
 import type { Db } from './db';
+
+const sqlText = (text: string) => `'${text.replaceAll("'", "''")}'`;
 
 /**
  * Tracking type and timer plan inferred from the activity, for cardio created before they existed
@@ -17,6 +20,16 @@ export const CARDIO_TRACKING_DEFAULTS = `
     SET tracking = 'timer',
         plan = '{"kind":"liss","minutes":' || COALESCE(NULLIF(CAST(target AS INTEGER), 0), 30) || '}'
     WHERE tracking = 'check' AND name LIKE '%bici%';
+`;
+
+/**
+ * «Sprints + Bouncing», recorded until 1.3.3 with the HIIT timer, becomes a sprints activity
+ * (migration 8, the seed and backups older than 8). To go back: Fases → HIIT in its editor.
+ */
+export const SPRINT_TRACKING_DEFAULTS = `
+  UPDATE cardio_activity
+    SET tracking = 'sprint', plan = '{"kind":"sprint","sprints":6,"restSec":90}'
+    WHERE tracking = 'timer' AND name LIKE '%sprint%' AND plan LIKE '%"kind":"hiit"%';
 `;
 
 /** Exercises done with two dumbbells (material «mancuernas»): their weight is that of each one. */
@@ -47,6 +60,21 @@ export const FOOD_NAME_FIXES = FOOD_RENAMES.map(
     `UPDATE food SET name = '${to}' WHERE name = '${from}'
        AND NOT EXISTS (SELECT 1 FROM food WHERE name = '${to}' COLLATE NOCASE);`,
 ).join('\n');
+
+/**
+ * Muscles of the catalog exercises, by name (migration 9, the seed and backups older than 9). An
+ * exercise that already has muscles is left as the user set it.
+ */
+export const EXERCISE_MUSCLE_DEFAULTS = CATALOG_MUSCLES.map(([name, primary, secondary]) => {
+  const values = [
+    ...primary.map((m) => `(${sqlText(m)}, 'primary')`),
+    ...secondary.map((m) => `(${sqlText(m)}, 'secondary')`),
+  ].join(', ');
+  return `INSERT INTO exercise_muscle (exercise_id, muscle, role)
+    SELECT e.id, m.column1, m.column2 FROM exercise e, (VALUES ${values}) m
+    WHERE e.name = ${sqlText(name)} COLLATE NOCASE
+      AND NOT EXISTS (SELECT 1 FROM exercise_muscle x WHERE x.exercise_id = e.id);`;
+}).join('\n');
 
 /**
  * Append-only list: never edit a migration that has shipped, add a new one instead.
@@ -263,6 +291,21 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE exercise ADD COLUMN pair INTEGER NOT NULL DEFAULT 0;
   ${EXERCISE_PAIR_DEFAULTS}
+  `,
+  `
+  ALTER TABLE cardio_session ADD COLUMN laps TEXT;
+  ALTER TABLE cardio_session ADD COLUMN lap_fixes TEXT;
+  ALTER TABLE cardio_point ADD COLUMN received_at INTEGER;
+  ${SPRINT_TRACKING_DEFAULTS}
+  `,
+  `
+  CREATE TABLE exercise_muscle (
+    exercise_id INTEGER NOT NULL REFERENCES exercise(id) ON DELETE CASCADE,
+    muscle TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('primary', 'secondary')),
+    PRIMARY KEY (exercise_id, muscle)
+  );
+  ${EXERCISE_MUSCLE_DEFAULTS}
   `,
 ];
 

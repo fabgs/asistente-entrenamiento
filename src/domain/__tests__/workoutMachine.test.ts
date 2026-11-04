@@ -1,4 +1,4 @@
-import { nextPendingSlot, nextStep, setsDone, slotToOpen } from '../workoutMachine';
+import { looseSlotIds as loose, nextPendingSlot, nextStep, setsDone, slotToOpen } from '../workoutMachine';
 
 const slots = [
   { slotId: 1, sets: 2 },
@@ -67,5 +67,28 @@ describe('slotToOpen', () => {
 
   it('does not count warm-ups as sets done', () => {
     expect(slotToOpen(slots, [{ slotId: 1, isWarmup: true }, ...done(2)], [], null, false)).toBe(1);
+  });
+});
+
+describe('looseSlotIds', () => {
+  const set = (slotId: number | null, isWarmup = false) => ({ slotId, isWarmup });
+  it('lists the slots of the sets, then the one in course', () => {
+    expect(loose([], null)).toEqual([]);
+    expect(loose([], 7)).toEqual([7]);
+    const sets = [set(3), set(5), set(3), set(null)];
+    expect(loose(sets, null)).toEqual([3, 5]);
+    expect(loose(sets, 9)).toEqual([3, 5, 9]);
+    expect(loose(sets, 5)).toEqual([3, 5]);
+    expect(loose([set(4, true)], null)).toEqual([4]);
+  });
+
+  it('works with nextStep like a routine of those slots', () => {
+    const planned = (ids: number[]) => ids.map((slotId) => ({ slotId, sets: slotId === 1 ? 3 : 2 }));
+    const a3 = [set(1), set(1), set(1)];
+    expect(nextStep(planned(loose(a3, 2)), a3, [], 1)).toEqual({ kind: 'next_exercise', slotId: 2 });
+    const back = [set(1), set(2), set(2)];
+    expect(nextStep(planned(loose(back, null)), back, [], 2)).toEqual({ kind: 'next_exercise', slotId: 1 });
+    const all = [...a3, set(2), set(2)];
+    expect(nextStep(planned(loose(all, null)), all, [], 2)).toEqual({ kind: 'finished' });
   });
 });

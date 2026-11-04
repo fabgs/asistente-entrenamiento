@@ -21,7 +21,7 @@ import type { Db } from '@/db/db';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatCountdown } from '@/domain/format';
 import { useDb, useLoader } from '@/hooks/data';
-import { githubToken } from '@/services/backup';
+import { githubToken, hasBackupPassword } from '@/services/backup';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import {
   countScheduledNotifications,
@@ -40,6 +40,7 @@ interface Loaded {
   permissions: PermissionState;
   scheduled: number;
   hasToken: boolean;
+  encrypted: boolean;
 }
 
 const load = async (db: Db): Promise<Loaded> => ({
@@ -47,6 +48,7 @@ const load = async (db: Db): Promise<Loaded> => ({
   permissions: await getPermissionState(),
   scheduled: await countScheduledNotifications(),
   hasToken: (await githubToken.get()) !== null,
+  encrypted: await hasBackupPassword(),
 });
 
 /** Everything is saved as soon as it changes (PLAN.md §8). */
@@ -125,6 +127,7 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
       <BackupSection
         settings={data.settings}
         hasToken={data.hasToken}
+        encrypted={data.encrypted}
         devMode={settings.devMode}
         onChanged={reload}
         onReplaced={onReplaced}

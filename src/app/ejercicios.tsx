@@ -1,30 +1,16 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Fragment, useState } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
-import {
-  AppText,
-  Button,
-  Card,
-  Divider,
-  EmptyState,
-  HeaderButton,
-  Icon,
-  ListRow,
-  Loading,
-  Screen,
-} from '@/components/ui';
+import { StyleSheet, View } from 'react-native';
+import { SearchField } from '@/components/SearchField';
+import { Button, Card, Divider, EmptyState, ExerciseIcon, HeaderButton, ListRow, Loading, Screen } from '@/components/ui';
 import { listExercises, type Exercise } from '@/db/repositories/exercises';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { addSlot } from '@/db/repositories/routines';
 import { normalizeForSearch } from '@/domain/format';
+import { hasMuscles, matchesExercise, muscleLabel } from '@/domain/muscles';
 import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule } from '@/hooks/editing';
-import { colors, radius, spacing, type } from '@/theme';
-
-/** Letter an exercise is filed under: "Á" goes with "A", anything else under "#". */
-const initialOf = (name: string) => {
-  const letter = normalizeForSearch(name).charAt(0).toUpperCase();
-  return /[A-Z]/.test(letter) ? letter : '#';
-};
+import { spacing } from '@/theme';
 
 /** Alphabetical without minding accents (SQLite's NOCASE would put "Á" after "Z"). */
 const byName = (a: Exercise, b: Exercise) => {
@@ -32,14 +18,18 @@ const byName = (a: Exercise, b: Exercise) => {
   return x < y ? -1 : x > y ? 1 : 0;
 };
 
-/** Exercise catalog. With `pickFor` (a routine id), tapping an exercise adds it to that routine. */
+/**
+ * Exercise catalog. With `pickFor` (a routine id), tapping an exercise adds it to that routine; with
+ * `sinMusculos` (ids), only those of them still without muscles (from «N ejercicios sin músculos»).
+ */
 export default function ExercisesScreen() {
-  const { pickFor } = useLocalSearchParams<{ pickFor?: string }>();
+  const { pickFor, sinMusculos } = useLocalSearchParams<{ pickFor?: string; sinMusculos?: string }>();
   const routineId = pickFor ? Number(pickFor) : null;
+  const onlyIds = sinMusculos ? sinMusculos.split(',').map(Number) : null;
   const db = useDb();
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
-  const { data } = useLoader((db) => listExercises(db));
+  const { data } = useLoader(async (db) => ({ exercises: await listExercises(db), muscles: await allExerciseMuscles(db) }));
 
   const create = (name?: string) =>
     router.push({
@@ -49,8 +39,8 @@ export default function ExercisesScreen() {
   const header = (
     <Stack.Screen
       options={{
-        title: routineId === null ? 'Ejercicios' : 'Añadir ejercicio',
-        headerRight: () => <HeaderButton icon="plus" label="Nuevo ejercicio" onPress={() => create()} />,
+        title: onlyIds ? 'Sin músculos' : routineId === null ? 'Ejercicios' : 'Añadir ejercicio',
+        headerRight: onlyIds ? undefined : () => <HeaderButton icon="plus" label="Nuevo ejercicio" onPress={() => create()} />,
       }}
     />
   );
@@ -64,8 +54,11 @@ export default function ExercisesScreen() {
     );
   }
 
-  const wanted = normalizeForSearch(query.trim());
-  const visible = data.filter((e) => normalizeForSearch(e.name).includes(wanted)).sort(byName);
+  const wanted = query.trim();
+  const visible = data.exercises
+    .filter((e) => !onlyIds || (onlyIds.includes(e.id) && !hasMuscles(data.muscles.get(e.id))))
+    .filter((e) => matchesExercise(wanted, e.name, data.muscles.get(e.id)))
+    .sort(byName);
 
   const choose = async (exercise: Exercise) => {
     if (routineId === null) {
@@ -87,7 +80,9 @@ export default function ExercisesScreen() {
     <Screen>
       {header}
       <SearchField value={query} onChangeText={setQuery} />
-      {visible.length === 0 ? (
+      {visible.length === 0 && onlyIds ? (
+        <EmptyState icon="check-circle-outline" title="Ya tienen músculos" text="Sus series cuentan en tu semana." />
+      ) : visible.length === 0 ? (
         <EmptyState
           icon={wanted ? 'magnify' : 'dumbbell'}
           title={wanted ? 'Ningún ejercicio coincide' : 'Sin ejercicios todavía'}
@@ -103,23 +98,18 @@ export default function ExercisesScreen() {
           }
         />
       ) : (
-        // One list; the initial of each letter sits in the leading slot of its first row, so that
-        // the letters cost no height (9 rows fit at 360 × 780 dp).
+        // Alphabetical, each with the icon of its movement and its main muscles underneath.
         <Card flush>
           {visible.map((exercise, i) => {
-            const initial = initialOf(exercise.name);
-            const first = i === 0 || initialOf(visible[i - 1].name) !== initial;
+            const muscles = data.muscles.get(exercise.id);
             return (
               <Fragment key={exercise.id}>
-                {i > 0 ? <Divider inset={first ? spacing.lg : 72} /> : null}
+                {i > 0 ? <Divider inset={72} /> : null}
                 <ListRow
                   onPress={() => choose(exercise)}
-                  left={
-                    <View style={styles.initial}>
-                      {first ? <AppText variant="overline">{initial}</AppText> : null}
-                    </View>
-                  }
+                  left={<ExerciseIcon muscles={muscles} />}
                   title={exercise.name}
+                  subtitle={muscles?.primary.length ? muscles.primary.map(muscleLabel).join(', ') : 'Sin músculos'}
                 />
               </Fragment>
             );
@@ -130,51 +120,6 @@ export default function ExercisesScreen() {
   );
 }
 
-/** Search box: magnifier inside, no label, and a cross to empty it. */
-function SearchField({ value, onChangeText }: { value: string; onChangeText: (text: string) => void }) {
-  const [focused, setFocused] = useState(false);
-  return (
-    <View style={[styles.search, focused && styles.searchFocused]}>
-      <Icon name="magnify" size={20} color={colors.muted} />
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
-        onBlur={() => setFocused(false)}
-        placeholder="Buscar ejercicio"
-        placeholderTextColor={colors.muted}
-        accessibilityLabel="Buscar ejercicio"
-        autoCorrect={false}
-        returnKeyType="search"
-        style={styles.searchInput}
-      />
-      {value ? (
-        <Pressable
-          onPress={() => onChangeText('')}
-          hitSlop={12}
-          accessibilityRole="button"
-          accessibilityLabel="Vaciar la búsqueda">
-          <Icon name="close" size={20} color={colors.muted} />
-        </Pressable>
-      ) : null}
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  initial: { width: 40 },
   emptyAction: { alignSelf: 'stretch', marginTop: spacing.sm },
-  search: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    minHeight: 56,
-    paddingHorizontal: spacing.md,
-    backgroundColor: colors.cardAlt,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-  },
-  searchFocused: { borderWidth: 2, borderColor: colors.primary, margin: -1 },
-  searchInput: { ...type.body, flex: 1, color: colors.text, paddingVertical: spacing.sm },
 });

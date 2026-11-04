@@ -8,7 +8,17 @@ import { exportBackup, getMeta, parseBackup, resetData, restoreBackup, setMeta, 
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { SEED } from '@/db/seedData';
 import type { SeedData } from '@/db/seedTypes';
+import {
+  createBackupKey,
+  decryptBackup,
+  encryptBackup,
+  keyForBackup,
+  readEncrypted,
+  sameKdf,
+  type BackupKey,
+} from '@/domain/backupCipher';
 import { localDateString } from '@/domain/schedule';
+import { appKit, backupKeyStore } from './backupCipher';
 import { rescheduleDailyReminders } from './dailyReminder';
 import { getRawFile, putFile, type GithubTarget } from './githubBackup';
 import { resetNotifications } from './notifications';
@@ -50,12 +60,59 @@ export async function resetToSeed(db: Db, now = new Date(), seed: SeedData = SEE
   await rescheduleDailyReminders(db);
 }
 
+/** Thrown by `openBackup` when the copy is encrypted and no stored key opens it. */
+export class PasswordNeededError extends Error {
+  constructor() {
+    super('Esta copia está cifrada: hace falta su contraseña.');
+  }
+}
+
+/** Whether copies leave the phone encrypted (PLAN.md §9). */
+export async function hasBackupPassword(): Promise<boolean> {
+  return (await backupKeyStore.get()) !== null;
+}
+
+/** Derives the key (a few seconds) and keeps it; the following copies go encrypted. */
+export async function setBackupPassword(password: string): Promise<void> {
+  await backupKeyStore.set(await createBackupKey(password, appKit));
+}
+
+export const clearBackupPassword = (): Promise<void> => backupKeyStore.clear();
+
+/** The text of a copy: the JSON of the data, encrypted if there is a password. */
+async function backupText(db: Db, now: Date): Promise<string> {
+  const json = JSON.stringify(await exportBackup(db, now));
+  const key = await backupKeyStore.get();
+  return key ? encryptBackup(json, key, appKit) : json;
+}
+
 async function writeBackupFile(db: Db, now: Date): Promise<File> {
   const file = new File(Paths.cache, `entreno-backup-${localDateString(now)}.json`);
   if (file.exists) file.delete();
   file.create();
-  await file.write(JSON.stringify(await exportBackup(db, now)));
+  await file.write(await backupText(db, now));
   return file;
+}
+
+/** A copy ready to restore, and the key that opened it if it was encrypted. */
+export interface OpenedBackup {
+  backup: Backup;
+  key: BackupKey | null;
+}
+
+/**
+ * Reads a copy, plain or encrypted. An encrypted one opens with the stored key if it is the same
+ * password, or with `password` (PasswordNeededError without it, WrongPasswordError if it is not).
+ */
+export async function openBackup(text: string, password?: string): Promise<OpenedBackup> {
+  const envelope = readEncrypted(text);
+  if (!envelope) return { backup: parseBackup(text), key: null };
+  const stored = await backupKeyStore.get();
+  let key: BackupKey;
+  if (stored && sameKdf(stored.kdf, envelope.kdf)) key = stored;
+  else if (password) key = await keyForBackup(envelope, password, appKit);
+  else throw new PasswordNeededError();
+  return { backup: parseBackup(await decryptBackup(envelope, key, appKit)), key };
 }
 
 /** Opens the share sheet with a JSON backup (save to Drive, send by Telegram…). */
@@ -64,15 +121,20 @@ export async function shareBackupFile(db: Db, now = new Date()): Promise<void> {
   await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Guardar copia de seguridad' });
 }
 
-/** Lets the user choose a backup file; null if cancelled. Throws BackupError if it is not valid. */
-export async function pickBackupFile(): Promise<Backup | null> {
+/** Lets the user choose a backup file; its text, or null if cancelled. Open it with `openBackup`. */
+export async function pickBackupFile(): Promise<string | null> {
   const picked = await File.pickFileAsync({ mimeTypes: ['application/json', 'text/plain', 'application/octet-stream'] });
   if (picked.canceled || !picked.result) return null;
-  return parseBackup(await picked.result.text());
+  return picked.result.text();
 }
 
-export async function restoreFrom(db: Db, backup: Backup): Promise<void> {
+/**
+ * Replaces the data with the copy. On a phone without a password yet, the one of an encrypted copy
+ * is kept for the next ones (a new phone restoring its copies); only once restored, not on cancel.
+ */
+export async function restoreFrom(db: Db, { backup, key }: OpenedBackup): Promise<void> {
   await restoreBackup(db, backup);
+  if (key && !(await backupKeyStore.get())) await backupKeyStore.set(key);
   await resetNotifications();
   await rescheduleDailyReminders(db);
 }
@@ -98,12 +160,12 @@ export async function backupToGithub(db: Db, now = new Date()): Promise<void> {
   }
 }
 
-/** Downloads the latest backup from GitHub without applying it, so the user can confirm first. */
-export async function downloadFromGithub(db: Db): Promise<Backup> {
+/** Downloads the latest backup from GitHub without applying it: its text, to open with `openBackup`. */
+export async function downloadFromGithub(db: Db): Promise<string> {
   const target = githubTarget(await getSettings(db));
   const token = await githubToken.get();
   if (!target || !token) throw new Error('Configura el repositorio y el token de GitHub primero.');
-  return parseBackup(await getRawFile(target, token));
+  return getRawFile(target, token);
 }
 
 /** At most once a day, never in developer mode, silently skipped if not configured or offline. */

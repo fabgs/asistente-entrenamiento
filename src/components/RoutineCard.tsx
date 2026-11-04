@@ -3,19 +3,11 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { isBodyweight, type Routine, type Slot } from '@/db/repositories/routines';
 import { applyChange, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatLoad, formatTarget } from '@/domain/format';
-import { WEEKDAY_NAMES } from '@/domain/schedule';
-import type { IsoWeekday } from '@/domain/types';
+import { weekdaysLabel } from '@/domain/schedule';
 import { useDb } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 import { OpenChange, SuggestionLine } from './Recommendation';
 import { AppText, Button, Card, Icon, IconButton, RowIcon, SectionLabel, Tag, useBusy } from './ui';
-
-/** "Lunes", "Lunes y jueves", "Lunes, miércoles y viernes" or "Sin día". */
-export function weekdaysLabel(days: IsoWeekday[]): string {
-  const names = days.map((d, i) => (i === 0 ? WEEKDAY_NAMES[d] : WEEKDAY_NAMES[d].toLowerCase()));
-  if (names.length === 0) return 'Sin día';
-  return names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : names[0];
-}
 
 /** "7 ejercicios · 19 series" or "Sin ejercicios". */
 export function routineCounts(slots: Slot[]): string {
@@ -144,9 +136,9 @@ export function RoutineCard(props: RoutineCardProps) {
             {slots.map((slot) => {
               const change = open.find((c) => c.slotId === slot.id);
               const suggestion = !change ? null : today ? (
-                <OpenChange change={change} onChanged={onChanged} />
+                <OpenChange change={change} onChanged={onChanged} boxed />
               ) : (
-                <SuggestionLine change={change} onChanged={onChanged} />
+                <SuggestionLine change={change} onChanged={onChanged} boxed />
               );
               return (
                 <SlotRow

@@ -79,6 +79,7 @@ export default function DietScreen() {
 
   useLayoutEffect(() => {
     const actions: SheetAction[] = [
+      { text: 'Objetivos del día', icon: 'target', onPress: () => router.push('/objetivos') },
       { text: 'Catálogo de alimentos', icon: 'food-apple-outline', onPress: () => router.push('/alimentos') },
     ];
     // Copying an empty day would only empty the others.

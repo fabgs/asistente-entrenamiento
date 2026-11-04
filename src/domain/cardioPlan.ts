@@ -1,4 +1,7 @@
-export type CardioTracking = 'check' | 'gps' | 'timer';
+import { describeSprintPlan, type SprintPlan } from './sprint';
+
+/** How an activity is recorded: checked off, a GPS walk, a timer by phases or sprints. */
+export type CardioTracking = 'check' | 'gps' | 'timer' | 'sprint';
 export type Intensity = 'low' | 'medium' | 'high';
 
 export type CardioPlan =
@@ -158,3 +161,26 @@ export function planAlarms(plan: CardioPlan, name: string, planStartMs: number, 
   if (end > now) alarms.push({ key: 'end', at: end, title: '¡Cardio terminado!', body: `${name} · ${describePlan(plan)}` });
   return alarms;
 }
+
+/**
+ * What an activity is about, after its target: the plan of a timer or of the sprints, or its
+ * intensity. Hoy and the weekly cardio show the same text.
+ */
+export function trackingDetails(a: {
+  tracking: CardioTracking;
+  plan: CardioPlan | null;
+  sprint: SprintPlan | null;
+  intensity: string | null;
+}): string | null {
+  if (a.tracking === 'timer' && a.plan) {
+    return a.plan.kind === 'liss' ? PLAN_KIND_LABEL.liss : `${PLAN_KIND_LABEL[a.plan.kind]} · ${describePlan(a.plan)}`;
+  }
+  if (a.tracking === 'sprint' && a.sprint) return describeSprintPlan(a.sprint);
+  return a.intensity;
+}
+
+/**
+ * Cardio that uses the lock-screen countdown of the rest-timer module (the timer by phases and the
+ * sprints): it cannot run while a workout does, which needs it for its rests.
+ */
+export const sharesLockCountdown = (tracking: CardioTracking) => tracking === 'sprint' || tracking === 'timer';

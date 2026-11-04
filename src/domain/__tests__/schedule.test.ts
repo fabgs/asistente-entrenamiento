@@ -1,4 +1,6 @@
 import {
+  ALL_DONE_MESSAGES,
+  allDoneMessage,
   buildDailyMessage,
   dateOfWeekday,
   isoToExpoWeekday,
@@ -7,6 +9,7 @@ import {
   parseLocalDate,
   pickerStartDate,
   today,
+  weekdaysLabel,
 } from '../schedule';
 
 describe('weekday conventions', () => {
@@ -72,5 +75,26 @@ describe('buildDailyMessage', () => {
       title: 'Domingo · Descanso',
       body: 'Día libre',
     });
+  });
+});
+
+describe('allDoneMessage', () => {
+  it('keeps one message all day and changes it the next day', () => {
+    expect(allDoneMessage('2026-11-04')).toBe(allDoneMessage('2026-11-04'));
+    expect(allDoneMessage('2026-11-05')).not.toBe(allDoneMessage('2026-11-04'));
+  });
+
+  it('goes through every message in a week', () => {
+    const week = ['2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08'];
+    expect(new Set(week.map(allDoneMessage)).size).toBe(ALL_DONE_MESSAGES.length);
+  });
+});
+
+describe('weekdaysLabel', () => {
+  it('lists the days in Spanish', () => {
+    expect(weekdaysLabel([1])).toBe('Lunes');
+    expect(weekdaysLabel([1, 4])).toBe('Lunes y jueves');
+    expect(weekdaysLabel([1, 2, 4, 5])).toBe('Lunes, martes, jueves y viernes');
+    expect(weekdaysLabel([])).toBe('Sin día');
   });
 });

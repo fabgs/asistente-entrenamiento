@@ -146,11 +146,15 @@ export function LineChart({
 }
 
 const styles = StyleSheet.create({
+  // Over the plot, not the whole card: the figure starts where the line does and the date ends
+  // above the last date of the axis.
   readout: {
     minHeight: 44,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.sm,
+    paddingLeft: PAD.left,
+    paddingRight: PAD.right,
   },
 });

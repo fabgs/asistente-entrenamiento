@@ -2,12 +2,20 @@ import Constants from 'expo-constants';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
-import { canDrawOverlays, isIgnoringBatteryOptimizations, stopRestCountdown } from '../../modules/rest-timer';
+import {
+  cancelSprintBeep,
+  canDrawOverlays,
+  isIgnoringBatteryOptimizations,
+  stopOngoing,
+  stopRestCountdown,
+} from '../../modules/rest-timer';
 
 // Android channels are immutable once created: bump the suffix when changing sound or importance.
 export const REST_CHANNEL_ID = 'rest-timer-v1';
 export const DAILY_CHANNEL_ID = 'daily-reminder-v1';
 export const REST_SOUND = 'rest_end.wav';
+/** The sprint beep went through this channel until the app played it itself (PLAN.md §6.8). */
+const OLD_SPRINT_CHANNEL_ID = 'sprint-go-v1';
 
 export function configureNotificationHandler(): void {
   Notifications.setNotificationHandler({
@@ -36,6 +44,7 @@ export async function ensureChannels(): Promise<void> {
       contentType: Notifications.AndroidAudioContentType.SONIFICATION,
     },
   });
+  await Notifications.deleteNotificationChannelAsync(OLD_SPRINT_CHANNEL_ID).catch(() => undefined);
   await Notifications.setNotificationChannelAsync(DAILY_CHANNEL_ID, {
     name: 'Recordatorio diario',
     description: 'Lo que toca entrenar hoy',
@@ -106,7 +115,9 @@ export async function openNotificationSettings(): Promise<void> {
 
 /** Cancels every pending alarm and reminder (after wiping or restoring data). */
 export async function resetNotifications(): Promise<void> {
+  stopOngoing();
   stopRestCountdown();
+  cancelSprintBeep();
   await Notifications.cancelAllScheduledNotificationsAsync();
   await Notifications.dismissAllNotificationsAsync();
 }

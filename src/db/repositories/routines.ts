@@ -164,6 +164,17 @@ export async function listSlots(db: Db, routineId: number): Promise<Slot[]> {
   return rows.map(toSlot);
 }
 
+/** Slots by id, in the order of `ids`; missing ones are skipped (with `activeOnly`, also archived ones). */
+export async function listSlotsByIds(db: Db, ids: readonly number[], activeOnly = false): Promise<Slot[]> {
+  if (ids.length === 0) return [];
+  const rows = await db.getAllAsync<SlotRow>(
+    `${SLOT_SELECT} WHERE s.id IN (${ids.map(() => '?').join(', ')})${activeOnly ? ' AND s.archived = 0' : ''}`,
+    ...ids,
+  );
+  const byId = new Map(rows.map((r) => [r.id, toSlot(r)]));
+  return ids.map((id) => byId.get(id)).filter((s): s is Slot => s !== undefined);
+}
+
 export async function getSlot(db: Db, slotId: number): Promise<Slot | null> {
   const row = await db.getFirstAsync<SlotRow>(`${SLOT_SELECT} WHERE s.id = ?`, slotId);
   return row ? toSlot(row) : null;

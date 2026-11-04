@@ -3,7 +3,7 @@ import { recommend } from '@/domain/progression';
 import { dateOfWeekday, localDateString } from '@/domain/schedule';
 import type { ProgressionSettings } from '@/domain/types';
 import { int, type Db } from './db';
-import { CARDIO_TRACKING_DEFAULTS } from './migrations';
+import { CARDIO_TRACKING_DEFAULTS, EXERCISE_MUSCLE_DEFAULTS, SPRINT_TRACKING_DEFAULTS } from './migrations';
 import { targetColumns } from './repositories/routines';
 import { createRecommendation } from './repositories/weightChanges';
 import type { SeedData } from './seedTypes';
@@ -66,6 +66,7 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
       );
       exerciseIds.set(e.name, r.lastInsertRowId);
     }
+    await db.execAsync(EXERCISE_MUSCLE_DEFAULTS);
 
     for (const [ri, routine] of seed.routines.entries()) {
       const routineId = (
@@ -182,6 +183,7 @@ export async function importSeed(db: Db, seed: SeedData, now: Date): Promise<boo
       );
     }
     await db.execAsync(CARDIO_TRACKING_DEFAULTS);
+    await db.execAsync(SPRINT_TRACKING_DEFAULTS);
 
     const foodIds = new Map<string, number>();
     for (const f of seed.foods) {

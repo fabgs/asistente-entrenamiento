@@ -31,19 +31,25 @@ import android.widget.TextView
 import kotlin.math.abs
 
 /**
- * Runs while resting between sets. It shows an ongoing notification whose countdown is drawn by
- * the system (so it keeps ticking on the lock screen with the app closed, and becomes a Live Update
- * on Android 16) and, while the app is in the background, a draggable bubble over other apps.
- * The rest-end sound is a separate alarm scheduled with expo-notifications.
+ * Runs while resting between sets and, if one is set, for the whole activity (a workout). While
+ * resting it shows an ongoing notification whose countdown is drawn by the system (so it keeps
+ * ticking on the lock screen with the app closed, and becomes a Live Update on Android 16) and,
+ * while the app is in the background, a draggable bubble over other apps. Otherwise it shows the
+ * activity in progress with a chronometer counting up, as a way back into the app; a countdown
+ * that ends falls back to it. The rest-end sound is a separate alarm scheduled with
+ * expo-notifications.
  */
 class RestTimerService : Service() {
   private val handler = Handler(Looper.getMainLooper())
-  private val finish = Runnable { stopSelf() }
+  private val finish = Runnable { endCountdown() }
   private var endsAt = 0L
   private var title = ""
   private var body = ""
   private var overlayEnabled = false
   private var overlay: View? = null
+  private var foreground = false
+
+  private fun counting() = endsAt > System.currentTimeMillis()
 
   override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,22 +59,22 @@ class RestTimerService : Service() {
   }
 
   override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-    endsAt = intent?.getLongExtra(EXTRA_ENDS_AT, 0L) ?: 0L
-    title = intent?.getStringExtra(EXTRA_TITLE) ?: "Descanso"
-    body = intent?.getStringExtra(EXTRA_BODY) ?: ""
-    overlayEnabled = intent?.getBooleanExtra(EXTRA_OVERLAY, false) ?: false
+    ensureChannels()
+    if (intent?.action != ACTION_COUNTDOWN) {
+      // The activity in progress, unless a countdown is running (it comes back when that ends).
+      if (counting()) post(buildCountdown(endsAt - System.currentTimeMillis())) else showOngoingOrStop()
+      return START_NOT_STICKY
+    }
+    endsAt = intent.getLongExtra(EXTRA_ENDS_AT, 0L)
+    title = intent.getStringExtra(EXTRA_TITLE) ?: "Descanso"
+    body = intent.getStringExtra(EXTRA_BODY) ?: ""
+    overlayEnabled = intent.getBooleanExtra(EXTRA_OVERLAY, false)
     val remaining = endsAt - System.currentTimeMillis()
 
     // startForeground must always be called after startForegroundService, even when stopping.
-    ensureChannel()
-    val notification = buildNotification(remaining.coerceAtLeast(0))
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-    } else {
-      startForeground(NOTIFICATION_ID, notification)
-    }
+    post(buildCountdown(remaining.coerceAtLeast(0)))
     if (remaining <= 0) {
-      stopSelf()
+      endCountdown()
       return START_NOT_STICKY
     }
 
@@ -83,29 +89,67 @@ class RestTimerService : Service() {
     handler.removeCallbacks(finish)
     removeOverlay()
     stopForeground(STOP_FOREGROUND_REMOVE)
+    foreground = false
     if (instance === this) instance = null
     super.onDestroy()
   }
 
-  private fun ensureChannel() {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-    val manager = getSystemService(NotificationManager::class.java)
-    if (manager.getNotificationChannel(CHANNEL_ID) != null) return
-    val channel = NotificationChannel(
-      CHANNEL_ID,
-      "Cuenta atrás del descanso",
-      NotificationManager.IMPORTANCE_DEFAULT,
-    ).apply {
-      description = "Tiempo de descanso restante, también en la pantalla de bloqueo"
-      setSound(null, null)
-      enableVibration(false)
-      setShowBadge(false)
-      lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+  /** Shows `notification` as the service's only one (the first time, as a foreground service). */
+  private fun post(notification: Notification) {
+    if (foreground) {
+      getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, notification)
+      return
     }
-    manager.createNotificationChannel(channel)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+      startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+    } else {
+      startForeground(NOTIFICATION_ID, notification)
+    }
+    foreground = true
   }
 
-  private fun buildNotification(remaining: Long): Notification {
+  /** The countdown is over or was cancelled: back to the activity in progress, if there is one. */
+  internal fun endCountdown() {
+    handler.removeCallbacks(finish)
+    endsAt = 0L
+    removeOverlay()
+    showOngoingOrStop()
+  }
+
+  internal fun refreshOngoing() {
+    if (!counting()) showOngoingOrStop()
+  }
+
+  private fun showOngoingOrStop() {
+    val activity = ongoing
+    if (activity == null) {
+      // Started for an activity cleared on the way: foreground first, as Android requires.
+      if (!foreground) post(buildOngoing(Ongoing(System.currentTimeMillis(), "", "")))
+      stopSelf()
+      return
+    }
+    post(buildOngoing(activity))
+  }
+
+  private fun ensureChannels() {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+    val manager = getSystemService(NotificationManager::class.java)
+    fun create(id: String, name: String, text: String) {
+      if (manager.getNotificationChannel(id) != null) return
+      val channel = NotificationChannel(id, name, NotificationManager.IMPORTANCE_DEFAULT).apply {
+        description = text
+        setSound(null, null)
+        enableVibration(false)
+        setShowBadge(false)
+        lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+      }
+      manager.createNotificationChannel(channel)
+    }
+    create(CHANNEL_ID, "Cuenta atrás del descanso", "Tiempo de descanso restante, también en la pantalla de bloqueo")
+    create(ONGOING_CHANNEL_ID, "Entreno en curso", "Para volver al entreno con un toque mientras está en marcha")
+  }
+
+  private fun buildCountdown(remaining: Long): Notification {
     val builder =
       if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         Notification.Builder(this, CHANNEL_ID).setTimeoutAfter(remaining + 2000)
@@ -113,13 +157,31 @@ class RestTimerService : Service() {
         @Suppress("DEPRECATION")
         Notification.Builder(this)
       }
+    builder.setContentTitle(title).setContentText(body).setChronometerCountDown(true).setWhen(endsAt)
+    return decorate(builder)
+  }
+
+  /** The activity in progress, with the time since it started counting up. */
+  private fun buildOngoing(activity: Ongoing): Notification {
+    val builder =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Notification.Builder(this, ONGOING_CHANNEL_ID)
+      } else {
+        @Suppress("DEPRECATION")
+        Notification.Builder(this)
+      }
+    builder
+      .setContentTitle(activity.title)
+      .setContentText(activity.body)
+      .setChronometerCountDown(false)
+      .setWhen(activity.startedAt)
+    return decorate(builder)
+  }
+
+  private fun decorate(builder: Notification.Builder): Notification {
     builder
       .setSmallIcon(smallIcon())
-      .setContentTitle(title)
-      .setContentText(body)
       .setUsesChronometer(true)
-      .setChronometerCountDown(true)
-      .setWhen(endsAt)
       .setShowWhen(true)
       .setOngoing(true)
       .setOnlyAlertOnce(true)
@@ -161,8 +223,8 @@ class RestTimerService : Service() {
       PendingIntent.getActivity(this, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
     }
 
-  private fun updateOverlay() {
-    val shouldShow = overlayEnabled && !appInForeground && canDrawOverlays(this)
+  internal fun updateOverlay() {
+    val shouldShow = overlayEnabled && counting() && !appInForeground && canDrawOverlays(this)
     if (shouldShow && overlay == null) {
       showOverlay()
     } else if (!shouldShow) {
@@ -272,8 +334,13 @@ class RestTimerService : Service() {
     runCatching { (getSystemService(WINDOW_SERVICE) as WindowManager).removeView(view) }
   }
 
+  private data class Ongoing(val startedAt: Long, val title: String, val body: String)
+
   companion object {
     private const val CHANNEL_ID = "rest-countdown-v1"
+    private const val ONGOING_CHANNEL_ID = "activity-ongoing-v1"
+    private const val ACTION_COUNTDOWN = "expo.modules.resttimer.COUNTDOWN"
+    private const val ACTION_ONGOING = "expo.modules.resttimer.ONGOING"
     private const val GROUP_KEY = "rest-countdown"
     private const val NOTIFICATION_ID = 7341
     private const val EXTRA_ENDS_AT = "endsAt"
@@ -292,22 +359,56 @@ class RestTimerService : Service() {
     private var appInForeground = true
     @Volatile
     private var instance: RestTimerService? = null
+    /** Shown whenever no countdown is running; it outlives the countdowns. */
+    @Volatile
+    private var ongoing: Ongoing? = null
+
+    private fun launch(context: Context, intent: Intent) {
+      // Android 12+ refuses to start a foreground service from the background. The app calls this
+      // from its screens, so a refusal only delays the notification to the next call.
+      runCatching {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+          context.startForegroundService(intent)
+        } else {
+          context.startService(intent)
+        }
+      }
+    }
 
     fun start(context: Context, endsAt: Long, title: String, body: String, overlay: Boolean) {
       val intent = Intent(context, RestTimerService::class.java)
+        .setAction(ACTION_COUNTDOWN)
         .putExtra(EXTRA_ENDS_AT, endsAt)
         .putExtra(EXTRA_TITLE, title)
         .putExtra(EXTRA_BODY, body)
         .putExtra(EXTRA_OVERLAY, overlay)
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-        context.startForegroundService(intent)
-      } else {
-        context.startService(intent)
+      launch(context, intent)
+    }
+
+    /** Ends the countdown: the activity in progress shows again, or the service stops. */
+    fun stop(context: Context) {
+      val service = instance
+      if (service != null) {
+        service.handler.post { service.endCountdown() }
+      } else if (ongoing != null) {
+        launch(context, Intent(context, RestTimerService::class.java).setAction(ACTION_ONGOING))
       }
     }
 
-    fun stop(context: Context) {
-      context.stopService(Intent(context, RestTimerService::class.java))
+    fun startOngoing(context: Context, startedAt: Long, title: String, body: String) {
+      ongoing = Ongoing(startedAt, title, body)
+      val service = instance
+      if (service != null) {
+        service.handler.post { service.refreshOngoing() }
+      } else {
+        launch(context, Intent(context, RestTimerService::class.java).setAction(ACTION_ONGOING))
+      }
+    }
+
+    fun stopOngoing() {
+      ongoing = null
+      val service = instance ?: return
+      service.handler.post { service.refreshOngoing() }
     }
 
     fun setAppInForeground(foreground: Boolean) {

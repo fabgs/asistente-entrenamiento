@@ -10,22 +10,16 @@ import {
   RowIcon,
   Screen,
   Section,
-  type IconName,
+  TRACKING_ICON,
 } from '@/components/ui';
 import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
 import { listRoutines, setRoutineOnWeekday, type Routine } from '@/db/repositories/routines';
-import { describePlan, PLAN_KIND_LABEL, type CardioTracking } from '@/domain/cardioPlan';
+import { trackingDetails } from '@/domain/cardioPlan';
 import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { reschedule, useOnDataChanged, useSavedAtOnce } from '@/hooks/editing';
 import { colors, spacing } from '@/theme';
-
-const TRACKING_ICON: Record<CardioTracking, IconName> = {
-  gps: 'walk',
-  timer: 'timer-outline',
-  check: 'check-circle-outline',
-};
 
 // cardio/actividad/[id] is new: until the dev server regenerates the typed routes, its links are cast.
 const activityHref = (id: number | 'nueva', day?: IsoWeekday) =>
@@ -34,16 +28,8 @@ const activityHref = (id: number | 'nueva', day?: IsoWeekday) =>
 /** "Caminar · 5 km" */
 const activityTitle = (a: CardioActivity) => (a.target ? `${a.name} · ${a.target}` : a.name);
 
-/** Intensity, or the timer plan, and the notes (as on Hoy). */
-function activityDetails(a: CardioActivity): string | undefined {
-  const plan =
-    a.tracking === 'timer' && a.plan
-      ? a.plan.kind === 'liss'
-        ? PLAN_KIND_LABEL.liss
-        : `${PLAN_KIND_LABEL[a.plan.kind]} · ${describePlan(a.plan)}`
-      : a.intensity;
-  return [plan, a.notes].filter(Boolean).join(' · ') || undefined;
-}
+/** Intensity, or the plan of the timer or the sprints, and the notes (as on Hoy). */
+const activityDetails = (a: CardioActivity) => [trackingDetails(a), a.notes].filter(Boolean).join(' · ') || undefined;
 
 /** The whole week's cardio or, with `?dia=N` (ISO weekday), that day: its routines and its cardio. */
 export default function CardioScreen() {

@@ -1,6 +1,6 @@
 import { router, useNavigation } from 'expo-router';
 import { useLayoutEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { showDialog } from '@/components/Dialog';
 import { RoutineCard } from '@/components/RoutineCard';
 import { Sheet } from '@/components/Sheet';
@@ -18,14 +18,15 @@ import {
   Screen,
   Section,
   Tag,
-  type IconName,
+  TRACKING_ICON,
+  useBusy,
 } from '@/components/ui';
-import { cardioForWeekday, cardioLogOn, setCardioDone, type CardioActivity, type CardioDone } from '@/db/repositories/cardio';
-import { getActiveCardioSession } from '@/db/repositories/cardioSessions';
+import { cardioLogOn, listCardio, setCardioDone, type CardioActivity, type CardioDone } from '@/db/repositories/cardio';
+import { getActiveCardioSession, getCardioSession } from '@/db/repositories/cardioSessions';
 import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import {
   discardSession,
-  finishedRoutinesOn,
+  finishedSessionsOn,
   finishSession,
   getActiveSession,
   openNextSet,
@@ -34,13 +35,15 @@ import {
 } from '@/db/repositories/sessions';
 import { getProfile, getSettings, latestWeight, toProgressionSettings } from '@/db/repositories/settings';
 import { listOpenChanges } from '@/db/repositories/weightChanges';
-import { describePlan, PLAN_KIND_LABEL } from '@/domain/cardioPlan';
-import { formatDuration, formatLongDate } from '@/domain/format';
-import { isoWeekdayOf, localDateString, WEEKDAY_NAMES } from '@/domain/schedule';
+import { sharesLockCountdown, trackingDetails } from '@/domain/cardioPlan';
+import { cardioPool, doneOnOtherDays } from '@/domain/cardioPool';
+import { formatDuration, formatLongDate, workoutTitle } from '@/domain/format';
+import { allDoneMessage, isoWeekdayOf, localDateString, weekdaysLabel } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { maybeAutoBackup } from '@/services/backup';
-import { GPS_ERROR_MESSAGE, startCardio } from '@/services/cardioSession';
+import { discardCardio, GPS_ERROR_MESSAGE, startCardio } from '@/services/cardioSession';
 import { cancelRestEnd } from '@/services/restTimer';
+import { clearWorkoutInProgress } from '@/services/workoutInProgress';
 import { colors, spacing } from '@/theme';
 
 const STALE_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -49,16 +52,11 @@ const STALE_SESSION_MS = 12 * 60 * 60 * 1000;
 const listInSpanish = (items: string[]) =>
   items.length > 1 ? `${items.slice(0, -1).join(', ')} y ${items.at(-1)}` : (items[0] ?? '');
 
-const TRACKING_ICON: Record<CardioActivity['tracking'], IconName> = {
-  gps: 'walk',
-  timer: 'timer-outline',
-  check: 'check-circle-outline',
-};
-
 export default function TodayScreen() {
   const db = useDb();
   const navigation = useNavigation();
-  const [choosing, setChoosing] = useState(false);
+  const [sheet, setSheet] = useState<'routine' | 'cardio' | null>(null);
+  const [, run] = useBusy();
   const { data, reload } = useLoader(async (db) => {
     const now = new Date();
     const weekday = isoWeekdayOf(now);
@@ -66,16 +64,19 @@ export default function TodayScreen() {
     const routines = await listRoutines(db);
     const slotsByRoutine = new Map<number, Slot[]>();
     for (const r of routines) slotsByRoutine.set(r.id, await listSlots(db, r.id));
+    const allCardio = await listCardio(db);
     return {
       now,
       date,
+      weekday,
       today: routines.filter((r) => r.weekdays.includes(weekday)),
       others: routines.filter((r) => !r.weekdays.includes(weekday)),
       slotsByRoutine,
       openChanges: await listOpenChanges(db),
-      cardio: await cardioForWeekday(db, weekday),
+      allCardio,
+      cardio: allCardio.filter((c) => c.weekday === weekday),
       cardioDone: await cardioLogOn(db, date),
-      routinesDone: await finishedRoutinesOn(db, date),
+      workoutsDone: await finishedSessionsOn(db, date),
       active: await getActiveSession(db),
       activeCardio: await getActiveCardioSession(db),
       profile: await getProfile(db),
@@ -114,9 +115,36 @@ export default function TodayScreen() {
     await openNextSet(db, sessionId);
     router.push(`/workout/${sessionId}`);
   };
+
+  /** Sprints and the timer by phases share the lock-screen countdown with the rests: never with a workout. */
+  const blockedByLockCardio = (): boolean => {
+    const c = data.activeCardio;
+    if (!c || !sharesLockCountdown(c.tracking)) return false;
+    const sprints = c.tracking === 'sprint';
+    showDialog(
+      sprints ? 'Hay sprints en curso' : 'Hay un cardio en curso',
+      sprints ? 'Termínalos antes de empezar el entreno.' : `Termina «${c.name}» antes de empezar el entreno.`,
+      [
+        { text: sprints ? 'Ver sprints' : 'Ver cardio', onPress: () => router.push(`/cardio-sesion/${c.id}`) },
+        { text: 'Cancelar', style: 'cancel' },
+      ],
+    );
+    return true;
+  };
+
   const start = async (routine: Routine) => {
-    setChoosing(false);
-    await openWorkout(data.active ? data.active.id : await startSession(db, routine.id, new Date()));
+    setSheet(null);
+    const active = data.active;
+    if (active) {
+      if (active.routineId === routine.id) return openWorkout(active.id);
+      showDialog('Hay un entreno en curso', `Termina «${workoutTitle(active)}» antes de empezar otro.`, [
+        { text: 'Ver entreno', onPress: () => openWorkout(active.id) },
+        { text: 'Cancelar', style: 'cancel' },
+      ]);
+      return;
+    }
+    if (blockedByLockCardio()) return;
+    await openWorkout(await startSession(db, routine.id, new Date()));
   };
 
   const toggleCardio = async (activity: CardioActivity) => {
@@ -129,22 +157,64 @@ export default function TodayScreen() {
       router.push(`/cardio-sesion/${data.activeCardio.id}`);
       return;
     }
+    const workout = data.active;
+    if (sharesLockCountdown(activity.tracking) && workout) {
+      showDialog(
+        'Hay un entreno en curso',
+        activity.tracking === 'sprint' ? 'Termínalo antes de empezar los sprints.' : `Termínalo antes de empezar «${activity.name}».`,
+        [
+          { text: 'Ver entreno', onPress: () => openWorkout(workout.id) },
+          { text: 'Cancelar', style: 'cancel' },
+        ],
+      );
+      return;
+    }
     const result = await startCardio(db, activity);
     if ('error' in result) {
       showDialog('No se puede grabar la ruta', GPS_ERROR_MESSAGE[result.error]);
       return;
     }
-    router.push(`/cardio-sesion/${result.sessionId}`);
+    const { sessionId, gpsError } = result;
+    if (gpsError) {
+      // Sprints can still be timed without GPS.
+      showDialog('No hay GPS', `${GPS_ERROR_MESSAGE[gpsError]} Sin GPS solo se mide el tiempo.`, [
+        { text: 'Seguir sin GPS', onPress: () => router.push(`/cardio-sesion/${sessionId}`) },
+        {
+          text: 'Cancelar',
+          style: 'cancel',
+          onPress: async () => {
+            const session = await getCardioSession(db, sessionId);
+            if (session) await discardCardio(db, session);
+            reload();
+          },
+        },
+      ]);
+      return;
+    }
+    router.push(`/cardio-sesion/${sessionId}`);
   };
+
+  /** A cardio of the pool: checked off at once, or started like today's. */
+  const pickCardio = (activity: CardioActivity) =>
+    run(async () => {
+      setSheet(null);
+      if (activity.tracking === 'check') {
+        await setCardioDone(db, data.date, activity, true);
+        reload();
+      } else {
+        await startTracked(activity);
+      }
+    })();
 
   const closeStale = () => {
     const active = data.active!;
-    showDialog('Entreno sin terminar', `${active.routineName ?? 'Sesión'} del ${active.date}`, [
+    showDialog('Entreno sin terminar', `${workoutTitle(active)} del ${active.date}`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Descartar',
         style: 'destructive',
         onPress: async () => {
+          clearWorkoutInProgress();
           await cancelRestEnd(active.id);
           await discardSession(db, active.id);
           reload();
@@ -153,8 +223,13 @@ export default function TodayScreen() {
       {
         text: 'Terminar',
         onPress: async () => {
+          clearWorkoutInProgress();
           await cancelRestEnd(active.id);
-          await finishSession(db, active.id, toProgressionSettings(await getSettings(db)));
+          const result = await finishSession(db, active.id, toProgressionSettings(await getSettings(db)));
+          if (result === 'discarded') {
+            reload();
+            return;
+          }
           router.push(`/workout/resumen/${active.id}`);
           maybeAutoBackup(db);
         },
@@ -167,17 +242,23 @@ export default function TodayScreen() {
     !data.profile.heightCm && 'la altura',
     !data.weightKg && 'el peso',
   ].filter((m): m is string => !!m);
-  const pendingCardio = data.cardio.filter((c) => !data.cardioDone.has(c.id));
-  const doneCardio = data.cardio.filter((c) => data.cardioDone.has(c.id));
-  const pendingRoutines = data.today.filter((r) => !data.routinesDone.has(r.id));
-  const doneRoutines = data.today.filter((r) => data.routinesDone.has(r.id));
-  // A routine done today from another day also counts.
-  const extraDone = data.others.filter((r) => data.routinesDone.has(r.id));
+  const doneIds = new Set(data.cardioDone.keys());
+  const pendingCardio = data.cardio.filter((c) => !doneIds.has(c.id));
+  const doneCardio = data.cardio.filter((c) => doneIds.has(c.id));
+  // Cardio of other days done today (from the pool) also counts as done.
+  const extraCardio = doneOnOtherDays(data.allCardio, data.weekday, doneIds);
+  const doneRoutineIds = new Set(data.workoutsDone.map((s) => s.routineId));
+  const pendingRoutines = data.today.filter((r) => !doneRoutineIds.has(r.id));
+  const pool = cardioPool(data.allCardio, data.weekday, doneIds);
+  const hasSlots = [...data.slotsByRoutine.values()].some((s) => s.length > 0);
   const nothingPending = pendingCardio.length === 0 && pendingRoutines.length === 0;
   const stale = !!data.active && data.now.getTime() - data.active.startedAt > STALE_SESSION_MS;
   // The routine card already has "Continuar entreno" when today's routine is the one running.
   const showActiveCard = !!data.active && (stale || !pendingRoutines.some((r) => r.id === data.active!.routineId));
-  const hasDone = doneCardio.length + doneRoutines.length + extraDone.length > 0;
+  const hasDone = data.workoutsDone.length + doneCardio.length + extraCardio.length > 0;
+  const showPoolRow = pool.length > 0 && !data.activeCardio;
+  const showRoutineRow = data.others.length > 0 && !data.active;
+  const showLooseRow = hasSlots && !data.active;
 
   const profileRow =
     missingProfile.length > 0 ? (
@@ -193,7 +274,7 @@ export default function TodayScreen() {
 
   return (
     <Screen>
-      {!data.hasRoutines && data.cardio.length === 0 ? (
+      {!data.hasRoutines && data.allCardio.length === 0 ? (
         <EmptyState
           icon="calendar-blank-outline"
           title="Monta tu semana"
@@ -213,7 +294,7 @@ export default function TodayScreen() {
             <RowIcon name="dumbbell" color={colors.accent} />
             <View style={{ flex: 1, gap: 2 }}>
               <AppText variant="heading">Entreno en curso</AppText>
-              <AppText variant="secondary">{data.active.routineName}</AppText>
+              <AppText variant="secondary">{workoutTitle(data.active)}</AppText>
             </View>
           </View>
           <Button size="lg" icon="play" title="Continuar entreno" onPress={() => openWorkout(data.active!.id)} />
@@ -225,9 +306,15 @@ export default function TodayScreen() {
         <ListGroup>
           <ListRow
             onPress={() => router.push(`/cardio-sesion/${data.activeCardio!.id}`)}
-            left={<Icon name={data.activeCardio.tracking === 'gps' ? 'walk' : 'timer-outline'} size={22} color={colors.accent} />}
+            left={<Icon name={TRACKING_ICON[data.activeCardio.tracking]} size={22} color={colors.accent} />}
             title={data.activeCardio.name}
-            subtitle={data.activeCardio.pausedAt ? 'En pausa' : 'Grabando'}
+            subtitle={
+              data.activeCardio.sprint
+                ? `${data.activeCardio.laps.filter((l) => l.stopAt !== null).length} de ${data.activeCardio.sprint.sprints} sprints`
+                : data.activeCardio.pausedAt
+                  ? 'En pausa'
+                  : 'Grabando'
+            }
             right={<Tag label="En curso" tone="info" />}
           />
         </ListGroup>
@@ -235,8 +322,8 @@ export default function TodayScreen() {
 
       {nothingPending ? (
         hasDone ? (
-          <EmptyState icon="check-circle-outline" title="Todo hecho por hoy" text="Lo de hoy está abajo." />
-        ) : data.hasRoutines && data.today.length === 0 && data.cardio.length === 0 ? (
+          <EmptyState icon="check-circle-outline" title="Todo hecho por hoy" text={allDoneMessage(data.date)} />
+        ) : data.today.length === 0 && data.cardio.length === 0 && (data.hasRoutines || data.allCardio.length > 0) ? (
           <EmptyState icon="sofa-outline" title="Día de descanso" text="Hoy no hay nada programado." />
         ) : null
       ) : (
@@ -262,7 +349,7 @@ export default function TodayScreen() {
               routine={r}
               slots={data.slotsByRoutine.get(r.id) ?? []}
               openChanges={data.openChanges}
-              startLabel={data.active ? 'Continuar entreno' : 'Empezar rutina'}
+              startLabel={data.active?.routineId === r.id ? 'Continuar entreno' : 'Empezar rutina'}
               state={data.active?.routineId === r.id ? 'running' : undefined}
               onStart={() => start(r)}
               onChanged={reload}
@@ -276,10 +363,10 @@ export default function TodayScreen() {
       {hasDone ? (
         <Section label="Hecho">
           <ListGroup>
-            {[...doneRoutines, ...extraDone].map((r) => (
-              <DoneRoutineRow key={`r${r.id}`} routine={r} done={data.routinesDone.get(r.id)!} />
+            {data.workoutsDone.map((s) => (
+              <DoneWorkoutRow key={`w${s.id}`} done={s} />
             ))}
-            {doneCardio.map((c) => (
+            {[...doneCardio, ...extraCardio].map((c) => (
               <CardioRow
                 key={`c${c.id}`}
                 activity={c}
@@ -293,31 +380,72 @@ export default function TodayScreen() {
         </Section>
       ) : null}
 
-      {data.others.length > 0 && !data.active ? (
+      {showPoolRow || showRoutineRow || showLooseRow ? (
         <ListGroup>
-          <ListRow
-            onPress={() => setChoosing(true)}
-            left={<Icon name="swap-horizontal" size={22} color={colors.muted} />}
-            title="Entrenar otra rutina"
-          />
+          {showPoolRow ? (
+            <ListRow onPress={() => setSheet('cardio')} left={<Icon name="run" size={22} color={colors.muted} />} title="Hacer otro cardio" />
+          ) : null}
+          {showRoutineRow ? (
+            <ListRow
+              onPress={() => setSheet('routine')}
+              left={<Icon name="swap-horizontal" size={22} color={colors.muted} />}
+              title="Entrenar otra rutina"
+            />
+          ) : null}
+          {showLooseRow ? (
+            <ListRow
+              onPress={() => {
+                if (!blockedByLockCardio()) router.push('/ejercicio-suelto');
+              }}
+              left={<Icon name="dumbbell" size={22} color={colors.muted} />}
+              title="Hacer un ejercicio suelto"
+            />
+          ) : null}
         </ListGroup>
       ) : null}
 
-      <Sheet visible={choosing} title="Entrenar otra rutina" onClose={() => setChoosing(false)}>
+      <Sheet visible={sheet === 'routine'} title="Entrenar otra rutina" onClose={() => setSheet(null)}>
         <ListGroup style={{ backgroundColor: colors.cardAlt }}>
           {data.others.map((r) => {
             const slots = data.slotsByRoutine.get(r.id) ?? [];
-            const days = r.weekdays.map((d) => WEEKDAY_NAMES[d]).join(', ');
             return (
               <ListRow
                 key={r.id}
                 onPress={() => start(r)}
                 title={r.name}
-                subtitle={`${days ? `${days} · ` : ''}${slots.length} ejercicios`}
+                subtitle={`${r.weekdays.length ? `${weekdaysLabel(r.weekdays)} · ` : ''}${slots.length} ejercicios`}
               />
             );
           })}
         </ListGroup>
+      </Sheet>
+
+      <Sheet visible={sheet === 'cardio'} title="Hacer otro cardio" onClose={() => setSheet(null)}>
+        <ScrollView style={{ flexGrow: 0 }}>
+          <ListGroup style={{ backgroundColor: colors.cardAlt }}>
+            {pool.map(({ activity: a, weekdays }) => (
+              <ListRow
+                key={a.id}
+                onPress={() => pickCardio(a)}
+                left={<Icon name={TRACKING_ICON[a.tracking]} size={22} color={colors.muted} />}
+                title={a.name}
+                subtitle={
+                  // The days on a line of their own: cut at the end of a long line, they were lost.
+                  <View>
+                    {a.target || trackingDetails(a) ? (
+                      <AppText variant="secondary" numberOfLines={1}>
+                        {[a.target, trackingDetails(a)].filter(Boolean).join(' · ')}
+                      </AppText>
+                    ) : null}
+                    <AppText variant="secondary" numberOfLines={1}>
+                      {weekdaysLabel(weekdays)}
+                    </AppText>
+                  </View>
+                }
+              />
+            ))}
+          </ListGroup>
+        </ScrollView>
       </Sheet>
     </Screen>
   );
@@ -336,12 +464,7 @@ function CardioRow({
   onToggle: () => void;
   onStart: () => void;
 }) {
-  const details =
-    activity.tracking === 'timer' && activity.plan
-      ? activity.plan.kind === 'liss'
-        ? PLAN_KIND_LABEL.liss
-        : `${PLAN_KIND_LABEL[activity.plan.kind]} · ${describePlan(activity.plan)}`
-      : activity.intensity;
+  const details = trackingDetails(activity);
   // The target goes under the name: next to the check, the icon and «Iniciar» there is no room for both.
   const subtitle = done?.value ?? ([activity.target, details, activity.notes].filter(Boolean).join(' · ') || undefined);
   const sessionId = done?.sessionId;
@@ -378,13 +501,14 @@ function CardioRow({
   );
 }
 
-function DoneRoutineRow({ routine, done }: { routine: Routine; done: SessionSummaryRow }) {
+/** A workout finished today: a routine (even one of another day, or twice) or a loose one. */
+function DoneWorkoutRow({ done }: { done: SessionSummaryRow }) {
   const duration = done.finishedAt ? formatDuration(done.finishedAt - done.startedAt) : null;
   return (
     <ListRow
       onPress={() => router.push(`/workout/resumen/${done.id}`)}
       left={<Icon name="check-circle" size={22} color={colors.primary} />}
-      title={<AppText variant="rowTitle" style={{ color: colors.muted }}>{done.title ?? routine.name}</AppText>}
+      title={<AppText variant="rowTitle" style={{ color: colors.muted }}>{workoutTitle(done)}</AppText>}
       subtitle={[duration, done.setCount === 1 ? '1 serie' : `${done.setCount} series`].filter(Boolean).join(' · ')}
     />
   );

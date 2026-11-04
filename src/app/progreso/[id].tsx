@@ -9,6 +9,7 @@ import {
   ListGroup,
   ListRow,
   Loading,
+  MuscleTags,
   RowIcon,
   Screen,
   Section,
@@ -18,6 +19,7 @@ import {
   Tag,
 } from '@/components/ui';
 import { getExercise } from '@/db/repositories/exercises';
+import { getExerciseMuscles } from '@/db/repositories/muscles';
 import { exerciseSessions, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
 import { formatKg, formatNumber, formatSetGroups, formatShortDate, NBSP } from '@/domain/format';
 import { capitalize, computeRecords, distinctRecords, formatDayMonth, summarize } from '@/domain/progress';
@@ -48,6 +50,7 @@ export default function ExerciseProgressScreen() {
 
   const { data } = useLoader(async (db) => ({
     exercise: await getExercise(db, exerciseId),
+    muscles: await getExerciseMuscles(db, exerciseId),
     sessions: await exerciseSessions(db, exerciseId),
     changes: await exerciseWeightChanges(db, exerciseId),
   }));
@@ -66,7 +69,7 @@ export default function ExerciseProgressScreen() {
     );
   }
 
-  const { exercise, sessions, changes } = data;
+  const { exercise, muscles, sessions, changes } = data;
   const bodyweight = exercise.type === 'bodyweight';
   const records = distinctRecords(computeRecords(sessions, exercise.pair));
   const chronological = [...sessions]
@@ -79,6 +82,7 @@ export default function ExerciseProgressScreen() {
   return (
     <Screen>
       <Stack.Screen options={{ title: exercise.name }} />
+      <MuscleTags muscles={muscles} />
 
       {sessions.length === 0 ? (
         <EmptyState
@@ -153,7 +157,7 @@ export default function ExerciseProgressScreen() {
               <ListRow
                 key={s.sessionId}
                 title={formatSetGroups(s.sets, bodyweight, exercise.pair)}
-                subtitle={[capitalize(formatDayMonth(s.date)), s.title ?? s.routineName].filter(Boolean).join(' · ')}
+                subtitle={[capitalize(formatDayMonth(s.date)), s.title ?? s.routineName ?? 'Ejercicio suelto'].filter(Boolean).join(' · ')}
                 right={
                   s.imported ? (
                     // The Tag aligns itself to the start; wrapped, it stays centred in the row.

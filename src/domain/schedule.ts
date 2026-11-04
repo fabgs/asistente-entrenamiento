@@ -73,3 +73,27 @@ export function today(now = new Date()): Date {
 export function pickerStartDate(value: string | null, yearsAgo: number, now = new Date()): Date {
   return value ? parseLocalDate(value) : new Date(now.getFullYear() - yearsAgo, 0, 1);
 }
+
+/** Said on Hoy when everything planned for the day is done; one a day, in turn. */
+export const ALL_DONE_MESSAGES = [
+  '¡Enhorabuena, lo has hecho genial!',
+  'Buen trabajo. Hoy has cumplido.',
+  'Un día más sumado. Así se progresa.',
+  'Hecho. Ahora toca descansar y comer bien.',
+  'La constancia es lo que cuenta. ¡Bien hecho!',
+  '¡Gran entreno! Mañana, más.',
+  'Objetivo del día cumplido.',
+] as const;
+
+/** The message for a local date (YYYY-MM-DD): the same all day, a different one the next. */
+export function allDoneMessage(isoDate: string): string {
+  const day = Math.round(parseLocalDate(isoDate).getTime() / 86_400_000);
+  return ALL_DONE_MESSAGES[((day % ALL_DONE_MESSAGES.length) + ALL_DONE_MESSAGES.length) % ALL_DONE_MESSAGES.length];
+}
+
+/** "Lunes", "Lunes y jueves", "Lunes, miércoles y viernes" or "Sin día". */
+export function weekdaysLabel(days: IsoWeekday[]): string {
+  const names = days.map((d, i) => (i === 0 ? WEEKDAY_NAMES[d] : WEEKDAY_NAMES[d].toLowerCase()));
+  if (names.length === 0) return 'Sin día';
+  return names.length > 1 ? `${names.slice(0, -1).join(', ')} y ${names.at(-1)}` : names[0];
+}

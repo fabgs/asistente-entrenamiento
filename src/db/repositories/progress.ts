@@ -1,6 +1,7 @@
 import { formatCardioResult } from '@/domain/format';
 import { activeMs } from '@/domain/gps';
 import type { ExerciseSession } from '@/domain/progress';
+import { decodeLaps, formatSprintResult, lapRows, sprintSummary } from '@/domain/sprint';
 import { bool, type Db } from '../db';
 import { listFinishedSessions, type SessionSummaryRow } from './sessions';
 import type { WeightChange } from './weightChanges';
@@ -84,8 +85,8 @@ export async function exerciseWeightChanges(db: Db, exerciseId: number, limit = 
   );
 }
 
-/** A finished session with GPS or a timer, or an activity only checked off on Hoy. */
-export type CardioKind = 'gps' | 'timer' | 'check';
+/** A finished session with GPS, a timer or sprints, or an activity only checked off on Hoy. */
+export type CardioKind = 'gps' | 'timer' | 'sprint' | 'check';
 
 export interface CardioEntry {
   /** Unique in the history: 's12' for session 12, 'l40' for checked-off log row 40. */
@@ -103,6 +104,8 @@ export interface CardioEntry {
   distanceM: number | null;
   /** Time without the pauses. */
   activeMs: number | null;
+  /** A sprints session: how many, the top speed and the best time. */
+  sprint: { count: number; topSpeedMs: number | null; bestTimeMs: number | null } | null;
 }
 
 export interface CardioDay {
@@ -121,14 +124,15 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
     date: string;
     name: string;
     title: string | null;
-    tracking: 'gps' | 'timer';
+    tracking: 'gps' | 'timer' | 'sprint';
     started_at: number;
     finished_at: number;
     paused_ms: number;
     distance_m: number | null;
     route: string | null;
+    laps: string | null;
   }>(
-    `SELECT id, date, name, title, tracking, started_at, finished_at, paused_ms, distance_m, route FROM cardio_session
+    `SELECT id, date, name, title, tracking, started_at, finished_at, paused_ms, distance_m, route, laps FROM cardio_session
      WHERE status = 'finished' ORDER BY started_at`,
   );
   const checked = await db.getAllAsync<{ id: number; date: string; name: string; value: string | null }>(
@@ -154,6 +158,7 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
       startedAt: null,
       distanceM: null,
       activeMs: null,
+      sprint: null,
     });
   }
   for (const s of sessions) {
@@ -161,17 +166,20 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
       { startedAt: s.started_at, finishedAt: s.finished_at, pausedAt: null, pausedMs: s.paused_ms },
       s.finished_at,
     );
+    const laps = s.tracking === 'sprint' ? decodeLaps(s.laps) : null;
+    const summary = laps ? sprintSummary(lapRows(laps)) : null;
     add({
       key: `s${s.id}`,
       date: s.date,
       name: s.title ?? s.name,
       kind: s.tracking,
-      value: formatCardioResult(s.distance_m, active),
+      value: laps ? formatSprintResult(laps) : formatCardioResult(s.distance_m, active),
       sessionId: s.id,
       route: s.route,
       startedAt: s.started_at,
       distanceM: s.distance_m,
       activeMs: active,
+      sprint: summary && { count: summary.count, topSpeedMs: summary.topSpeedMs, bestTimeMs: summary.bestTimeMs },
     });
   }
   return [...days.values()].sort((a, b) => b.date.localeCompare(a.date));

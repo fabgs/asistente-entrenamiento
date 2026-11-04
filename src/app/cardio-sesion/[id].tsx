@@ -6,6 +6,8 @@ import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native'
 import { showActions, showDialog, showPrompt } from '@/components/Dialog';
 import { MetricBoard } from '@/components/MetricBoard';
 import { RouteMap } from '@/components/RouteMap';
+import { SprintDetails } from '@/components/Sprint';
+import { askFinishSprints, SprintLive } from '@/components/SprintLive';
 import { TrackChart } from '@/components/TrackChart';
 import {
   AppText,
@@ -47,9 +49,10 @@ import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumbe
 import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type Split, type TrackPoint } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
+import { sprintGps } from '@/domain/sprint';
 import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
 import { useDb, useNow } from '@/hooks/data';
-import { useCardioSession } from '@/hooks/walk';
+import { useCardioSession, type SprintLive as SprintLiveData } from '@/hooks/walk';
 import { maybeAutoBackup } from '@/services/backup';
 import {
   discardCardio,
@@ -93,6 +96,13 @@ export default function CardioSessionScreen() {
   const db = useDb();
   const { data, reload } = useCardioSession(sessionId);
   const [justFinished, setJustFinished] = useState(false);
+  // Discarding leaves once the live screen has let go of the back button.
+  const [leaving, setLeaving] = useState(false);
+  useEffect(() => {
+    if (!leaving) return;
+    if (router.canGoBack()) router.back();
+    else router.replace('/');
+  }, [leaving]);
 
   const session = data?.session;
   const inProgress = session?.status === 'in_progress';
@@ -105,7 +115,7 @@ export default function CardioSessionScreen() {
     ensureCardioRunning(db, session).catch((e) => console.warn('Could not resume cardio', e));
   }, [db, session]);
 
-  const keepAwake = inProgress && session?.tracking === 'timer' && !!data?.settings.keepAwake;
+  const keepAwake = inProgress && (session?.tracking === 'timer' || session?.tracking === 'sprint') && !!data?.settings.keepAwake;
   useEffect(() => {
     if (!keepAwake) return;
     activateKeepAwakeAsync(KEEP_AWAKE_TAG);
@@ -121,6 +131,7 @@ export default function CardioSessionScreen() {
 
   const { settings, hints } = data;
   const isWalk = session.tracking === 'gps';
+  const isSprint = session.tracking === 'sprint';
   const seen = async (hint: Hint) => {
     if (!hints.has(hint)) await markHintSeen(db, hint);
   };
@@ -159,32 +170,43 @@ export default function CardioSessionScreen() {
       { text: isWalk ? 'Seguir caminando' : 'Seguir', style: 'cancel' },
     ]);
 
-  const what = isWalk ? 'caminata' : 'sesión';
-  const leave = () => (router.canGoBack() ? router.back() : router.replace('/'));
+  const what = isWalk ? 'caminata' : isSprint ? 'sprints' : 'sesión';
+  const these = isWalk ? 'la caminata' : isSprint ? 'los sprints' : 'la sesión';
   const discard = () =>
     showDialog(
-      inProgress ? `¿Descartar la ${what}?` : `¿Borrar la ${what}?`,
+      inProgress ? `¿Descartar ${these}?` : `¿Borrar ${these}?`,
       inProgress
         ? isWalk
           ? 'Se pierde la ruta grabada hasta ahora.'
-          : 'No se guarda en el historial.'
-        : 'Desaparece del historial y no se puede deshacer.',
+          : isSprint
+            ? 'No se guardan en el historial.'
+            : 'No se guarda en el historial.'
+        : isSprint
+          ? 'Desaparecen del historial y no se puede deshacer.'
+          : 'Desaparece del historial y no se puede deshacer.',
       [
         {
           text: inProgress ? 'Descartar' : 'Borrar',
           style: 'destructive',
           onPress: async () => {
             await discardCardio(db, session);
-            leave();
+            setLeaving(true);
           },
         },
         { text: 'Cancelar', style: 'cancel' },
       ],
     );
-  const menu = () =>
+  const menu = () => {
+    const at = Date.now();
+    // «Terminar ahora» once there is something to keep: a sprint done or one running.
+    const somethingToKeep = isSprint && inProgress && session.laps.some((l) => l.stopAt !== null || l.startAt <= at);
     showActions([
+      ...(somethingToKeep
+        ? [{ text: 'Terminar ahora', icon: 'flag-checkered' as const, onPress: () => askFinishSprints(session, at, () => finish()) }]
+        : []),
       { text: inProgress ? `Descartar ${what}` : `Borrar ${what}`, icon: 'trash-can-outline', destructive: true, onPress: discard },
     ]);
+  };
   const share = () => router.push({ pathname: '/compartir/[tipo]/[id]', params: { tipo: 'cardio', id: String(session.id) } });
 
   const togglePause = async () => {
@@ -208,7 +230,7 @@ export default function CardioSessionScreen() {
             headerTitle: '',
             headerRight: () => (
               <HeaderActions>
-                {isWalk ? <IconButton icon="share-variant" label="Compartir imagen" onPress={share} /> : null}
+                {isWalk || isSprint ? <IconButton icon="share-variant" label="Compartir imagen" onPress={share} /> : null}
                 <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
               </HeaderActions>
             ),
@@ -231,7 +253,7 @@ export default function CardioSessionScreen() {
           footer={
             justFinished ? (
               <BottomBar>
-                {isWalk ? (
+                {isWalk || isSprint ? (
                   <Button size="lg" kind="secondary" icon="share-variant" title="Compartir" onPress={share} style={{ flex: 1 }} />
                 ) : null}
                 <Button size="lg" icon="check" title="Listo" onPress={() => router.replace('/')} style={{ flex: 1 }} />
@@ -265,6 +287,23 @@ export default function CardioSessionScreen() {
     </HeaderActions>
   );
 
+  if (isSprint && data.sprintLive) {
+    const live = data.sprintLive;
+    return (
+      <>
+        <Stack.Screen options={{ title: session.name, headerTitle: () => <SprintGpsPill live={live} />, headerRight }} />
+        <SprintLive
+          session={session}
+          live={live}
+          hintSeen={hints.has('sprint-how')}
+          leaving={leaving}
+          reload={reload}
+          onFinish={() => finish()}
+        />
+      </>
+    );
+  }
+
   if (!isWalk) {
     return (
       <>
@@ -281,6 +320,35 @@ export default function CardioSessionScreen() {
       />
       <GpsView session={session} points={points} prefs={prefs} footer={footer} />
     </>
+  );
+}
+
+/** What the GPS can measure, as the title of the live sprints. */
+function SprintGpsPill({ live }: { live: SprintLiveData }) {
+  const now = useNow(1000);
+  const { state, accuracyM } = sprintGps(live.lastFix, live.gpsOn, now);
+  const accuracy = accuracyM === null ? '' : ` ±${accuracyM}${NBSP}m`;
+  const shown: { icon?: IconName; color: string; text: string } =
+    state === 'off'
+      ? { icon: 'map-marker-off', color: colors.muted, text: 'Sin GPS · solo tiempo' }
+      : state === 'searching'
+        ? { color: colors.muted, text: 'Buscando GPS…' }
+        : state === 'unusable'
+          ? { icon: 'alert-circle', color: colors.danger, text: `GPS${accuracy} · no mide` }
+          : state === 'weak'
+            ? { icon: 'alert-circle', color: colors.warning, text: `GPS débil${accuracy}` }
+            : { color: colors.primary, text: `GPS${accuracy}` };
+  return (
+    <View style={styles.pill} accessible accessibilityLabel={shown.text} accessibilityLiveRegion="polite">
+      {shown.icon ? (
+        <Icon name={shown.icon} size={14} color={shown.color} />
+      ) : (
+        <View style={[styles.pillDot, { backgroundColor: shown.color }]} />
+      )}
+      <AppText variant="label" weight="600" style={{ color: colors.text }} numberOfLines={1}>
+        {shown.text}
+      </AppText>
+    </View>
   );
 }
 
@@ -685,6 +753,8 @@ function FinishedView({
           />
           <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} />
         </>
+      ) : session.tracking === 'sprint' ? (
+        <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} />
       ) : (
         <StatRow>
           <Stat label="Tiempo" value={formatClock(activeMs(session, end))} big />

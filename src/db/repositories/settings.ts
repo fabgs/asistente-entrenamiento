@@ -181,6 +181,19 @@ export async function listWeights(db: Db): Promise<WeightEntry[]> {
   );
 }
 
+/** A page of the weigh-ins, newest first: the list of all of them loads as it scrolls. */
+export async function listWeightsPage(db: Db, limit: number, offset: number): Promise<WeightEntry[]> {
+  return db.getAllAsync<WeightEntry>(
+    'SELECT date, weight_kg AS weightKg FROM weight_log ORDER BY date DESC LIMIT ? OFFSET ?',
+    limit,
+    offset,
+  );
+}
+
+export async function countWeights(db: Db): Promise<number> {
+  return (await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM weight_log'))?.n ?? 0;
+}
+
 export async function latestWeight(db: Db): Promise<number | null> {
   const row = await db.getFirstAsync<{ weight_kg: number }>(
     'SELECT weight_kg FROM weight_log ORDER BY date DESC LIMIT 1',

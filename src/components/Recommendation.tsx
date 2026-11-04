@@ -64,13 +64,15 @@ export function RecommendationBox({ change, onChanged }: { change: WeightChange;
 /**
  * One line: «Sugerencia: subir a 12,5 kg», with a small «Aplicar» unless `readOnly` (the workout
  * list applies it in the set itself). In the set screen (`onApply`/`onUndo`), once applied it reads
- * «Ahora 12,5 kg · Deshacer».
+ * «Ahora 12,5 kg · Deshacer». `boxed` puts it on a surface of its own, with «Aplicar» inside: under
+ * an exercise of a list, so it does not float between rows.
  */
 export function SuggestionLine({
   change,
   onChanged,
   readOnly = false,
   applied = false,
+  boxed = false,
   onApply,
   onUndo,
 }: {
@@ -78,6 +80,7 @@ export function SuggestionLine({
   onChanged?: () => void;
   readOnly?: boolean;
   applied?: boolean;
+  boxed?: boolean;
   onApply?: () => Promise<void>;
   onUndo?: () => Promise<void>;
 }) {
@@ -103,7 +106,7 @@ export function SuggestionLine({
     );
   }
   return (
-    <View style={styles.line} pointerEvents={armed && !busy ? 'auto' : 'none'}>
+    <View style={[styles.line, boxed && styles.lineBox]} pointerEvents={armed && !busy ? 'auto' : 'none'}>
       <ChangeArrow change={change} />
       <AppText variant="secondary" weight="600" style={styles.lineText} numberOfLines={2}>
         Sugerencia: {moveLabel(change).toLowerCase()}
@@ -178,13 +181,15 @@ export function OpenChange({
   change,
   onChanged,
   quiet = false,
+  boxed = false,
 }: {
   change: WeightChange;
   onChanged: () => void;
   quiet?: boolean;
+  boxed?: boolean;
 }) {
   if (change.status === 'pending' && !quiet) return <RecommendationBox change={change} onChanged={onChanged} />;
-  return <SuggestionLine change={change} onChanged={onChanged} />;
+  return <SuggestionLine change={change} onChanged={onChanged} boxed={boxed} />;
 }
 
 /** Why the weight stays the same (summary). `manual`: there is no rule, the reason says so itself. */
@@ -206,6 +211,8 @@ const styles = StyleSheet.create({
   appliedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   line: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 44 },
   lineText: { flex: 1, color: colors.text },
+  // «Aplicar» (32 dp) sits 6 dp from the top, bottom and end of the 44 dp line.
+  lineBox: { backgroundColor: colors.cardAlt, borderRadius: radius.lg, paddingLeft: spacing.md, paddingRight: 6 },
   smallTonal: {
     height: 32,
     paddingHorizontal: spacing.md,

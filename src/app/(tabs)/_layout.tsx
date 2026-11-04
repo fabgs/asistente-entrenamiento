@@ -1,16 +1,15 @@
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useIsFocused } from 'expo-router';
 import { BottomTabBar, Tabs, type BottomTabBarProps, type BottomTabNavigationOptions } from 'expo-router/js-tabs';
-import { useEffect, useState, type ComponentProps } from 'react';
+import { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { setTabBarHeight } from '@/components/layers';
+import { Icon, type IconName } from '@/components/ui';
 import { colors, headerOptions, type } from '@/theme';
 
-type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 type IconProps = Parameters<NonNullable<BottomTabNavigationOptions['tabBarIcon']>>[0];
 
 function TabIcon({ name, color, size }: IconProps & { name: IconName }) {
-  return <MaterialCommunityIcons name={name} color={color as string} size={size} />;
+  return <Icon name={name} color={color as string} size={size} />;
 }
 
 export default function TabsLayout() {

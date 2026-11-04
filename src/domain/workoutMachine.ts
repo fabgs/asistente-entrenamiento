@@ -72,3 +72,15 @@ export function slotToOpen(
   if (inProgress && !isSlotComplete(inProgress, sets)) return inProgress.slotId;
   return nextPendingSlot(slots, sets, skipped, null);
 }
+
+/**
+ * The exercises of a loose session (no routine), in order: the slots of its sets (warm-ups
+ * included) by their first set, then the one being done if it has no sets yet. A slot left without
+ * sets is no longer part of it: that is how «not adding it» works.
+ */
+export function looseSlotIds(sets: DoneSet[], current: number | null): number[] {
+  const ids: number[] = [];
+  for (const s of sets) if (s.slotId !== null && !ids.includes(s.slotId)) ids.push(s.slotId);
+  if (current !== null && !ids.includes(current)) ids.push(current);
+  return ids;
+}

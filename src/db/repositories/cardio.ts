@@ -1,4 +1,5 @@
 import { parsePlan, type CardioPlan, type CardioTracking } from '@/domain/cardioPlan';
+import { parseSprintPlan, type SprintPlan } from '@/domain/sprint';
 import type { IsoWeekday } from '@/domain/types';
 import { int, type Db } from '../db';
 
@@ -10,12 +11,24 @@ export interface CardioActivity {
   intensity: string | null;
   notes: string | null;
   tracking: CardioTracking;
+  /** The timer plan (tracking 'timer'). */
   plan: CardioPlan | null;
+  /** The sprints plan (tracking 'sprint'), stored in the same column. */
+  sprint: SprintPlan | null;
 }
 
-type CardioRow = Omit<CardioActivity, 'plan'> & { plan: string | null };
+type CardioRow = Omit<CardioActivity, 'plan' | 'sprint'> & { plan: string | null };
 
-const toActivity = (row: CardioRow): CardioActivity => ({ ...row, plan: parsePlan(row.plan) });
+const toActivity = (row: CardioRow): CardioActivity => ({
+  ...row,
+  plan: parsePlan(row.plan),
+  sprint: row.tracking === 'sprint' ? parseSprintPlan(row.plan) : null,
+});
+
+const planJson = (fields: CardioFields) => {
+  const plan = fields.tracking === 'sprint' ? fields.sprint : fields.plan;
+  return plan ? JSON.stringify(plan) : null;
+};
 
 export async function listCardio(db: Db): Promise<CardioActivity[]> {
   const rows = await db.getAllAsync<CardioRow>(
@@ -79,6 +92,7 @@ export interface CardioFields {
   notes: string | null;
   tracking?: CardioTracking;
   plan?: CardioPlan | null;
+  sprint?: SprintPlan | null;
 }
 
 export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioFields): Promise<number> {
@@ -96,7 +110,7 @@ export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioField
     fields.notes,
     row?.next ?? 0,
     fields.tracking ?? 'check',
-    fields.plan ? JSON.stringify(fields.plan) : null,
+    planJson(fields),
   );
   return result.lastInsertRowId;
 }
@@ -114,13 +128,13 @@ export async function updateCardio(db: Db, id: number, fields: CardioFields): Pr
     await db.runAsync(
       'UPDATE cardio_activity SET tracking = ?, plan = ? WHERE id = ?',
       fields.tracking,
-      fields.plan ? JSON.stringify(fields.plan) : null,
+      planJson(fields),
       id,
     );
   }
 }
 
-/** What `updateCardio` writes, as the activity has it now (a plan only for the timer). */
+/** What `updateCardio` writes, as the activity has it now (a plan only for the timer or the sprints). */
 export function cardioFieldsOf(activity: CardioActivity): Required<CardioFields> {
   return {
     name: activity.name,
@@ -129,6 +143,7 @@ export function cardioFieldsOf(activity: CardioActivity): Required<CardioFields>
     notes: activity.notes,
     tracking: activity.tracking,
     plan: activity.tracking === 'timer' ? activity.plan : null,
+    sprint: activity.tracking === 'sprint' ? activity.sprint : null,
   };
 }
 
@@ -138,14 +153,15 @@ export function cardioFieldsOf(activity: CardioActivity): Required<CardioFields>
  */
 export function sameCardioFields(a: Required<CardioFields>, b: Required<CardioFields>): boolean {
   const text = (s: string | null) => s?.trim() || null;
-  const plan = (p: CardioPlan | null) => (p ? JSON.stringify(Object.entries(p).sort(([x], [y]) => x.localeCompare(y))) : null);
+  const plan = (p: CardioPlan | SprintPlan | null) => (p ? JSON.stringify(Object.entries(p).sort(([x], [y]) => x.localeCompare(y))) : null);
   return (
     a.name.trim() === b.name.trim() &&
     text(a.target) === text(b.target) &&
     text(a.intensity) === text(b.intensity) &&
     text(a.notes) === text(b.notes) &&
     a.tracking === b.tracking &&
-    plan(a.plan) === plan(b.plan)
+    plan(a.plan) === plan(b.plan) &&
+    plan(a.sprint) === plan(b.sprint)
   );
 }
 

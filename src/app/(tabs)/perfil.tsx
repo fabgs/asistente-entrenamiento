@@ -4,14 +4,13 @@ import { useLayoutEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { showSnackbar } from '@/components/Dialog';
 import { LineChart } from '@/components/LineChart';
-import { Sheet } from '@/components/Sheet';
+import { MuscleWeekSection } from '@/components/MuscleWeek';
+import { WeightSheet } from '@/components/WeightSheet';
 import {
   AppText,
   Button,
   Card,
-  Divider,
   TabHeaderButton,
-  Icon,
   ListGroup,
   ListRow,
   Loading,
@@ -20,11 +19,9 @@ import {
   Screen,
   Section,
   Segmented,
-  Stat,
-  StatRow,
-  Stepper,
   Value,
 } from '@/components/ui';
+import { loadMuscleWeek, type MuscleWeekData } from '@/db/repositories/muscles';
 import {
   deleteWeight,
   getProfile,
@@ -35,29 +32,22 @@ import {
   type Profile,
   type WeightEntry,
 } from '@/db/repositories/settings';
-import {
-  ACTIVITY_LEVELS,
-  activityLabel,
-  deficitFor,
-  formatWeightDelta,
-  GOAL_NAMES,
-  goalLabel,
-  goalOf,
-  missingForTargets,
-  sameFactor,
-  type Goal,
-} from '@/domain/bodyProfile';
+import { formatWeightDelta, goalLabel, missingForTargets } from '@/domain/bodyProfile';
 import { formatDateWithYear, formatNumber, formatShortDate, NBSP } from '@/domain/format';
-import { ageOn, type NutritionTargets, type Sex } from '@/domain/nutrition';
+import { ageOn, type Sex } from '@/domain/nutrition';
 import { localDateString, pickerStartDate, today as todayDate } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
-const RECENT_WEIGHTS = 10;
+/** The rest are in their own screen (`pesos.tsx`), which loads them as it scrolls. */
+const RECENT_WEIGHTS = 3;
 const FIRST_WEIGHT_KG = 70;
 const FIRST_HEIGHT_CM = 170;
-const DEFAULT_GOAL_KCAL = 400;
 
+/**
+ * Your body (PLAN.md §4): the muscles of the week, the weight and the data the targets come from.
+ * The targets themselves, with the goal and the activity, are in `objetivos.tsx`.
+ */
 export default function ProfileScreen() {
   const navigation = useNavigation();
   useLayoutEffect(() => {
@@ -66,44 +56,50 @@ export default function ProfileScreen() {
     });
   }, [navigation]);
 
-  const { data, reload } = useLoader(async (db) => ({
-    today: localDateString(new Date()),
-    profile: await getProfile(db),
-    weights: await listWeights(db),
-  }));
+  const { data, reload } = useLoader(async (db) => {
+    const today = localDateString(new Date());
+    return {
+      today,
+      profile: await getProfile(db),
+      weights: await listWeights(db),
+      muscles: await loadMuscleWeek(db, today),
+    };
+  });
 
   if (!data) return <Loading />;
-  // Remounts when the profile changed elsewhere (a restored copy), not on every edit made here.
+  // Remounts when the profile changed elsewhere (a restored copy, the targets screen), not on every edit made here.
   return (
     <ProfileBody
       key={JSON.stringify(data.profile)}
       initial={data.profile}
       weights={data.weights}
+      muscles={data.muscles}
       today={data.today}
       onWeightsChanged={reload}
     />
   );
 }
 
-type SheetState = { kind: 'weight'; entry: WeightEntry | null } | { kind: 'activity' } | { kind: 'goal' } | null;
-
 function ProfileBody({
   initial,
   weights,
+  muscles,
   today,
   onWeightsChanged,
 }: {
   initial: Profile;
   /** Newest first. */
   weights: WeightEntry[];
+  muscles: MuscleWeekData;
   today: string;
   onWeightsChanged: () => Promise<void>;
 }) {
   const db = useDb();
   const [profile, setProfile] = useState(initial);
-  const [sheet, setSheet] = useState<SheetState>(null);
+  const [sheet, setSheet] = useState<{ entry: WeightEntry | null } | null>(null);
   const weight = weights[0]?.weightKg ?? null;
   const targets = nutritionTargetsOf(profile, weight, today);
+  const missing = missingForTargets({ ...profile, weightKg: weight });
 
   const save = (patch: Partial<Profile>) => {
     setProfile((p) => ({ ...p, ...patch }));
@@ -131,14 +127,27 @@ function ProfileBody({
 
   return (
     <Screen>
-      <Section label="Objetivos del día">
-        <Targets targets={targets} missing={missingForTargets({ ...profile, weightKg: weight })} />
-      </Section>
+      {missing ? (
+        <ListGroup>
+          <ListRow left={<RowIcon name="account-alert-outline" color={colors.warning} />} title="Completa tu perfil" subtitle={missing} />
+        </ListGroup>
+      ) : null}
+
+      <MuscleWeekSection week={muscles} sex={profile.sex} />
 
       <Section label="Peso corporal">
-        <Button kind="secondary" icon="plus" title="Registrar peso" onPress={() => setSheet({ kind: 'weight', entry: null })} />
-        <WeightHistory weights={weights} onOpen={(entry) => setSheet({ kind: 'weight', entry })} />
+        <Button kind="secondary" icon="plus" title="Registrar peso" onPress={() => setSheet({ entry: null })} />
+        <WeightHistory weights={weights} onOpen={(entry) => setSheet({ entry })} />
       </Section>
+
+      <ListGroup>
+        <ListRow
+          title="Objetivos del día"
+          subtitle={goalLabel(profile.deficitKcal)}
+          right={targets ? <Value value={formatNumber(targets.targetKcal, 0)} unit="kcal" size="rowValue" /> : undefined}
+          onPress={() => router.push('/objetivos')}
+        />
+      </ListGroup>
 
       <Section label="Mis datos">
         <ListGroup>
@@ -172,53 +181,17 @@ function ProfileBody({
               onChange={(sex) => save({ sex })}
             />
           </View>
-          <ListRow
-            title="Actividad"
-            right={<RowValue text={activityLabel(profile.activityFactor)} />}
-            onPress={() => setSheet({ kind: 'activity' })}
-          />
-          <ListRow
-            title="Objetivo"
-            right={<RowValue text={goalLabel(profile.deficitKcal)} />}
-            onPress={() => setSheet({ kind: 'goal' })}
-          />
         </ListGroup>
       </Section>
 
       <WeightSheet
-        open={sheet?.kind === 'weight'}
-        entry={sheet?.kind === 'weight' ? sheet.entry : null}
-        start={sheet?.kind === 'weight' ? (sheet.entry?.weightKg ?? weight ?? FIRST_WEIGHT_KG) : FIRST_WEIGHT_KG}
+        open={sheet !== null}
+        entry={sheet?.entry ?? null}
+        start={sheet?.entry?.weightKg ?? weight ?? FIRST_WEIGHT_KG}
         canDelete={weights.length > 1}
         onClose={() => setSheet(null)}
-        onSave={(kg) => saveWeight(sheet?.kind === 'weight' && sheet.entry ? sheet.entry.date : today, kg)}
+        onSave={(kg) => saveWeight(sheet?.entry ? sheet.entry.date : today, kg)}
         onDelete={removeWeight}
-      />
-
-      <Sheet visible={sheet?.kind === 'activity'} title="Actividad" onClose={() => setSheet(null)}>
-        <View style={styles.sheetList}>
-          <ListGroup>
-            {ACTIVITY_LEVELS.map((level) => (
-              <ListRow
-                key={level.factor}
-                title={activityLabel(level.factor)}
-                right={sameFactor(level.factor, profile.activityFactor) ? <Icon name="check" size={22} color={colors.primary} /> : undefined}
-                chevron={false}
-                onPress={() => {
-                  save({ activityFactor: level.factor });
-                  setSheet(null);
-                }}
-              />
-            ))}
-          </ListGroup>
-        </View>
-      </Sheet>
-
-      <GoalSheet
-        open={sheet?.kind === 'goal'}
-        deficitKcal={profile.deficitKcal}
-        onChange={(deficitKcal) => save({ deficitKcal })}
-        onClose={() => setSheet(null)}
       />
     </Screen>
   );
@@ -250,51 +223,9 @@ function pickBirthDate(value: string | null, onChange: (iso: string) => void) {
   });
 }
 
-function Targets({ targets, missing }: { targets: NutritionTargets | null; missing: string | null }) {
-  if (!targets) {
-    return (
-      <ListGroup>
-        <ListRow
-          left={<RowIcon name="account-alert-outline" color={colors.warning} />}
-          title="Completa tu perfil"
-          subtitle={missing ?? undefined}
-        />
-      </ListGroup>
-    );
-  }
-  const grams = (g: number) => formatNumber(g, 0);
-  return (
-    <>
-      <Card flush>
-        <View style={styles.kcal}>
-          <AppText variant="label">Calorías objetivo</AppText>
-          <Value value={formatNumber(targets.targetKcal, 0)} unit="kcal" size="numberL" />
-        </View>
-        <Divider />
-        <StatRow>
-          <Stat label="Proteína" value={grams(targets.proteinG)} unit="g" />
-          <Stat label="Grasa" value={grams(targets.fatG)} unit="g" />
-        </StatRow>
-        <Divider />
-        <StatRow>
-          <Stat label="Hidratos" value={grams(targets.carbsG)} unit="g" />
-          <Stat label="Agua" value={formatNumber(targets.waterL, 1)} unit="L" />
-        </StatRow>
-      </Card>
-      <ListGroup>
-        <ListRow title="Metabolismo basal" right={<Value value={formatNumber(targets.bmr, 0)} unit="kcal" size="rowValue" />} />
-        <ListRow title="Gasto total" right={<Value value={formatNumber(targets.tdee, 0)} unit="kcal" size="rowValue" />} />
-        <ListRow title="IMC" right={<Value value={formatNumber(targets.bmi, 1)} size="rowValue" />} />
-      </ListGroup>
-    </>
-  );
-}
-
 function WeightHistory({ weights, onOpen }: { weights: WeightEntry[]; onOpen: (entry: WeightEntry) => void }) {
-  const [showAll, setShowAll] = useState(false);
   if (weights.length === 0) return null;
   const oldest = weights[weights.length - 1];
-  const visible = showAll ? weights : weights.slice(0, RECENT_WEIGHTS);
 
   return (
     <>
@@ -312,7 +243,7 @@ function WeightHistory({ weights, onOpen }: { weights: WeightEntry[]; onOpen: (e
         </Card>
       ) : null}
       <ListGroup>
-        {visible.map((w) => (
+        {weights.slice(0, RECENT_WEIGHTS).map((w) => (
           <ListRow
             key={w.date}
             title={formatDateWithYear(w.date)}
@@ -321,113 +252,15 @@ function WeightHistory({ weights, onOpen }: { weights: WeightEntry[]; onOpen: (e
           />
         ))}
         {weights.length > RECENT_WEIGHTS ? (
-          <ListRow
-            title={showAll ? 'Ver menos' : `Ver los ${weights.length} pesajes`}
-            right={<Icon name={showAll ? 'chevron-up' : 'chevron-down'} size={20} color={colors.muted} />}
-            onPress={() => setShowAll(!showAll)}
-            chevron={false}
-          />
+          <ListRow title="Todos los pesajes" right={String(weights.length)} onPress={() => router.push('/pesos')} />
         ) : null}
       </ListGroup>
     </>
   );
 }
 
-/**
- * Today's weight (`entry` null) or a past weigh-in: a stepper of 0,1 kg that starts at `start`.
- * A weigh-in can be deleted unless it is the only one (the targets need a weight).
- */
-function WeightSheet({
-  open,
-  entry,
-  start,
-  canDelete,
-  onClose,
-  onSave,
-  onDelete,
-}: {
-  open: boolean;
-  entry: WeightEntry | null;
-  start: number;
-  canDelete: boolean;
-  onClose: () => void;
-  onSave: (kg: number) => void;
-  onDelete: (entry: WeightEntry) => void;
-}) {
-  return (
-    <Sheet
-      visible={open}
-      title={entry ? formatDateWithYear(entry.date) : 'Registrar peso'}
-      onClose={onClose}
-      action={
-        entry && canDelete ? (
-          <Button kind="danger" icon="trash-can-outline" title="Borrar" onPress={() => onDelete(entry)} />
-        ) : null
-      }>
-      {/* Keyed so that every opening starts again from the last weight. */}
-      {open ? <WeightPicker key={entry?.date ?? 'new'} start={start} onSave={onSave} /> : null}
-    </Sheet>
-  );
-}
-
-function WeightPicker({ start, onSave }: { start: number; onSave: (kg: number) => void }) {
-  const [kg, setKg] = useState(start);
-  return (
-    <>
-      <AppText variant="label" style={{ textAlign: 'center' }}>
-        Peso en kg
-      </AppText>
-      <Stepper big decimal typing={false} value={kg} onChange={setKg} step={0.1} min={20} format={(v) => formatNumber(v, 1)} />
-      <Button size="lg" title="Guardar" disabled={kg <= 0} onPress={() => onSave(kg)} />
-    </>
-  );
-}
-
-/** Lose, keep or gain, and by how much a day: stored as a signed deficit. */
-function GoalSheet({
-  open,
-  deficitKcal,
-  onChange,
-  onClose,
-}: {
-  open: boolean;
-  deficitKcal: number;
-  onChange: (deficitKcal: number) => void;
-  onClose: () => void;
-}) {
-  const { goal, kcal } = goalOf(deficitKcal);
-  // Remembers the amount while «Mantener» is chosen, so going back restores it.
-  const [amount, setAmount] = useState(kcal || DEFAULT_GOAL_KCAL);
-  const [chosen, setChosen] = useState<Goal>(goal);
-
-  const choose = (next: Goal) => {
-    setChosen(next);
-    onChange(deficitFor(next, amount));
-  };
-  const changeAmount = (next: number) => {
-    setAmount(next);
-    onChange(deficitFor(chosen, next));
-  };
-
-  return (
-    <Sheet visible={open} title="Objetivo" onClose={onClose}>
-      <Segmented<Goal>
-        options={(['lose', 'keep', 'gain'] as const).map((g) => ({ value: g, label: GOAL_NAMES[g] }))}
-        value={chosen}
-        onChange={choose}
-      />
-      {chosen !== 'keep' ? (
-        <NumberRow label="kcal al día" value={amount} onChange={changeAmount} step={50} min={50} max={1500} />
-      ) : null}
-      <Button size="lg" title="Listo" onPress={onClose} />
-    </Sheet>
-  );
-}
-
 const styles = StyleSheet.create({
-  kcal: { padding: spacing.lg, gap: spacing.xs },
   inlineRow: { paddingHorizontal: spacing.lg },
   segmentRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, minHeight: 56 },
   sex: { width: 200 },
-  sheetList: { marginHorizontal: -spacing.lg },
 });

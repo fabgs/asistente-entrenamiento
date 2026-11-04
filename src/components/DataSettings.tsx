@@ -5,6 +5,7 @@ import type { Db } from '@/db/db';
 import type { Backup } from '@/db/maintenance';
 import type { SeedData } from '@/db/seedTypes';
 import { updateSettings, type Settings } from '@/db/repositories/settings';
+import { WrongPasswordError } from '@/domain/backupCipher';
 import { formatAgo, formatDateWithYear } from '@/domain/format';
 import { localDateString } from '@/domain/schedule';
 import { useDb } from '@/hooks/data';
@@ -13,13 +14,16 @@ import {
   downloadFromGithub,
   githubTarget,
   githubToken,
+  openBackup,
+  PasswordNeededError,
+  type OpenedBackup,
   pickBackupFile,
   resetToSeed,
   restoreFrom,
   shareBackupFile,
 } from '@/services/backup';
 import { colors, spacing } from '@/theme';
-import { showDialog, showSnackbar } from './Dialog';
+import { showDialog, showPrompt, showSnackbar } from './Dialog';
 import { AppText, Button, Card, Icon, ListGroup, ListRow, RowIcon, Section, Tag, TextField } from './ui';
 
 // Only development builds bundle the Excel data: `__DEV__` is false in a release build, so the
@@ -31,6 +35,10 @@ const loadDemoSeed: (() => SeedData) | null = __DEV__
 const addDemoWalk: ((db: Db) => Promise<number>) | null = __DEV__
   ? // eslint-disable-next-line @typescript-eslint/no-require-imports
     (db) => (require('@/db/demoWalk') as typeof import('@/db/demoWalk')).addDemoWalk(db)
+  : null;
+const addDemoSprints: ((db: Db) => Promise<number>) | null = __DEV__
+  ? // eslint-disable-next-line @typescript-eslint/no-require-imports
+    (db) => (require('@/db/demoSprints') as typeof import('@/db/demoSprints')).addDemoSprints(db)
   : null;
 
 const DEFAULT_BACKUP_PATH = 'entreno-backup.json';
@@ -129,6 +137,13 @@ export function DevModeSection({ enabled, onChange }: { enabled: boolean; onChan
             onPress={async () => router.push(`/cardio-sesion/${await addDemoWalk!(db)}`)}
           />
         ) : null}
+        {addDemoSprints ? (
+          <ListRow
+            left={<RowIcon name="run-fast" />}
+            title="Añadir sprints de prueba"
+            onPress={async () => router.push(`/cardio-sesion/${await addDemoSprints!(db)}`)}
+          />
+        ) : null}
         {__DEV__ ? (
           <ListRow left={<RowIcon name="palette-outline" />} title="Catálogo de componentes" onPress={() => router.push('/dev/componentes')} />
         ) : null}
@@ -149,6 +164,23 @@ function confirmRestore(backup: Backup): Promise<boolean> {
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** Opens a copy, asking for its password while it is encrypted and none opens it; null if cancelled. */
+async function openAskingPassword(text: string): Promise<OpenedBackup | null> {
+  let password: string | undefined;
+  let message = 'Escribe la contraseña con la que se cifró.';
+  for (;;) {
+    try {
+      return await openBackup(text, password);
+    } catch (e) {
+      if (!(e instanceof PasswordNeededError || e instanceof WrongPasswordError)) throw e;
+      if (e instanceof WrongPasswordError) message = 'No es esa. Prueba otra vez.';
+      const typed = await showPrompt('Copia cifrada', { value: '', message, secure: true, confirm: 'Abrir' });
+      if (typed === null) return null;
+      password = typed;
+    }
+  }
+}
+
 type Task = 'export' | 'import' | 'upload' | 'restore';
 
 /**
@@ -158,12 +190,15 @@ type Task = 'export' | 'import' | 'upload' | 'restore';
 export function BackupSection({
   settings,
   hasToken,
+  encrypted,
   devMode,
   onChanged,
   onReplaced,
 }: {
   settings: Settings;
   hasToken: boolean;
+  /** Copies leave the phone encrypted with the user's password. */
+  encrypted: boolean;
   devMode: boolean;
   onChanged: () => Promise<void>;
   onReplaced: () => Promise<void>;
@@ -185,9 +220,10 @@ export function BackupSection({
     }
   };
 
-  const restore = async (backup: Backup | null) => {
-    if (!backup || !(await confirmRestore(backup))) return;
-    await restoreFrom(db, backup);
+  const restore = async (text: string | null) => {
+    const opened = text === null ? null : await openAskingPassword(text);
+    if (!opened || !(await confirmRestore(opened.backup))) return;
+    await restoreFrom(db, opened);
     await onReplaced();
     showSnackbar('Datos restaurados');
   };
@@ -230,6 +266,24 @@ export function BackupSection({
           chevron={false}
           disabled={!!busy}
         />
+      </ListGroup>
+
+      <ListGroup inset={72}>
+        {encrypted ? (
+          <ListRow
+            left={<RowIcon name="lock-check-outline" color={colors.primary} />}
+            title="Copias cifradas"
+            subtitle="Salen del móvil cifradas"
+            onPress={() => router.push('/cifrado')}
+          />
+        ) : (
+          <ListRow
+            left={<RowIcon name="lock-open-variant-outline" color={colors.warning} />}
+            title="Cifrar las copias"
+            subtitle="Ahora salen del móvil sin cifrar"
+            onPress={() => router.push('/cifrado')}
+          />
+        )}
       </ListGroup>
 
       {target ? (

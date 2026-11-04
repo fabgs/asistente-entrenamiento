@@ -3,6 +3,8 @@
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
   <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.WAKE_LOCK" />
+  <uses-permission android:name="android.permission.VIBRATE" />
 
   <application>
     <service
@@ -11,7 +13,10 @@
       android:foregroundServiceType="specialUse">
       <property
         android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-        android:value="Cuenta atrás del descanso entre series de un entrenamiento" />
+        android:value="Entreno en curso y cuenta atrás del descanso entre series" />
     </service>
+    <receiver
+      android:name=".SprintBeepReceiver"
+      android:exported="false" />
   </application>
 </manifest>

@@ -101,7 +101,7 @@ export default function CardioSessionScreen() {
   useEffect(() => {
     if (!leaving) return;
     if (router.canGoBack()) router.back();
-    else router.replace('/');
+    else router.dismissTo('/');
   }, [leaving]);
 
   const session = data?.session;
@@ -256,7 +256,7 @@ export default function CardioSessionScreen() {
                 {isWalk || isSprint ? (
                   <Button size="lg" kind="secondary" icon="share-variant" title="Compartir" onPress={share} style={{ flex: 1 }} />
                 ) : null}
-                <Button size="lg" icon="check" title="Listo" onPress={() => router.replace('/')} style={{ flex: 1 }} />
+                <Button size="lg" icon="check" title="Listo" onPress={() => router.dismissTo('/')} style={{ flex: 1 }} />
               </BottomBar>
             ) : undefined
           }

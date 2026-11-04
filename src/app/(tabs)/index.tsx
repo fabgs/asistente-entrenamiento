@@ -23,6 +23,7 @@ import {
 } from '@/components/ui';
 import { cardioLogOn, listCardio, setCardioDone, type CardioActivity, type CardioDone } from '@/db/repositories/cardio';
 import { getActiveCardioSession, getCardioSession } from '@/db/repositories/cardioSessions';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import {
   discardSession,
@@ -73,6 +74,7 @@ export default function TodayScreen() {
       others: routines.filter((r) => !r.weekdays.includes(weekday)),
       slotsByRoutine,
       openChanges: await listOpenChanges(db),
+      muscles: await allExerciseMuscles(db),
       allCardio,
       cardio: allCardio.filter((c) => c.weekday === weekday),
       cardioDone: await cardioLogOn(db, date),
@@ -349,6 +351,7 @@ export default function TodayScreen() {
               routine={r}
               slots={data.slotsByRoutine.get(r.id) ?? []}
               openChanges={data.openChanges}
+              muscles={data.muscles}
               startLabel={data.active?.routineId === r.id ? 'Continuar entreno' : 'Empezar rutina'}
               state={data.active?.routineId === r.id ? 'running' : undefined}
               onStart={() => start(r)}

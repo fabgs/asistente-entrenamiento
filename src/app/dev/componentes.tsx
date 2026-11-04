@@ -4,6 +4,7 @@ import { View } from 'react-native';
 import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
 import { BodyMap, HEAT } from '@/components/BodyMap';
 import { SuggestionAction, SuggestionLine } from '@/components/Recommendation';
+import { SlotRow } from '@/components/SlotRow';
 import { Sheet } from '@/components/Sheet';
 import { SprintTable } from '@/components/Sprint';
 import {
@@ -39,6 +40,7 @@ import {
   Value,
   type TagTone,
 } from '@/components/ui';
+import type { Slot } from '@/db/repositories/routines';
 import type { WeightChange } from '@/db/repositories/weightChanges';
 import { MUSCLE_KEYS, PATTERN_LABEL, type MovementPattern, type Muscle } from '@/domain/muscles';
 import type { LapRow } from '@/domain/sprint';
@@ -76,6 +78,28 @@ const SPRINT_ROWS: LapRow[] = [
   { number: 4, timeMs: 12_000, distanceM: null, topSpeedMs: null, quality: 'none', settled: true },
   { number: 5, timeMs: 12_600, distanceM: null, topSpeedMs: null, quality: null, settled: false },
 ];
+
+/** An exercise of a routine in its states: with a weight, ballast, bodyweight alone, two dumbbells without muscles. */
+const SLOT: Slot = {
+  id: 1,
+  routineId: 1,
+  exerciseId: 1,
+  exerciseName: 'Remo con barra (90º)',
+  exerciseType: 'external',
+  exerciseIncrementKg: null,
+  exercisePair: false,
+  position: 0,
+  weightKg: 35,
+  sets: 3,
+  target: { kind: 'range', min: 10, max: 12 },
+  perSide: false,
+  unit: 'reps',
+  progression: 'load',
+  allowDecrease: true,
+  incrementKg: null,
+  restSeconds: null,
+  note: null,
+};
 
 const PATTERN_MUSCLE: Record<MovementPattern, Muscle> = {
   push: 'chest',
@@ -293,6 +317,12 @@ export default function ComponentCatalog() {
         <Card>
           <MuscleTags muscles={{ primary: ['lats', 'upper_back'], secondary: ['lower_back', 'rear_delts', 'biceps'] }} />
         </Card>
+        <ListGroup inset={72}>
+          <SlotRow slot={SLOT} muscles={{ primary: ['lats'], secondary: [] }} onPress={() => {}} />
+          <SlotRow slot={{ ...SLOT, exerciseName: 'Fondos en paralelas lastrados', exerciseType: 'bodyweight', weightKg: 15 }} muscles={{ primary: ['chest'], secondary: [] }} onPress={() => {}} />
+          <SlotRow slot={{ ...SLOT, exerciseName: 'Dominadas pronas', exerciseType: 'bodyweight', weightKg: null, target: { kind: 'failure', minus: 1 } }} muscles={{ primary: ['lats'], secondary: [] }} />
+          <SlotRow slot={{ ...SLOT, exerciseName: 'Sentadilla Búlgara lastrada', exercisePair: true, weightKg: 10, perSide: true }} muscles={undefined} onPress={() => {}} />
+        </ListGroup>
         <Card>
           <AppText variant="label">Cada nivel, de 0 a 4</AppText>
           <View style={{ flexDirection: 'row', gap: spacing.sm }}>

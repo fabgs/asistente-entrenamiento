@@ -14,6 +14,7 @@ import {
   Button,
   Card,
   EmptyState,
+  ExerciseIcon,
   HeaderActions,
   Icon,
   IconButton,
@@ -21,6 +22,7 @@ import {
   ListRow,
   Loading,
   ProgressBar,
+  ROW_ICON_INSET,
   Row,
   RowIcon,
   Screen,
@@ -28,6 +30,7 @@ import {
   Tag,
   Value,
 } from '@/components/ui';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { getRoutine, isBodyweight, type Slot } from '@/db/repositories/routines';
 import {
   deleteSet,
@@ -65,6 +68,7 @@ import {
   formatTarget,
   spokenTarget,
 } from '@/domain/format';
+import type { ExerciseMuscles } from '@/domain/muscles';
 import type { RepTarget } from '@/domain/types';
 import { warmupProposal, type WarmupSet } from '@/domain/warmup';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
@@ -83,8 +87,6 @@ import { clearWorkoutInProgress, completedLabel, describeNext, showWorkoutInProg
 import { colors, maxFontScale, radius, spacing, type } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'workout';
-/** Dividers of rows with an icon start at the text: 16 + the 40 dp RowIcon + 16. */
-const ROW_ICON_INSET = spacing.lg + 40 + spacing.lg;
 /** The set cells are 48 dp high: their texts grow less with the system font. */
 const CELL_MAX_SCALE = 1.15;
 
@@ -130,6 +132,7 @@ export default function WorkoutScreen() {
       lastBySlot,
       warmupsBySlot,
       routineNames,
+      muscles: await allExerciseMuscles(db),
       sets,
       settings: await getSettings(db),
       overlayAllowed: canDrawOverlays(),
@@ -153,7 +156,7 @@ export default function WorkoutScreen() {
   useEffect(() => {
     if (!leaving) return;
     if (router.canGoBack()) router.back();
-    else router.replace('/');
+    else router.dismissTo('/');
   }, [leaving]);
 
   const keepAwake = data?.settings.keepAwake ?? false;
@@ -193,7 +196,7 @@ export default function WorkoutScreen() {
     clearWorkoutInProgress();
     await cancelRestEnd(id);
     const result = await finishSession(db, id, toProgressionSettings(settings));
-    if (result === 'discarded') router.replace('/');
+    if (result === 'discarded') router.dismissTo('/');
     else router.replace(`/workout/resumen/${id}?nuevo=1`);
     maybeAutoBackup(db);
   };
@@ -223,7 +226,7 @@ export default function WorkoutScreen() {
           clearWorkoutInProgress();
           await cancelRestEnd(id);
           await discardSession(db, id);
-          router.replace('/');
+          router.dismissTo('/');
         },
       },
       { text: 'Cancelar', style: 'cancel' },
@@ -321,6 +324,7 @@ export default function WorkoutScreen() {
           totalSeconds={restSecondsOf(restSlot, settings.restSecondsDefault)}
           next={restNext}
           nextSlot={nextSlot}
+          nextMuscles={nextSlot ? data.muscles.get(nextSlot.exerciseId) : undefined}
           nextSlotDone={nextSlot ? setsDone(nextSlot.id, sets) : 0}
           lastSet={lastSet}
           lastSlot={lastSet ? slots.find((s) => s.id === lastSet.slotId) : undefined}
@@ -1082,6 +1086,7 @@ function RestView({
   totalSeconds,
   next,
   nextSlot,
+  nextMuscles,
   nextSlotDone,
   lastSet,
   lastSlot,
@@ -1097,6 +1102,8 @@ function RestView({
   totalSeconds: number;
   next: NextStep;
   nextSlot: Slot | null;
+  /** For the icon of the next exercise, in the place of an arrow that said nothing «Siguiente» does not. */
+  nextMuscles: ExerciseMuscles | undefined;
   /** Sets already done of the next exercise: one left half done does not start at «Primera serie». */
   nextSlotDone: number;
   lastSet: SetLog | null;
@@ -1196,7 +1203,7 @@ function RestView({
         ) : null}
         {nextSlot ? (
           <ListRow
-            left={<RowIcon name="arrow-right" color={colors.muted} />}
+            left={<ExerciseIcon muscles={nextMuscles} />}
             title={
               <View style={{ gap: 2 }}>
                 <AppText variant="label">Siguiente</AppText>

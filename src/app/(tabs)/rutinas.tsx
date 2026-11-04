@@ -19,6 +19,7 @@ import {
 } from '@/components/ui';
 import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
 import { listExercises } from '@/db/repositories/exercises';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { createRoutine, listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { ISO_WEEKDAYS, isoWeekdayOf, WEEKDAY_NAMES } from '@/domain/schedule';
@@ -56,6 +57,7 @@ export default function RoutinesScreen() {
       slots,
       cardio: await listCardio(db),
       openChanges: await listOpenChanges(db),
+      muscles: await allExerciseMuscles(db),
       exerciseCount: (await listExercises(db)).length,
     };
   });
@@ -105,6 +107,7 @@ export default function RoutinesScreen() {
               routine={routine}
               slots={data.slots.get(routine.id) ?? []}
               openChanges={data.openChanges}
+              muscles={data.muscles}
               onChanged={reload}
               onEdit={() => router.push(`/rutina/${routine.id}`)}
               onOpenSlot={(slot) => router.push(`/slot/${slot.id}`)}

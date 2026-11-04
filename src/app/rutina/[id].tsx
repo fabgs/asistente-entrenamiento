@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { showActions, showDialog, showPrompt } from '@/components/Dialog';
 import { routineCounts } from '@/components/RoutineCard';
+import { SlotRow } from '@/components/SlotRow';
 import {
   AddRow,
   AppText,
@@ -10,25 +11,26 @@ import {
   DayPicker,
   EditableTitle,
   EmptyState,
+  ExerciseIcon,
   HeaderButton,
   IconButton,
   ListGroup,
-  ListRow,
   Loading,
+  ROW_ICON_INSET,
   Screen,
   Section,
 } from '@/components/ui';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import {
   archiveRoutine,
   getRoutine,
-  isBodyweight,
   listSlots,
   moveSlot,
   renameRoutine,
   setRoutineWeekdays,
   type Slot,
 } from '@/db/repositories/routines';
-import { formatLoad, formatTarget } from '@/domain/format';
+import type { ExerciseMuscles } from '@/domain/muscles';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule, useSavedAtOnce } from '@/hooks/editing';
@@ -42,7 +44,7 @@ export default function RoutineEditorScreen() {
   const [sorting, setSorting] = useState(false);
   const { data, reload } = useLoader(async (db) => {
     const routine = await getRoutine(db, routineId);
-    return routine ? { routine, slots: await listSlots(db, routineId) } : null;
+    return routine ? { routine, slots: await listSlots(db, routineId), muscles: await allExerciseMuscles(db) } : null;
   });
   const [days, setDays] = useSavedAtOnce<IsoWeekday[]>(data?.routine.weekdays ?? [], async (next) => {
     await setRoutineWeekdays(db, routineId, next);
@@ -141,23 +143,23 @@ export default function RoutineEditorScreen() {
             <Button kind="text" title={ordering ? 'Hecho' : 'Ordenar'} onPress={() => setSorting(!ordering)} />
           ) : undefined
         }>
-        <ListGroup inset={72}>
+        <ListGroup inset={ROW_ICON_INSET}>
           {slots.map((slot, i) =>
             ordering ? (
               <SortRow
                 key={slot.id}
-                n={i + 1}
                 name={slot.exerciseName}
+                muscles={data.muscles.get(slot.exerciseId)}
                 onUp={i > 0 ? () => move(slot, -1) : undefined}
                 onDown={i < slots.length - 1 ? () => move(slot, 1) : undefined}
               />
             ) : (
-              <ListRow
+              <SlotRow
                 key={slot.id}
-                left={<Position n={i + 1} />}
-                title={slot.exerciseName}
-                subtitle={`${slot.sets} × ${formatTarget(slot.target, slot.unit, slot.perSide)} · ${formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)}`}
+                slot={slot}
+                muscles={data.muscles.get(slot.exerciseId)}
                 onPress={() => router.push(`/slot/${slot.id}`)}
+                hint="Abre el ejercicio de la rutina"
               />
             ),
           )}
@@ -177,11 +179,21 @@ export default function RoutineEditorScreen() {
  * A row while ordering: not a button itself, so that each arrow is its own control. The arrow that
  * cannot be used is not drawn, but keeps its place.
  */
-function SortRow({ n, name, onUp, onDown }: { n: number; name: string; onUp?: () => void; onDown?: () => void }) {
+function SortRow({
+  name,
+  muscles,
+  onUp,
+  onDown,
+}: {
+  name: string;
+  muscles: ExerciseMuscles | undefined;
+  onUp?: () => void;
+  onDown?: () => void;
+}) {
   return (
     <View style={styles.sortRow}>
-      <Position n={n} />
-      <AppText variant="rowTitle" numberOfLines={2} style={styles.flex}>
+      <ExerciseIcon muscles={muscles} />
+      <AppText variant="rowTitle" style={styles.flex}>
         {name}
       </AppText>
       <View style={styles.arrows}>
@@ -200,21 +212,9 @@ function SortRow({ n, name, onUp, onDown }: { n: number; name: string; onUp?: ()
   );
 }
 
-/** Place of the exercise in the routine, in the leading slot of its row. */
-function Position({ n }: { n: number }) {
-  return (
-    <View style={styles.position}>
-      <AppText variant="rowValue" tabular style={styles.muted}>
-        {n}
-      </AppText>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   titleBlock: { gap: spacing.xs },
   flex: { flex: 1 },
-  muted: { color: colors.muted },
   sortRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -222,14 +222,6 @@ const styles = StyleSheet.create({
     minHeight: 56,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.xs,
-  },
-  position: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.cardAlt,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   // The last icon lines up with the 16 dp margin of the row.
   arrows: { flexDirection: 'row', marginRight: -spacing.md },

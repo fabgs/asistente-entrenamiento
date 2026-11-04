@@ -1,4 +1,6 @@
 import {
+  loadFigure,
+  spokenPrescription,
   formatSprintTime,
   workoutTitle,
   formatCardioResult,
@@ -186,5 +188,23 @@ describe('workoutTitle', () => {
     expect(workoutTitle({ ...base, looseFirst: 'Remo con barra (90º)', looseCount: 0 })).toBe('Remo con barra (90º)');
     expect(workoutTitle({ ...base, looseFirst: 'Remo con barra (90º)', looseCount: 3 })).toBe('Remo con barra (90º) y 2 más');
     expect(workoutTitle(base)).toBe('Entreno');
+  });
+});
+
+describe('loads and prescriptions of an exercise row', () => {
+  it('writes the load as a figure, with «lastre» under the ballast, and nothing without a load', () => {
+    expect(loadFigure(35, false)).toEqual({ value: '35', unit: 'kg' });
+    expect(loadFigure(37.5, false)).toEqual({ value: '37,5', unit: 'kg' });
+    expect(loadFigure(10, false, true)).toEqual({ value: '2 × 10', unit: 'kg' });
+    expect(loadFigure(15, true)).toEqual({ value: '15', unit: 'kg', caption: 'lastre' });
+    expect(loadFigure(null, true)).toBeNull();
+    expect(loadFigure(0, true)).toBeNull();
+    expect(loadFigure(null, false)).toBeNull();
+  });
+
+  it('says the prescription in words for TalkBack', () => {
+    expect(spokenPrescription(3, { kind: 'range', min: 5, max: 8 }, 'reps', false)).toBe('3 series, de 5 a 8 repeticiones');
+    expect(spokenPrescription(3, { kind: 'failure', minus: 1 }, 'reps', false)).toBe('3 series, al fallo menos 1');
+    expect(spokenPrescription(1, { kind: 'fixed', reps: 20 }, 'steps', true)).toBe('1 serie, 20 pasos por lado');
   });
 });

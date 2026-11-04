@@ -3,6 +3,7 @@
 1. **Lee [PLAN.md](PLAN.md) entero antes de tocar nada.** Es la fuente de verdad de requisitos, modelo de datos, reglas de progresión y hoja de ruta.
 2. Trabaja **por fases** (PLAN.md §13), en orden. Al terminar una tarea, marca su casilla; al terminar una fase, añade una línea al registro de cambios (§17).
 3. Si cambias una decisión del plan, actualiza PLAN.md en el mismo commit explicando el motivo.
+4. **[ARCHITECTURE.md](ARCHITECTURE.md) describe lo que hace el código**: capas, cada pantalla con desde dónde se llega y a dónde lleva, mapas de navegación, base de datos, flujos y segundo plano. Si añades o cambias una pantalla, una navegación, una tabla o migración, un flujo o algo nativo, actualízalo en el mismo commit (su §7 dice qué tocar) junto con su cabecera de versión.
 
 ## Convenciones
 

@@ -8,13 +8,13 @@ import {
   Divider,
   EmptyState,
   ExerciseIcon,
+  Figure,
   ListRow,
   Loading,
   RowIcon,
   SectionLabel,
   Segmented,
   TRACKING_ICON,
-  Value,
 } from '@/components/ui';
 import {
   cardioEntries,
@@ -210,8 +210,8 @@ function ExerciseRow({ exercise, muscles }: { exercise: ExerciseOverview; muscle
     <ListRow
       left={<ExerciseIcon muscles={muscles} />}
       title={exercise.name}
-      subtitle={`${countOf(exercise.sessions, 'sesión', 'sesiones')} · última el ${formatShortDate(exercise.lastDate)}`}
-      right={exercise.topWeightKg ? <Figure text={formatKg(exercise.topWeightKg)} caption="máx." /> : undefined}
+      subtitle={`${countOf(exercise.sessions, 'sesión', 'sesiones')} · ${formatShortDate(exercise.lastDate)}`}
+      right={exercise.topWeightKg ? <TextFigure text={formatKg(exercise.topWeightKg)} caption="máx." /> : undefined}
       onPress={() => router.push(`/progreso/${exercise.id}`)}
     />
   );
@@ -257,12 +257,12 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
       right={
         entry.sprint ? (
           entry.sprint.topSpeedMs !== null ? (
-            <Figure text={formatSpeedKmh(entry.sprint.topSpeedMs)} caption={countOf(entry.sprint.count, 'sprint', 'sprints')} />
+            <TextFigure text={formatSpeedKmh(entry.sprint.topSpeedMs)} caption={countOf(entry.sprint.count, 'sprint', 'sprints')} />
           ) : (
             countOf(entry.sprint.count, 'sprint', 'sprints')
           )
         ) : entry.distanceM !== null ? (
-          <Figure text={formatMetres(entry.distanceM)} caption={formatClock(active)} />
+          <TextFigure text={formatMetres(entry.distanceM)} caption={formatClock(active)} />
         ) : (
           formatDuration(active)
         )
@@ -273,17 +273,8 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
 }
 
 /** A figure on the right of a row, with its unit smaller and a caption under it. */
-function Figure({ text, caption }: { text: string; caption: string }) {
-  const { value, unit } = splitUnit(text);
-  return (
-    <View style={styles.figure}>
-      <Value value={value} unit={unit} size="rowValue" />
-      <AppText variant="caption" tabular>
-        {caption}
-      </AppText>
-    </View>
-  );
-}
+/** A figure written as text («5,2 km»), split into value and unit for `Figure`. */
+const TextFigure = ({ text, caption }: { text: string; caption: string }) => <Figure {...splitUnit(text)} caption={caption} />;
 
 function SubtitleLines({ lines }: { lines: string[] }) {
   return (
@@ -320,7 +311,6 @@ const styles = StyleSheet.create({
   groupTop: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
   groupBottom: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
   separatorBox: { backgroundColor: colors.card },
-  figure: { alignItems: 'flex-end' },
   thumbnail: { width: ROW_ICON_SIZE, alignItems: 'center' },
   emptyBox: { flex: 1 },
 });

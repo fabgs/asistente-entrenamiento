@@ -1,12 +1,13 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { isBodyweight, type Routine, type Slot } from '@/db/repositories/routines';
+import type { Routine, Slot } from '@/db/repositories/routines';
 import { applyChange, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatLoad, formatTarget } from '@/domain/format';
+import type { ExerciseMuscles } from '@/domain/muscles';
 import { weekdaysLabel } from '@/domain/schedule';
 import { useDb } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 import { OpenChange, SuggestionLine } from './Recommendation';
+import { SlotRow } from './SlotRow';
 import { AppText, Button, Card, Icon, IconButton, RowIcon, SectionLabel, Tag, useBusy } from './ui';
 
 /** "7 ejercicios · 19 series" or "Sin ejercicios". */
@@ -26,6 +27,8 @@ interface CardBase {
   slots: Slot[];
   /** Open weight changes (pending and dismissed) of any slot: the card picks those of its own. */
   openChanges: WeightChange[];
+  /** Muscles of every exercise, for the icon of each row (`allExerciseMuscles`). */
+  muscles: ReadonlyMap<number, ExerciseMuscles>;
   /** After a suggestion is applied or decided from the card. */
   onChanged: () => void;
 }
@@ -55,7 +58,7 @@ export type RoutineCardProps = TodayCardProps | RoutinesCardProps;
  * unfolded stays so while the app is open (each mode on its own).
  */
 export function RoutineCard(props: RoutineCardProps) {
-  const { routine, slots, openChanges, onChanged } = props;
+  const { routine, slots, openChanges, muscles, onChanged } = props;
   const db = useDb();
   const key = `${props.mode}:${routine.id}`;
   const [expanded, setExpanded] = useState(() => unfolded.has(key));
@@ -141,53 +144,21 @@ export function RoutineCard(props: RoutineCardProps) {
                 <SuggestionLine change={change} onChanged={onChanged} boxed />
               );
               return (
-                <SlotRow
-                  key={slot.id}
-                  slot={slot}
-                  onOpen={openSlot ? () => openSlot(slot) : undefined}
-                  suggestion={suggestion}
-                />
+                <View key={slot.id} style={styles.slot}>
+                  <SlotRow
+                    slot={slot}
+                    muscles={muscles.get(slot.exerciseId)}
+                    onPress={openSlot ? () => openSlot(slot) : undefined}
+                    hint="Abre el ejercicio de la rutina"
+                  />
+                  {suggestion ? <View style={styles.suggestion}>{suggestion}</View> : null}
+                </View>
               );
             })}
           </View>
         </View>
       ) : null}
     </Card>
-  );
-}
-
-/** An exercise of the unfolded card: dividers from edge to edge, the weight in white on the right. */
-function SlotRow({ slot, onOpen, suggestion }: { slot: Slot; onOpen?: () => void; suggestion: ReactNode }) {
-  const main = (
-    <>
-      <View style={styles.slotHead}>
-        <AppText variant="rowTitle" style={styles.flex}>
-          {slot.exerciseName}
-        </AppText>
-        <AppText variant="rowValue" tabular>
-          {formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)}
-        </AppText>
-        {onOpen ? <Icon name="chevron-right" size={20} color={colors.muted} /> : null}
-      </View>
-      <AppText variant="secondary">{`${slot.sets} × ${formatTarget(slot.target, slot.unit, slot.perSide)}`}</AppText>
-    </>
-  );
-  return (
-    <View style={styles.slot}>
-      {onOpen ? (
-        <Pressable
-          onPress={onOpen}
-          android_ripple={{ color: colors.pressed }}
-          style={styles.slotMain}
-          accessibilityRole="button"
-          accessibilityHint="Abre el ejercicio de la rutina">
-          {main}
-        </Pressable>
-      ) : (
-        <View style={styles.slotMain}>{main}</View>
-      )}
-      {suggestion ? <View style={styles.suggestion}>{suggestion}</View> : null}
-    </View>
   );
 }
 
@@ -199,12 +170,11 @@ const styles = StyleSheet.create({
   subRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   edit: { marginRight: -spacing.md },
   slots: { marginTop: spacing.sm },
+  // Each exercise from edge to edge of the card, with the divider on top.
   slot: {
     marginHorizontal: -spacing.lg,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  slotMain: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: 2 },
-  slotHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   suggestion: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, marginTop: -spacing.xs },
 });

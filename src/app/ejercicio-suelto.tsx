@@ -2,11 +2,11 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { showDialog } from '@/components/Dialog';
 import { SearchField } from '@/components/SearchField';
-import { AppText, EmptyState, ListGroup, ListRow, Loading, Screen, Section, useBusy } from '@/components/ui';
+import { SlotRow } from '@/components/SlotRow';
+import { EmptyState, ListGroup, Loading, ROW_ICON_INSET, Screen, Section, useBusy } from '@/components/ui';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
-import { isBodyweight, listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
+import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import { addLooseExercise, getActiveSession, getSession, listSets, openNextSet, startLooseSession } from '@/db/repositories/sessions';
-import { formatLoad, formatTarget } from '@/domain/format';
 import { matchesExercise } from '@/domain/muscles';
 import { looseSlotIds } from '@/domain/workoutMachine';
 import { useDb, useLoader } from '@/hooks/data';
@@ -98,19 +98,9 @@ export default function LooseExerciseScreen() {
       ) : (
         sections.map(({ routine, slots }) => (
           <Section key={routine.id} label={routine.name}>
-            <ListGroup>
+            <ListGroup inset={ROW_ICON_INSET}>
               {slots.map((slot) => (
-                <ListRow
-                  key={slot.id}
-                  title={slot.exerciseName}
-                  subtitle={`${slot.sets} × ${formatTarget(slot.target, slot.unit, slot.perSide)}`}
-                  right={
-                    <AppText variant="rowValue" tabular>
-                      {formatLoad(slot.weightKg, isBodyweight(slot), slot.exercisePair)}
-                    </AppText>
-                  }
-                  onPress={() => pick(slot)}
-                />
+                <SlotRow key={slot.id} slot={slot} muscles={data.muscles.get(slot.exerciseId)} onPress={() => pick(slot)} />
               ))}
             </ListGroup>
           </Section>

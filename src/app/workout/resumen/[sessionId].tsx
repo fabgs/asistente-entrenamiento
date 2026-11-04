@@ -11,6 +11,7 @@ import {
   Card,
   EditableTitle,
   EmptyState,
+  ExerciseIcon,
   HeaderActions,
   Icon,
   IconButton,
@@ -26,6 +27,7 @@ import {
   Tag,
   useBusy,
 } from '@/components/ui';
+import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
   deleteFinishedSession,
@@ -96,6 +98,7 @@ export default function SummaryScreen() {
       progression,
       defaultIncrement: settings.defaultIncrementKg,
       changes: await listChangesForSession(db, id),
+      muscles: await allExerciseMuscles(db),
     };
   });
 
@@ -135,7 +138,7 @@ export default function SummaryScreen() {
         onPress: async () => {
           await deleteFinishedSession(db, id);
           if (router.canGoBack()) router.back();
-          else router.replace('/');
+          else router.dismissTo('/');
         },
       },
       { text: 'Cancelar', style: 'cancel' },
@@ -161,7 +164,7 @@ export default function SummaryScreen() {
   ) : nuevo && finished ? (
     <BottomBar>
       <Button size="lg" kind="secondary" icon="share-variant" title="Compartir" onPress={share} style={{ flex: 1 }} />
-      <Button size="lg" icon="check" title="Listo" onPress={() => router.replace('/')} style={{ flex: 1 }} />
+      <Button size="lg" icon="check" title="Listo" onPress={() => router.dismissTo('/')} style={{ flex: 1 }} />
     </BottomBar>
   ) : undefined;
 
@@ -235,14 +238,23 @@ export default function SummaryScreen() {
           const change = changes.filter((c) => c.slotId === slot.id && c.status !== 'expired').at(-1);
           return (
             <Card key={slot.id}>
+              {/* The exercise and what was done form one block that opens its progress. */}
               <Pressable
                 onPress={() => router.push(`/progreso/${slot.exerciseId}`)}
                 style={styles.nameRow}
                 accessibilityRole="button"
                 accessibilityHint="Abre el progreso del ejercicio">
-                <AppText variant="heading" style={{ flex: 1 }}>
-                  {slot.exerciseName}
-                </AppText>
+                <ExerciseIcon muscles={data.muscles.get(slot.exerciseId)} />
+                <View style={styles.nameBlock}>
+                  <AppText variant="heading">{slot.exerciseName}</AppText>
+                  {correcting ? null : slotSets.length > 0 ? (
+                    <AppText variant="bodySm" tabular>
+                      {formatSetGroups(slotSets, bodyweight, slot.exercisePair)}
+                    </AppText>
+                  ) : (
+                    <AppText variant="secondary">Sin series</AppText>
+                  )}
+                </View>
                 <Icon name="chevron-right" size={20} color={colors.muted} />
               </Pressable>
               {warmups.length > 0 ? (
@@ -277,13 +289,6 @@ export default function SummaryScreen() {
                 </View>
               ) : (
                 <>
-                  {slotSets.length > 0 ? (
-                    <AppText variant="bodySm" tabular>
-                      {formatSetGroups(slotSets, bodyweight, slot.exercisePair)}
-                    </AppText>
-                  ) : (
-                    <AppText variant="secondary">Sin series</AppText>
-                  )}
                   {change ? (
                     <RecommendationBox change={change} onChanged={reload} />
                   ) : data.keepReasons.has(slot.id) ? (
@@ -362,7 +367,8 @@ export default function SummaryScreen() {
 }
 
 const styles = StyleSheet.create({
-  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minHeight: 32 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg, minHeight: 40 },
+  nameBlock: { flex: 1, gap: 2 },
   cells: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
   cell: {
     width: 64,

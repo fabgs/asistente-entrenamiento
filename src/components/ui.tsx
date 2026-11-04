@@ -913,6 +913,26 @@ export function RowIcon({ name, color = colors.text, tint, size = 24 }: { name: 
   );
 }
 
+/** Where the text of a row with a 40 dp icon starts, and so its dividers: 16 + 40 + 16. */
+export const ROW_ICON_INSET = spacing.lg + 40 + spacing.lg;
+
+/**
+ * A figure in the column of figures on the right of a row («35 kg», «5,2 km»), with an optional
+ * word underneath («máx.», «lastre»). Its figures line up from row to row.
+ */
+export function Figure({ value, unit, caption }: { value: string; unit?: string; caption?: string }) {
+  return (
+    <View style={styles.figure}>
+      <Value value={value} unit={unit} size="rowValue" />
+      {caption ? (
+        <AppText variant="caption" tabular>
+          {caption}
+        </AppText>
+      ) : null}
+    </View>
+  );
+}
+
 /** The last row of a group, which adds an item to it. */
 export function AddRow({ title, onPress }: { title: string; onPress: () => void }) {
   return <ListRow title={title} onPress={onPress} chevron={false} left={<RowIcon name="plus" size={22} />} />;
@@ -1282,6 +1302,7 @@ const styles = StyleSheet.create({
   },
   tagText: { ...type.tag },
   muscleTags: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs + 2 },
+  figure: { alignItems: 'flex-end' },
   segmented: {
     flexDirection: 'row',
     minHeight: 40,

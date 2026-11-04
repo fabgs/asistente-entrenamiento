@@ -101,7 +101,7 @@ export function DevModeSection({ enabled, onChange }: { enabled: boolean; onChan
           style: 'destructive',
           onPress: async () => {
             await resetToSeed(db, undefined, seed);
-            router.replace('/');
+            router.dismissTo('/');
           },
         },
       ],

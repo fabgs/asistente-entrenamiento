@@ -50,6 +50,21 @@ export function formatLoad(weightKg: number | null, isBodyweight: boolean, pair 
   return pair ? `2${NBSP}×${NBSP}${formatKg(weightKg)}` : formatKg(weightKg);
 }
 
+/**
+ * The load of a slot as a figure for a column of figures (rows of an exercise): «35 kg», «2 × 10 kg»,
+ * or «15 kg» with «lastre» underneath. Without a load (bodyweight alone, «Sin carga») there is no
+ * figure: the row says nothing rather than a long word that would squeeze the name.
+ */
+export function loadFigure(
+  weightKg: number | null,
+  isBodyweight: boolean,
+  pair = false,
+): { value: string; unit: string; caption?: string } | null {
+  if (!weightKg) return null;
+  if (isBodyweight) return { value: formatNumber(weightKg), unit: 'kg', caption: 'lastre' };
+  return { value: pair ? `2${NBSP}×${NBSP}${formatNumber(weightKg)}` : formatNumber(weightKg), unit: 'kg' };
+}
+
 /** Material written as «mancuernas» (plural): the weight is that of each of two dumbbells. */
 export const isPairEquipment = (equipment: string | null) => equipment?.trim().toLowerCase() === 'mancuernas';
 
@@ -158,6 +173,11 @@ export function spokenTarget(target: RepTarget, unit: RepUnit, perSide: boolean)
       break;
   }
   return perSide ? `${label} por lado` : label;
+}
+
+/** What TalkBack reads for «3 × 5–8 reps»: "3 series, de 5 a 8 repeticiones". */
+export function spokenPrescription(sets: number, target: RepTarget, unit: RepUnit, perSide: boolean): string {
+  return `${sets} ${sets === 1 ? 'serie' : 'series'}, ${spokenTarget(target, unit, perSide)}`;
 }
 
 /**

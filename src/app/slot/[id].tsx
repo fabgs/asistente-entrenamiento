@@ -38,7 +38,7 @@ import {
 import { slotHistory, type SlotPerformance } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
 import { listOpenChanges, setSlotWeightManually, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatCountdown, formatKg, formatSetGroups, formatTarget } from '@/domain/format';
+import { formatCountdown, formatKg, formatSetGroups } from '@/domain/format';
 import type { ProgressionKind, RepTarget, RepUnit } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
@@ -230,9 +230,7 @@ function SlotForm({
           ),
         }}
       />
-      <AppText variant="secondary">
-        {[routine?.name, `${sets} × ${formatTarget(target, unit, perSide)}`].filter(Boolean).join(' · ')}
-      </AppText>
+      {routine ? <AppText variant="secondary">{routine.name}</AppText> : null}
 
       <Section label={bodyweight ? 'Lastre' : slot.exercisePair ? 'Peso de cada mancuerna' : 'Peso'}>
         <Card>

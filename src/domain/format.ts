@@ -188,6 +188,7 @@ export function formatSetGroups(
   sets: { weightKg: number | null; reps: number }[],
   isBodyweight: boolean,
   pair = false,
+  unit: RepUnit = 'reps',
 ): string {
   const groups: { kg: number | null; reps: number[] }[] = [];
   for (const s of sets) {
@@ -195,7 +196,21 @@ export function formatSetGroups(
     if (last && (last.kg ?? 0) === (s.weightKg ?? 0)) last.reps.push(s.reps);
     else groups.push({ kg: s.weightKg, reps: [s.reps] });
   }
-  return groups.map((g) => `${formatLoad(g.kg, isBodyweight, pair)} × ${g.reps.join(', ')}`).join(' · ');
+  return groups.map((g) => `${formatLoad(g.kg, isBodyweight, pair)} × ${formatSetValues(g.reps, unit)}`).join(' · ');
+}
+
+/**
+ * What some sets did, with the unit once at the end: «12, 10», «45, 40 s», «7, 12:30 min» (from two
+ * minutes on, every value in minutes), «20, 20 pasos». A set of seconds is stored in `reps`.
+ */
+export function formatSetValues(values: number[], unit: RepUnit = 'reps'): string {
+  if (unit === 'steps') return `${values.join(', ')}${NBSP}pasos`;
+  if (unit !== 'seconds') return values.join(', ');
+  const inMinutes = values.some((v) => v >= 120);
+  const shown = values.map((v) =>
+    !inMinutes ? String(v) : v % 60 === 0 ? String(v / 60) : `${Math.floor(v / 60)}:${String(v % 60).padStart(2, '0')}`,
+  );
+  return `${shown.join(', ')}${NBSP}${inMinutes ? 'min' : 's'}`;
 }
 
 /** "Domingo, 1 de noviembre" (with the comma the RAE asks for). */

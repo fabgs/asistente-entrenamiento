@@ -751,7 +751,12 @@ function SetView({
     showActions([
       ...(canSkip ? [{ text: 'Saltar ejercicio', icon: 'skip-next-outline' as const, onPress: onSkip }] : []),
       ...(done > 0 ? [{ text: 'Añadir aproximación', icon: 'plus' as const, onPress: () => openWarmup(null) }] : []),
-      { text: 'Editar ejercicio de la rutina', icon: 'pencil-outline', onPress: () => router.push(`/slot/${slot.id}`) },
+      {
+        // A loose exercise in no routine has its own hidden slot: editing it is not editing a routine.
+        text: slot.looseOnly ? 'Editar series y peso' : 'Editar ejercicio de la rutina',
+        icon: 'pencil-outline',
+        onPress: () => router.push(`/slot/${slot.id}`),
+      },
     ]);
 
   const footer = (

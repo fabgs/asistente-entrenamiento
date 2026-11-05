@@ -191,8 +191,10 @@ function WorkoutRow({ session }: { session: SessionSummaryRow }) {
   ]
     .filter(Boolean)
     .join(' · ');
-  // A title of your own keeps the routine underneath, so you still know which one it was.
-  const routine = session.title && session.routineName && session.title !== session.routineName ? session.routineName : null;
+  // A title of your own keeps the routine underneath, so you still know which one it was. Not for
+  // an imported one: its routine is just where the old notes are kept («Importado» says enough).
+  const routine =
+    !session.imported && session.title && session.routineName && session.title !== session.routineName ? session.routineName : null;
   // One line: routine names are long, and two-line rows would leave only five entrenos on screen.
   return (
     <ListRow

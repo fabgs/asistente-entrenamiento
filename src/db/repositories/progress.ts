@@ -1,5 +1,6 @@
 import { formatCardioResult } from '@/domain/format';
 import { activeMs } from '@/domain/gps';
+import type { RepUnit } from '@/domain/types';
 import type { ExerciseSession } from '@/domain/progress';
 import { decodeLaps, formatSprintResult, lapRows, sprintSummary } from '@/domain/sprint';
 import { bool, type Db } from '../db';
@@ -8,6 +9,17 @@ import type { WeightChange } from './weightChanges';
 
 /** Every finished workout, newest first. No limit (−1 in SQLite): the history is a virtualized list. */
 export const workoutHistory = (db: Db): Promise<SessionSummaryRow[]> => listFinishedSessions(db, -1);
+
+/** What its sets count (seconds for a hold), from the slots it has been done with most. */
+export async function exerciseUnit(db: Db, exerciseId: number): Promise<RepUnit> {
+  const row = await db.getFirstAsync<{ unit: RepUnit }>(
+    `SELECT rs.unit FROM routine_slot rs LEFT JOIN set_log sl ON sl.slot_id = rs.id
+     WHERE rs.exercise_id = ?
+     GROUP BY rs.unit ORDER BY COUNT(sl.id) DESC LIMIT 1`,
+    exerciseId,
+  );
+  return row?.unit ?? 'reps';
+}
 
 /** Finished sessions that include the exercise (any routine), newest first. */
 export async function exerciseSessions(db: Db, exerciseId: number): Promise<ExerciseSession[]> {

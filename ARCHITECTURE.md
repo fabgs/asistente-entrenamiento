@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.5** (`versionCode` 17, [app.json](app.json)) |
+| Versión de la app | **1.4.6** (`versionCode` 18, [app.json](app.json)) |
 | Esquema de la BD | **10** (`PRAGMA user_version`, 10 migraciones) |
-| Revisado | 2026-11-05, versión 1.4.5 (opciones de administrador, Vertical 4:5, fotos pendientes y sin sesión, 1RM, silueta del entreno) |
+| Revisado | 2026-11-06, versión 1.4.6 (series de tiempo, importadas, ejercicios archivados, ejercicio suelto desde el catálogo) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -130,12 +130,12 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 | Fichero | Tablas | Funciones principales |
 |---|---|---|
-| [routines.ts](src/db/repositories/routines.ts) | `routine`, `routine_weekday`, `routine_slot` | `listRoutines`, `listSlots`, `createRoutine`, `renameRoutine`, `setRoutineWeekdays`, `setRoutineOnWeekday`, `archiveRoutine`, `addSlot`, `updateSlotPrescription`, `archiveSlot`, `moveSlot` |
+| [routines.ts](src/db/repositories/routines.ts) | `routine`, `routine_weekday`, `routine_slot` | `listRoutines`, `listSlots`, `createRoutine`, `renameRoutine`, `setRoutineWeekdays`, `setRoutineOnWeekday`, `archiveRoutine`, `addSlot`, `updateSlotPrescription`, `archiveSlot`, `moveSlot`, `looseSlotFor` (la ficha de un ejercicio suelto; los que no están en ninguna rutina, en la oculta `LOOSE_ROUTINE`) |
 | [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn` |
 | [weightChanges.ts](src/db/repositories/weightChanges.ts) | `weight_change`, `routine_slot.weight_kg` | `listOpenChanges`, `createRecommendation`, `applyChange`, `dismissChange`, `undoChange`, `setSlotWeightManually`, `expireOpenChanges` |
-| [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise` |
+| [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise`, `listArchivedExercises`, `isExerciseArchived`, `restoreExercise` |
 | [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek`, `plannedWeekSets` |
-| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `cardioEntries` |
+| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio`, `cardioLogOn`, `setCardioDone`, `addCardio`, `updateCardio`, `archiveCardio`, `unarchiveCardio` |
 | [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession`, `addTrackPoints`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
@@ -169,7 +169,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`, `walkTrackOf`); imágenes sin sesión (`photosWithoutSession`) |
 | [secretTaps.ts](src/domain/secretTaps.ts) | Siete toques en la versión para ver u ocultar las opciones de administrador (`addTap`, `tapOutcome`) |
 | [backupCipher.ts](src/domain/backupCipher.ts) | Formato de copia cifrada, PBKDF2/AES con un «kit» inyectado |
-| [format.ts](src/domain/format.ts) | Formatos es-ES (kg, duraciones, fechas, tamaños de fichero, `workoutTitle`) |
+| [format.ts](src/domain/format.ts) | Formatos es-ES (kg, duraciones, fechas, tamaños de fichero, series con su unidad `formatSetGroups`/`formatSetValues`, `workoutTitle`) |
 | [types.ts](src/domain/types.ts) | Tipos compartidos (`IsoWeekday`, `RepTarget`, `Recommendation`…) |
 
 </details>
@@ -238,7 +238,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [(tabs)/perfil.tsx](src/app/(tabs)/perfil.tsx) | `/perfil` | Perfil | Esta semana (músculos), peso, objetivos, mis datos |
 | [workout/[sessionId].tsx](src/app/workout/[sessionId].tsx) | `/workout/:sessionId` | Nombre de la rutina o «Ejercicio suelto» («Entrenando» mientras carga) | Modo entrenamiento: lista · serie · descanso |
 | [workout/resumen/[sessionId].tsx](src/app/workout/resumen/[sessionId].tsx) | `/workout/resumen/:sessionId` · `?nuevo=1` recién terminado | Vacío (título editable en la página) o «Corregir series» | Resumen, sugerencias, corregir o borrar |
-| [ejercicio-suelto.tsx](src/app/ejercicio-suelto.tsx) | `/ejercicio-suelto` · `?sesion=:id` para añadir a una sesión suelta | «Ejercicio suelto» o «Añadir otro ejercicio» | Elegir un ejercicio de cualquier rutina |
+| [ejercicio-suelto.tsx](src/app/ejercicio-suelto.tsx) | `/ejercicio-suelto` · `?sesion=:id` para añadir a una sesión suelta | «Ejercicio suelto» o «Añadir otro ejercicio» | Elegir un ejercicio del catálogo |
 | [progreso/[id].tsx](src/app/progreso/[id].tsx) | `/progreso/:exerciseId` | Nombre del ejercicio | Gráfica, récords, sesiones y cambios de peso |
 | [cardio-sesion/[id].tsx](src/app/cardio-sesion/[id].tsx) | `/cardio-sesion/:cardioSessionId` | En directo: nombre o píldora del GPS; terminada: vacío | Caminata, Fases o Sprints en directo, o su detalle |
 | [ruta/[id].tsx](src/app/ruta/[id].tsx) | `/ruta/:cardioSessionId` · `?modo=3d` | Sin cabecera | Mapa a pantalla completa con gráfica |
@@ -246,7 +246,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
 | [slot/[id].tsx](src/app/slot/[id].tsx) | `/slot/:slotId` | Nombre del ejercicio | Ejercicio de la rutina: peso y prescripción |
-| [ejercicios.tsx](src/app/ejercicios.tsx) | `/ejercicios` · `?pickFor=:routineId` · `?sinMusculos=1,2,3` | «Ejercicios», «Añadir ejercicio» o «Sin músculos» | Catálogo, selector para una rutina o filtro de ejercicios sin músculos |
+| [ejercicios.tsx](src/app/ejercicios.tsx) | `/ejercicios` · `?pickFor=:routineId` · `?sinMusculos=1,2,3` · `?archivados=1` | «Ejercicios», «Añadir ejercicio», «Sin músculos» o «Archivados» | Catálogo, selector para una rutina, filtro de ejercicios sin músculos o los archivados |
 | [ejercicio/[id].tsx](src/app/ejercicio/[id].tsx) | `/ejercicio/:id` · `/ejercicio/nuevo` con `?pickFor=` y `?nombre=` | «Editar ejercicio» o «Nuevo ejercicio» | Editor del catálogo (con músculos) |
 | [cardio.tsx](src/app/cardio.tsx) | `/cardio` · `?dia=1..7` | «Cardio semanal» o el nombre del día | Cardio de la semana, o editor de un día (sus rutinas y su cardio) |
 | [cardio/actividad/[id].tsx](src/app/cardio/actividad/[id].tsx) | `/cardio/actividad/:id` · `/cardio/actividad/nueva?dia=N` | «Editar actividad» o «Nueva actividad» | Editor de una actividad de cardio |
@@ -315,7 +315,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Ejercicio suelto · `/ejercicio-suelto`
 - **Llega desde**: Hoy «Hacer un ejercicio suelto»; lista de un entreno suelto «Añadir otro ejercicio» (`?sesion=`).
-- **Lleva a**: elegir → ⇄ `/workout/:nuevaSesion`; con `?sesion=` → `addLooseExercise` y ↩; si ya hay otro entreno, diálogo «Ver entreno» ⇄ `/workout/:activo`.
+- **Lleva a**: elegir (todo el catálogo, por orden alfabético; `looseSlotFor` da la ficha) → ⇄ `/workout/:nuevaSesion`; con `?sesion=` → `addLooseExercise` y ↩; si ya hay otro entreno, diálogo «Ver entreno» ⇄ `/workout/:activo`.
 
 #### Progreso · `/progreso/:exerciseId`
 - **Llega desde**: Historial · Ejercicios; Resumen (nombre del ejercicio); «Últimas sesiones» del editor del slot y del ejercicio del catálogo.
@@ -355,12 +355,12 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Capas**: sugerencia abierta (aplicar o mantener); «¿Guardar los cambios?» al salir con cambios.
 
 #### Ejercicios · `/ejercicios`
-- **Llega desde**: Rutinas «Catálogo de ejercicios»; Editar rutina y lista del entreno (`?pickFor`); Perfil y Músculos «N ejercicios sin músculos» (`?sinMusculos`).
-- **Lleva a**: fila → `/ejercicio/:id` (catálogo) o, con `?pickFor`, `addSlot` y ⇄ `/slot/:nuevo`; «+» (no en `?sinMusculos`) → `/ejercicio/nuevo` (con `pickFor` si lo hay); sin resultados, «Crear «texto»» → `/ejercicio/nuevo?nombre=…`. Buscador por nombre o músculo.
+- **Llega desde**: Rutinas «Catálogo de ejercicios»; Editar rutina y lista del entreno (`?pickFor`); Perfil y Músculos «N ejercicios sin músculos» (`?sinMusculos`); el propio catálogo, «Ejercicios archivados · N» al final (`?archivados=1`).
+- **Lleva a**: fila → `/ejercicio/:id` (catálogo) o, con `?pickFor`, `addSlot` y ⇄ `/slot/:nuevo`; «+» (no en `?sinMusculos`) → `/ejercicio/nuevo` (con `pickFor` si lo hay); sin resultados, «Crear «texto»» → `/ejercicio/nuevo?nombre=…`; «Ejercicios archivados» → `/ejercicios?archivados=1` (sin «+»; cada uno abre su ficha). Buscador por nombre o músculo.
 
 #### Ejercicio (catálogo) · `/ejercicio/:id`
 - **Llega desde**: Ejercicios (fila, «+», «Crear…»); hoja de un músculo en Músculos; «N ejercicios sin músculos» si es uno.
-- **Lleva a**: «Últimas sesiones» → `/progreso/:id`; «Guardar» ↩; nuevo con `pickFor`: «Añadir a la rutina» ↩ y ⇄ `/slot/:nuevo`; ⋮ «Borrar ejercicio» ↩.
+- **Lleva a**: «Últimas sesiones» → `/progreso/:id`; «Guardar» ↩; nuevo con `pickFor`: «Añadir a la rutina» ↩ y ⇄ `/slot/:nuevo`; ⋮ «Archivar ejercicio» ↩ o, si está archivado (lo dice arriba), «Recuperar ejercicio» ↩.
 - **Capas**: hoja de músculos principales/secundarios (`MusclePickerSheet`); «¿Guardar los cambios?».
 
 #### Cardio semanal / día · `/cardio`
@@ -935,7 +935,7 @@ erDiagram
 | `weight_log` | Un pesaje por día | `logWeight` hace *upsert* por fecha. |
 | `exercise` | Catálogo de ejercicios | `pair = 1`: el peso es de cada mancuerna y el volumen cuenta las dos. Crear uno con el nombre de un archivado lo recupera. |
 | `exercise_muscle` | Músculos principales y secundarios de cada ejercicio | Un músculo es principal o secundario, no ambos. Claves desconocidas se ignoran al leer. |
-| `routine` / `routine_weekday` | Rutinas y en qué días tocan | Archivar una rutina borra sus días. |
+| `routine` / `routine_weekday` | Rutinas y en qué días tocan | Archivar una rutina borra sus días. Dos rutinas archivadas guardan fichas que no son de ninguna rutina: «Ejercicios sueltos» (`LOOSE_ROUTINE`, las de los ejercicios sueltos que no están en ninguna, 1.4.6) y, en los datos del usuario, «Notas antiguas» (las sesiones importadas de sus notas, manuales y al fallo). Nada las muestra. |
 | `routine_slot` | Un ejercicio dentro de una rutina con su prescripción | **El peso actual vive aquí**; solo cambia al aplicar una sugerencia o a mano. |
 | `workout_session` | Un entreno | `routine_id` NULL = sesión suelta (sus ejercicios salen de `set_log.slot_id` y `current_slot_id`). `rest_ends_at`, `current_slot_id` y `skipped_slot_ids` guardan el estado en curso. `imported` = vino del Excel. Descartar **borra** la fila (el estado `abandoned` existe en el tipo pero no se escribe). |
 | `set_log` | Cada serie | `weight_kg` copia el peso del slot al registrar (el historial no cambia si el slot sube). `is_warmup = 1` = aproximación: no cuenta para series, volumen, récords ni progresión. |

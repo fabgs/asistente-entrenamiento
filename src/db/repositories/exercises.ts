@@ -82,6 +82,20 @@ export async function archiveExercise(db: Db, id: number): Promise<void> {
   await db.runAsync('UPDATE exercise SET archived = 1 WHERE id = ?', id);
 }
 
+/** Archived exercises (Ejercicios → Archivados), to look at their history or bring them back. */
+export async function listArchivedExercises(db: Db): Promise<Exercise[]> {
+  return (await db.getAllAsync<ExerciseRow>(`${SELECT} WHERE archived = 1 ORDER BY name COLLATE NOCASE`)).map(toExercise);
+}
+
+export async function isExerciseArchived(db: Db, id: number): Promise<boolean> {
+  return (await db.getFirstAsync<{ archived: number }>('SELECT archived FROM exercise WHERE id = ?', id))?.archived === 1;
+}
+
+/** Back to the catalog (names are unique, so it cannot clash with an active one). */
+export async function restoreExercise(db: Db, id: number): Promise<void> {
+  await db.runAsync('UPDATE exercise SET archived = 0 WHERE id = ?', id);
+}
+
 /**
  * Exercises whose sets use their own increment instead of the default one: set in the catalog or in
  * an active routine. Changing the default increment does not touch them (Ajustes says how many).

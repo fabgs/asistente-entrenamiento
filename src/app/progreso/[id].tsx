@@ -20,8 +20,8 @@ import {
 } from '@/components/ui';
 import { getExercise } from '@/db/repositories/exercises';
 import { getExerciseMuscles } from '@/db/repositories/muscles';
-import { exerciseSessions, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
-import { formatKg, formatNumber, formatSetGroups, formatShortDate, NBSP } from '@/domain/format';
+import { exerciseSessions, exerciseUnit, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
+import { formatKg, formatNumber, formatSetGroups, formatSetValues, formatShortDate, NBSP } from '@/domain/format';
 import { capitalize, computeRecords, distinctRecords, formatDayMonth, oneRepMaxRecord, sessionOneRepMax, summarize } from '@/domain/progress';
 import { localDateString } from '@/domain/schedule';
 import { useLoader } from '@/hooks/data';
@@ -39,6 +39,7 @@ const METRICS: { value: ChartMetric; label: string }[] = [
 let lastMetric: ChartMetric = 'weight';
 
 const formatReps = (reps: number) => `${formatNumber(reps, 0)}${NBSP}reps`;
+const formatMinutesValue = (minutes: number) => `${formatNumber(minutes, 1)}${NBSP}min`;
 
 /** Dividers of rows with an icon start at the text: 16 + the 40 dp RowIcon + 16. */
 const ICON_ROW_INSET = spacing.lg + 40 + spacing.lg;
@@ -54,6 +55,7 @@ export default function ExerciseProgressScreen() {
     muscles: await getExerciseMuscles(db, exerciseId),
     sessions: await exerciseSessions(db, exerciseId),
     changes: await exerciseWeightChanges(db, exerciseId),
+    unit: await exerciseUnit(db, exerciseId),
   }));
 
   const setMetric = (next: ChartMetric) => {
@@ -70,7 +72,10 @@ export default function ExerciseProgressScreen() {
     );
   }
 
-  const { exercise, muscles, sessions, changes } = data;
+  const { exercise, muscles, sessions, changes, unit } = data;
+  // A hold counts seconds and a walk with weight steps: «Tiempo» and «7 min», not «420 reps».
+  const amountLabel = unit === 'seconds' ? 'Tiempo' : unit === 'steps' ? 'Pasos' : 'Reps';
+  const formatAmount = unit === 'reps' ? formatReps : (value: number) => formatSetValues([value], unit);
   const bodyweight = exercise.type === 'bodyweight';
   const records = distinctRecords(computeRecords(sessions, exercise.pair));
   const chronological = [...sessions]
@@ -81,6 +86,9 @@ export default function ExerciseProgressScreen() {
   const oneRepMaxes = bodyweight ? [] : chronological.flatMap((s) => (s.oneRepMax === null ? [] : [{ label: s.label, value: s.oneRepMax }]));
   const oneRepMax = bodyweight ? null : oneRepMaxRecord(sessions);
   const metrics = oneRepMaxes.length >= 2 ? METRICS : METRICS.filter((m) => m.value !== 'oneRepMax');
+  // Minutes of practice plot in minutes, so the axis reads 0, 10, 20 instead of 16:40 and 33:20.
+  const inMinutes = unit === 'seconds' && chronological.some((c) => c.totalReps >= 120);
+  const metricOptions = metrics.map((m) => (m.value === 'reps' ? { ...m, label: amountLabel } : m));
   const pairPrefix = exercise.pair ? `2${NBSP}×${NBSP}` : '';
   // Bodyweight work without ballast only has reps to show.
   const shown: ChartMetric = !hasWeight ? 'reps' : metrics.some((m) => m.value === metric) ? metric : 'weight';
@@ -100,7 +108,7 @@ export default function ExerciseProgressScreen() {
 
       {chronological.length >= 2 ? (
         <Card>
-          {hasWeight ? <Segmented options={metrics} value={shown} onChange={setMetric} /> : null}
+          {hasWeight ? <Segmented options={metricOptions} value={shown} onChange={setMetric} /> : null}
           {shown === 'oneRepMax' ? (
             <LineChart
               key="oneRepMax"
@@ -118,9 +126,9 @@ export default function ExerciseProgressScreen() {
           ) : (
             <LineChart
               key="reps"
-              title="Repeticiones por sesión"
-              points={chronological.map((s) => ({ label: s.label, value: s.totalReps }))}
-              format={formatReps}
+              title={unit === 'seconds' ? 'Tiempo por sesión' : unit === 'steps' ? 'Pasos por sesión' : 'Repeticiones por sesión'}
+              points={chronological.map((s) => ({ label: s.label, value: inMinutes ? s.totalReps / 60 : s.totalReps }))}
+              format={inMinutes ? formatMinutesValue : formatAmount}
             />
           )}
         </Card>
@@ -151,9 +159,9 @@ export default function ExerciseProgressScreen() {
             ) : null}
             {records.maxReps ? (
               <Stat
-                label="Más reps"
-                value={String(records.maxReps.reps)}
-                unit="reps"
+                label={unit === 'seconds' ? 'Más tiempo' : unit === 'steps' ? 'Más pasos' : 'Más reps'}
+                value={unit === 'reps' ? String(records.maxReps.reps) : formatSetValues([records.maxReps.reps], unit)}
+                unit={unit === 'reps' ? 'reps' : undefined}
                 caption={
                   records.maxReps.kg > 0
                     ? `${formatKg(records.maxReps.kg)} · ${formatShortDate(records.maxReps.date)}`
@@ -179,7 +187,7 @@ export default function ExerciseProgressScreen() {
             {sessions.map((s) => (
               <ListRow
                 key={s.sessionId}
-                title={formatSetGroups(s.sets, bodyweight, exercise.pair)}
+                title={formatSetGroups(s.sets, bodyweight, exercise.pair, unit)}
                 subtitle={[capitalize(formatDayMonth(s.date)), s.title ?? s.routineName ?? 'Ejercicio suelto'].filter(Boolean).join(' · ')}
                 right={
                   s.imported ? (

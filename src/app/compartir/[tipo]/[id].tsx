@@ -11,7 +11,8 @@ import { listPhotos, type Photo } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { getSession, listSets, setSessionTitle } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { formatDuration, formatLoad, formatLongDate, formatMetres, formatNumber, formatSpeedKmh, formatSprintTime, formatTimeRange, workoutTitle } from '@/domain/format';
+import { formatDuration, formatLoad, formatLongDate, formatMetres, formatNumber, formatSetValues, formatSpeedKmh, formatSprintTime, formatTimeRange, workoutTitle } from '@/domain/format';
+import type { RepUnit } from '@/domain/types';
 import { activeMs } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
 import { splitUnit, volumeOf } from '@/domain/progress';
@@ -44,10 +45,10 @@ const CONTROLS_HEIGHT = 390;
 const FORMAT_ROW = 72;
 const PHOTO_ROW = THUMB + 24;
 
-/** "3 × 12 · 35 kg" when every set had the same reps, "12, 11, 10 · 35 kg" when not. */
-function exerciseDetail(reps: number[], load: string): string {
+/** "3 × 12 · 35 kg" when every set had the same reps, "12, 11, 10 · 35 kg" when not; "2 × 45 s" for a hold. */
+function exerciseDetail(reps: number[], load: string, unit: RepUnit): string {
   const same = reps.every((r) => r === reps[0]);
-  return `${same ? `${reps.length} × ${reps[0]}` : reps.join(', ')} · ${load}`;
+  return `${same ? `${reps.length} × ${formatSetValues([reps[0]], unit)}` : formatSetValues(reps, unit)} · ${load}`;
 }
 
 /** Image of a walk or a workout to share (Instagram story size), with an editable title. */
@@ -149,9 +150,10 @@ export default function ShareScreen() {
       photos,
       defaultTitle: workoutTitle({ ...session, title: null }),
       title: session.title ?? '',
-      subtitle: `${formatLongDate(new Date(session.startedAt))}${session.finishedAt ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}`,
+      // An imported session was stored with a made-up hour: neither its time nor its duration are real.
+      subtitle: `${formatLongDate(new Date(session.startedAt))}${session.finishedAt && !session.imported ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}`,
       figures: [
-        { label: 'Duración', value: session.finishedAt ? formatDuration(session.finishedAt - session.startedAt) : '–' },
+        { label: 'Duración', value: session.finishedAt && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : '–' },
         { label: 'Series', value: String(sets.length) },
         { label: 'Volumen', value: formatNumber(volume, 0), unit: 'kg' },
       ] as StoryFigure[],
@@ -162,6 +164,7 @@ export default function ShareScreen() {
           detail: exerciseDetail(
             own.map((s) => s.reps),
             formatLoad(own[0]?.weightKg ?? null, isBodyweight(slot), slot.exercisePair),
+            slot.unit,
           ),
         };
       }),

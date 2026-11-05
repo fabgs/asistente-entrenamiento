@@ -9,6 +9,9 @@ import type {
 import { bool, int, type Db } from '../db';
 import { expireOpenChanges } from './weightChanges';
 
+/** The hidden (archived) routine that holds the slots of exercises done loose and in no routine. */
+export const LOOSE_ROUTINE = 'Ejercicios sueltos';
+
 export interface Routine {
   id: number;
   name: string;
@@ -36,6 +39,8 @@ export interface Slot {
   incrementKg: number | null;
   restSeconds: number | null;
   note: string | null;
+  /** Its routine is the hidden one of loose exercises (looseSlotFor): it belongs to no routine. */
+  looseOnly?: boolean;
 }
 
 interface SlotRow {
@@ -61,12 +66,13 @@ interface SlotRow {
   increment_kg: number | null;
   rest_seconds: number | null;
   note: string | null;
+  loose_only: number;
 }
 
 const SLOT_SELECT = `
   SELECT s.*, e.name AS exercise_name, e.type AS exercise_type, e.increment_kg AS exercise_increment_kg,
-         e.pair AS exercise_pair
-  FROM routine_slot s JOIN exercise e ON e.id = s.exercise_id`;
+         e.pair AS exercise_pair, (r.archived = 1 AND r.name = '${LOOSE_ROUTINE}') AS loose_only
+  FROM routine_slot s JOIN exercise e ON e.id = s.exercise_id JOIN routine r ON r.id = s.routine_id`;
 
 function targetOf(row: SlotRow): RepTarget {
   switch (row.target_kind) {
@@ -99,6 +105,7 @@ function toSlot(row: SlotRow): Slot {
     incrementKg: row.increment_kg,
     restSeconds: row.rest_seconds,
     note: row.note,
+    looseOnly: bool(row.loose_only),
   };
 }
 
@@ -328,4 +335,48 @@ export async function moveSlot(db: Db, slotId: number, delta: -1 | 1): Promise<v
       await db.runAsync('UPDATE routine_slot SET position = ? WHERE id = ?', position, id);
     }
   });
+}
+
+
+/**
+ * The slot to do an exercise loose with («Ejercicio suelto»): the one of an active routine (the last
+ * one used, if it is in several) or, for an exercise in no routine, its own slot in the hidden
+ * LOOSE_ROUTINE, created the first time with 3 × 8–12 and the heaviest set of the last time it was
+ * done (not a lighter back-off set at the end); that slot
+ * keeps its weight and suggestions for the next time. Never one of another archived routine (the
+ * imported history keeps its own).
+ */
+export async function looseSlotFor(db: Db, exercise: { id: number; type: ExerciseType }): Promise<number> {
+  const inRoutine = await db.getFirstAsync<{ id: number }>(
+    `SELECT rs.id FROM routine_slot rs JOIN routine r ON r.id = rs.routine_id
+     WHERE rs.exercise_id = ? AND rs.archived = 0 AND r.archived = 0
+     ORDER BY COALESCE((SELECT MAX(sl.completed_at) FROM set_log sl WHERE sl.slot_id = rs.id), 0) DESC, r.position, rs.position
+     LIMIT 1`,
+    exercise.id,
+  );
+  if (inRoutine) return inRoutine.id;
+  const loose = await db.getFirstAsync<{ id: number }>(
+    'SELECT id FROM routine WHERE name = ? AND archived = 1 ORDER BY id LIMIT 1',
+    LOOSE_ROUTINE,
+  );
+  if (loose) {
+    const own = await db.getFirstAsync<{ id: number }>(
+      'SELECT id FROM routine_slot WHERE routine_id = ? AND exercise_id = ? AND archived = 0',
+      loose.id,
+      exercise.id,
+    );
+    if (own) return own.id;
+  }
+  const routineId =
+    loose?.id ?? (await db.runAsync('INSERT INTO routine (name, position, archived) VALUES (?, 999, 1)', LOOSE_ROUTINE)).lastInsertRowId;
+  const slotId = await addSlot(db, routineId, exercise);
+  const last = await db.getFirstAsync<{ kg: number | null }>(
+    `SELECT MAX(weight_kg) AS kg FROM set_log
+     WHERE exercise_id = ? AND is_warmup = 0
+       AND session_id = (SELECT session_id FROM set_log WHERE exercise_id = ? AND is_warmup = 0 ORDER BY completed_at DESC LIMIT 1)`,
+    exercise.id,
+    exercise.id,
+  );
+  if (last?.kg) await db.runAsync('UPDATE routine_slot SET weight_kg = ? WHERE id = ?', last.kg, slotId);
+  return slotId;
 }

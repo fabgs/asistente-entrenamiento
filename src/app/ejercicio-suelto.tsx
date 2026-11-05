@@ -1,19 +1,27 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import { showDialog } from '@/components/Dialog';
 import { SearchField } from '@/components/SearchField';
-import { SlotRow } from '@/components/SlotRow';
-import { EmptyState, ListGroup, Loading, ROW_ICON_INSET, Screen, Section, useBusy } from '@/components/ui';
+import { Card, Divider, EmptyState, ExerciseIcon, ListRow, Loading, Screen, useBusy } from '@/components/ui';
+import { listExercises, type Exercise } from '@/db/repositories/exercises';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
-import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
+import { listSlotsByIds, looseSlotFor } from '@/db/repositories/routines';
 import { addLooseExercise, getActiveSession, getSession, listSets, openNextSet, startLooseSession } from '@/db/repositories/sessions';
-import { matchesExercise } from '@/domain/muscles';
+import { normalizeForSearch } from '@/domain/format';
+import { matchesExercise, muscleLabel } from '@/domain/muscles';
 import { looseSlotIds } from '@/domain/workoutMachine';
 import { useDb, useLoader } from '@/hooks/data';
 
+/** Alphabetical without minding accents, as in the catalog. */
+const byName = (a: Exercise, b: Exercise) => {
+  const [x, y] = [normalizeForSearch(a.name), normalizeForSearch(b.name)];
+  return x < y ? -1 : x > y ? 1 : 0;
+};
+
 /**
- * Picks an exercise of any routine to do on its own (PLAN.md §6.4, «Ejercicio suelto»), with its
- * weight and prescription. With `sesion`, it adds another one to that loose workout.
+ * Picks any exercise of the catalog to do on its own (PLAN.md §6.4, «Ejercicio suelto»). One in a
+ * routine keeps that routine's weight and prescription; one in none gets its own slot (looseSlotFor).
+ * With `sesion`, it adds another one to that loose workout.
  */
 export default function LooseExerciseScreen() {
   const { sesion } = useLocalSearchParams<{ sesion?: string }>();
@@ -23,15 +31,15 @@ export default function LooseExerciseScreen() {
   const [, run] = useBusy();
 
   const { data } = useLoader(async (db) => {
-    const routines = await listRoutines(db);
-    const slots = new Map<number, Slot[]>();
-    for (const r of routines) slots.set(r.id, await listSlots(db, r.id));
     let taken: number[] = [];
     if (sessionId !== null) {
       const session = await getSession(db, sessionId);
-      if (session) taken = looseSlotIds(await listSets(db, sessionId), session.currentSlotId);
+      if (session) {
+        const slots = await listSlotsByIds(db, looseSlotIds(await listSets(db, sessionId), session.currentSlotId));
+        taken = slots.map((s) => s.exerciseId);
+      }
     }
-    return { routines, slots, taken: new Set(taken), muscles: await allExerciseMuscles(db) };
+    return { exercises: await listExercises(db), taken: new Set(taken), muscles: await allExerciseMuscles(db) };
   });
 
   const title = sessionId === null ? 'Ejercicio suelto' : 'Añadir otro ejercicio';
@@ -45,23 +53,19 @@ export default function LooseExerciseScreen() {
   }
 
   const wanted = query.trim();
-  const sections: { routine: Routine; slots: Slot[] }[] = data.routines
-    .map((routine) => ({
-      routine,
-      slots: (data.slots.get(routine.id) ?? []).filter(
-        (s) => !data.taken.has(s.id) && matchesExercise(wanted, s.exerciseName, data.muscles.get(s.exerciseId)),
-      ),
-    }))
-    .filter((s) => s.slots.length > 0);
+  const visible = data.exercises
+    .filter((e) => !data.taken.has(e.id) && matchesExercise(wanted, e.name, data.muscles.get(e.id)))
+    .sort(byName);
 
-  const pick = (slot: Slot) =>
+  const pick = (exercise: Exercise) =>
     run(async () => {
+      const slotId = await looseSlotFor(db, exercise);
       if (sessionId !== null) {
-        await addLooseExercise(db, sessionId, slot.id);
+        await addLooseExercise(db, sessionId, slotId);
         router.back();
         return;
       }
-      const id = await startLooseSession(db, slot.id, new Date());
+      const id = await startLooseSession(db, slotId, new Date());
       if (id !== null) {
         router.replace(`/workout/${id}`);
         return;
@@ -80,31 +84,33 @@ export default function LooseExerciseScreen() {
       ]);
     })();
 
-  const nothing =
-    sessionId === null
-      ? { title: 'Sin ejercicios todavía', text: 'Añade ejercicios a tus rutinas para poder hacer uno suelto.' }
-      : { title: 'No quedan ejercicios', text: 'Todos los ejercicios de tus rutinas ya están en este entreno.' };
-
   return (
     <Screen>
       <Stack.Screen options={{ title }} />
       <SearchField value={query} onChangeText={setQuery} />
-      {sections.length === 0 ? (
+      {visible.length === 0 ? (
         wanted ? (
           <EmptyState icon="magnify" title="Ningún ejercicio coincide" />
         ) : (
-          <EmptyState icon="dumbbell" title={nothing.title} text={nothing.text} />
+          <EmptyState icon="dumbbell" title="No quedan ejercicios" text="Todos los del catálogo ya están en este entreno." />
         )
       ) : (
-        sections.map(({ routine, slots }) => (
-          <Section key={routine.id} label={routine.name}>
-            <ListGroup inset={ROW_ICON_INSET}>
-              {slots.map((slot) => (
-                <SlotRow key={slot.id} slot={slot} muscles={data.muscles.get(slot.exerciseId)} onPress={() => pick(slot)} />
-              ))}
-            </ListGroup>
-          </Section>
-        ))
+        <Card flush>
+          {visible.map((exercise, i) => {
+            const muscles = data.muscles.get(exercise.id);
+            return (
+              <Fragment key={exercise.id}>
+                {i > 0 ? <Divider inset={72} /> : null}
+                <ListRow
+                  onPress={() => pick(exercise)}
+                  left={<ExerciseIcon muscles={muscles} />}
+                  title={exercise.name}
+                  subtitle={muscles?.primary.length ? muscles.primary.map(muscleLabel).join(', ') : 'Sin músculos'}
+                />
+              </Fragment>
+            );
+          })}
+        </Card>
       )}
     </Screen>
   );

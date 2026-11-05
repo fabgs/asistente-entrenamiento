@@ -206,7 +206,9 @@ function SlotForm({
   };
 
   const formatWeight = (kg: number) => (kg > 0 ? formatKg(kg) : bodyweight ? 'Peso corporal' : 'Sin carga');
-  const lastTime = last ? formatSetGroups(last.reps.map((reps) => ({ weightKg: last.weightKg, reps })), bodyweight, slot.exercisePair) : null;
+  const lastTime = last
+    ? formatSetGroups(last.reps.map((reps) => ({ weightKg: last.weightKg, reps })), bodyweight, slot.exercisePair, slot.unit)
+    : null;
 
   return (
     <Screen

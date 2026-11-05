@@ -1,7 +1,7 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { showActions, showDialog } from '@/components/Dialog';
+import { showActions, showDialog, showSnackbar } from '@/components/Dialog';
 import { FormRow } from '@/components/FormRow';
 import { MusclePickerSheet } from '@/components/MusclePicker';
 import {
@@ -24,12 +24,14 @@ import {
   createExercise,
   exerciseNameTaken,
   getExercise,
+  isExerciseArchived,
+  restoreExercise,
   updateExercise,
   type Exercise,
   type ExerciseFields,
 } from '@/db/repositories/exercises';
 import { getExerciseMuscles, setExerciseMuscles } from '@/db/repositories/muscles';
-import { exerciseSessions } from '@/db/repositories/progress';
+import { exerciseSessions, exerciseUnit } from '@/db/repositories/progress';
 import { addSlot } from '@/db/repositories/routines';
 import { getSettings } from '@/db/repositories/settings';
 import { formatEquipment, formatKg, formatSetGroups } from '@/domain/format';
@@ -60,7 +62,10 @@ export default function ExerciseEditorScreen() {
     return {
       exercise,
       muscles: exercise && !isNew ? await getExerciseMuscles(db, exercise.id) : NO_MUSCLES,
-      lastTime: last ? formatSetGroups(last.sets, exercise?.type === 'bodyweight', exercise?.pair) : null,
+      lastTime: last
+        ? formatSetGroups(last.sets, exercise?.type === 'bodyweight', exercise?.pair, await exerciseUnit(db, exercise!.id))
+        : null,
+      archived: exercise && !isNew ? await isExerciseArchived(db, exercise.id) : false,
       defaultIncrement: (await getSettings(db)).defaultIncrementKg,
     };
   });
@@ -87,6 +92,7 @@ export default function ExerciseEditorScreen() {
       savedMuscles={data.muscles}
       isNew={isNew}
       lastTime={data.lastTime}
+      archived={data.archived}
       defaultIncrement={data.defaultIncrement}
       pickFor={pickFor ? Number(pickFor) : null}
     />
@@ -98,6 +104,7 @@ function ExerciseForm({
   savedMuscles,
   isNew,
   lastTime,
+  archived,
   defaultIncrement,
   pickFor,
 }: {
@@ -105,6 +112,8 @@ function ExerciseForm({
   savedMuscles: ExerciseMuscles;
   isNew: boolean;
   lastTime: string | null;
+  /** Out of the catalog (Ejercicios → Archivados): it can come back. */
+  archived: boolean;
   defaultIncrement: number;
   pickFor: number | null;
 }) {
@@ -194,18 +203,26 @@ function ExerciseForm({
     }
   };
 
-  const remove = () =>
-    showDialog('¿Borrar el ejercicio?', 'Desaparece del catálogo. Las rutinas que lo usan y su historial no cambian.', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Borrar',
-        style: 'destructive',
-        onPress: async () => {
-          await queueWrite(() => archiveExercise(db, exercise.id));
-          leave();
+  const archive = () =>
+    showDialog(
+      '¿Archivar el ejercicio?',
+      'Sale del catálogo y no se puede elegir. Las rutinas que lo usan y su historial no cambian; lo recuperas desde «Ejercicios archivados», al final del catálogo.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Archivar',
+          onPress: async () => {
+            await queueWrite(() => archiveExercise(db, exercise.id));
+            leave();
+          },
         },
-      },
-    ]);
+      ],
+    );
+  const restore = async () => {
+    await queueWrite(() => restoreExercise(db, exercise.id));
+    showSnackbar('Ejercicio recuperado: vuelve al catálogo');
+    router.back();
+  };
 
   return (
     <Screen
@@ -230,12 +247,19 @@ function ExerciseForm({
                   icon="dots-vertical"
                   label="Más acciones"
                   onPress={() =>
-                    showActions([{ text: 'Borrar ejercicio', icon: 'trash-can-outline', destructive: true, onPress: remove }])
+                    showActions([
+                      archived
+                        ? { text: 'Recuperar ejercicio', icon: 'archive-arrow-up-outline', onPress: restore }
+                        : { text: 'Archivar ejercicio', icon: 'archive-outline', onPress: archive },
+                    ])
                   }
                 />
               ),
         }}
       />
+      {archived ? (
+        <AppText variant="secondary">Archivado: no sale en el catálogo ni al elegir ejercicios. Recupéralo desde el menú de arriba.</AppText>
+      ) : null}
       <View style={styles.fields}>
         <TextField
           label="Nombre"

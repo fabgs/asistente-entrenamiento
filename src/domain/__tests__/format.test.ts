@@ -11,6 +11,7 @@ import {
   formatDuration,
   formatMinutes,
   formatSetGroups,
+  formatSetValues,
   formatTimeRange,
   formatEquipment,
   formatKg,
@@ -164,6 +165,9 @@ describe('format', () => {
     ).toBe('35 kg × 15, 15 · 37,5 kg × 12');
     expect(formatSetGroups([{ weightKg: null, reps: 10 }, { weightKg: 0, reps: 9 }], true)).toBe('Peso corporal × 10, 9');
     expect(formatSetGroups([{ weightKg: 10, reps: 12 }, { weightKg: 10, reps: 11 }], false, true)).toBe('2 × 10 kg × 12, 11');
+    // Sets of time or steps say their unit, not «× 420».
+    expect(formatSetGroups([{ weightKg: null, reps: 420 }], true, false, 'seconds')).toBe('Peso corporal × 7\u00A0min');
+    expect(formatSetGroups([{ weightKg: 32, reps: 45 }, { weightKg: 32, reps: 45 }], false, false, 'seconds')).toBe('32\u00A0kg × 45, 45\u00A0s');
     expect(formatMinutes(1000)).toBe('0 min');
     expect(formatTimeRange(new Date(2026, 10, 3, 9, 20).getTime(), new Date(2026, 10, 3, 10, 19).getTime())).toBe('9:20–10:19');
   });
@@ -206,5 +210,22 @@ describe('loads and prescriptions of an exercise row', () => {
     expect(spokenPrescription(3, { kind: 'range', min: 5, max: 8 }, 'reps', false)).toBe('3 series, de 5 a 8 repeticiones');
     expect(spokenPrescription(3, { kind: 'failure', minus: 1 }, 'reps', false)).toBe('3 series, al fallo menos 1');
     expect(spokenPrescription(1, { kind: 'fixed', reps: 20 }, 'steps', true)).toBe('1 serie, 20 pasos por lado');
+  });
+});
+
+describe('formatSetValues', () => {
+  it('writes reps as they are', () => {
+    expect(formatSetValues([12, 10])).toBe('12, 10');
+  });
+
+  it('writes seconds, or minutes from two minutes on', () => {
+    expect(formatSetValues([45, 40], 'seconds')).toBe('45, 40\u00A0s');
+    expect(formatSetValues([90], 'seconds')).toBe('90\u00A0s');
+    expect(formatSetValues([420, 300], 'seconds')).toBe('7, 5\u00A0min');
+    expect(formatSetValues([750, 90], 'seconds')).toBe('12:30, 1:30\u00A0min');
+  });
+
+  it('writes steps with their word', () => {
+    expect(formatSetValues([20, 20], 'steps')).toBe('20, 20\u00A0pasos');
   });
 });

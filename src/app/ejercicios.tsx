@@ -2,8 +2,8 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { Fragment, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SearchField } from '@/components/SearchField';
-import { Button, Card, Divider, EmptyState, ExerciseIcon, HeaderButton, ListRow, Loading, Screen } from '@/components/ui';
-import { listExercises, type Exercise } from '@/db/repositories/exercises';
+import { Button, Card, Divider, EmptyState, ExerciseIcon, HeaderButton, ListGroup, ListRow, Loading, RowIcon, Screen } from '@/components/ui';
+import { listArchivedExercises, listExercises, type Exercise } from '@/db/repositories/exercises';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { addSlot } from '@/db/repositories/routines';
 import { normalizeForSearch } from '@/domain/format';
@@ -20,16 +20,21 @@ const byName = (a: Exercise, b: Exercise) => {
 
 /**
  * Exercise catalog. With `pickFor` (a routine id), tapping an exercise adds it to that routine; with
- * `sinMusculos` (ids), only those of them still without muscles (from «N ejercicios sin músculos»).
+ * `sinMusculos` (ids), only those of them still without muscles (from «N ejercicios sin músculos»);
+ * with `archivados`, the archived ones, which open their editor to look at them or bring them back.
  */
 export default function ExercisesScreen() {
-  const { pickFor, sinMusculos } = useLocalSearchParams<{ pickFor?: string; sinMusculos?: string }>();
+  const { pickFor, sinMusculos, archivados } = useLocalSearchParams<{ pickFor?: string; sinMusculos?: string; archivados?: string }>();
   const routineId = pickFor ? Number(pickFor) : null;
   const onlyIds = sinMusculos ? sinMusculos.split(',').map(Number) : null;
+  const archivedOnly = archivados === '1';
   const db = useDb();
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
-  const { data } = useLoader(async (db) => ({ exercises: await listExercises(db), muscles: await allExerciseMuscles(db) }));
+  const { data } = useLoader(async (db) => {
+    const archived = await listArchivedExercises(db);
+    return { exercises: archivedOnly ? archived : await listExercises(db), archivedCount: archived.length, muscles: await allExerciseMuscles(db) };
+  });
 
   const create = (name?: string) =>
     router.push({
@@ -39,8 +44,9 @@ export default function ExercisesScreen() {
   const header = (
     <Stack.Screen
       options={{
-        title: onlyIds ? 'Sin músculos' : routineId === null ? 'Ejercicios' : 'Añadir ejercicio',
-        headerRight: onlyIds ? undefined : () => <HeaderButton icon="plus" label="Nuevo ejercicio" onPress={() => create()} />,
+        title: onlyIds ? 'Sin músculos' : archivedOnly ? 'Archivados' : routineId === null ? 'Ejercicios' : 'Añadir ejercicio',
+        headerRight:
+          onlyIds || archivedOnly ? undefined : () => <HeaderButton icon="plus" label="Nuevo ejercicio" onPress={() => create()} />,
       }}
     />
   );
@@ -82,6 +88,11 @@ export default function ExercisesScreen() {
       <SearchField value={query} onChangeText={setQuery} />
       {visible.length === 0 && onlyIds ? (
         <EmptyState icon="check-circle-outline" title="Ya tienen músculos" text="Sus series cuentan en tu semana." />
+      ) : visible.length === 0 && archivedOnly ? (
+        <EmptyState
+          icon={wanted ? 'magnify' : 'archive-outline'}
+          title={wanted ? 'Ningún ejercicio coincide' : 'No hay ejercicios archivados'}
+        />
       ) : visible.length === 0 ? (
         <EmptyState
           icon={wanted ? 'magnify' : 'dumbbell'}
@@ -116,6 +127,17 @@ export default function ExercisesScreen() {
           })}
         </Card>
       )}
+      {/* Archived: out of the catalog and the pickers, with their history; from here they come back. */}
+      {routineId === null && !onlyIds && !archivedOnly && !wanted && data.archivedCount > 0 ? (
+        <ListGroup>
+          <ListRow
+            left={<RowIcon name="archive-outline" />}
+            title="Ejercicios archivados"
+            right={String(data.archivedCount)}
+            onPress={() => router.push({ pathname: '/ejercicios', params: { archivados: '1' } })}
+          />
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }

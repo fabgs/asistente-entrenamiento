@@ -130,7 +130,8 @@ export default function SummaryScreen() {
     (sum, s) => sum + volumeOf([s], slots.find((slot) => slot.id === s.slotId)?.exercisePair),
     0,
   );
-  const duration = session.finishedAt ? formatDuration(session.finishedAt - session.startedAt) : '—';
+  // An imported session has no real duration (it was stored with a made-up hour).
+  const duration = session.finishedAt && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : '—';
 
   const applyAll = run(async () => {
     for (const c of pending) await applyChange(db, c.id);
@@ -276,7 +277,7 @@ export default function SummaryScreen() {
                   <AppText variant="heading">{slot.exerciseName}</AppText>
                   {correcting ? null : slotSets.length > 0 ? (
                     <AppText variant="bodySm" tabular>
-                      {formatSetGroups(slotSets, bodyweight, slot.exercisePair)}
+                      {formatSetGroups(slotSets, bodyweight, slot.exercisePair, slot.unit)}
                     </AppText>
                   ) : (
                     <AppText variant="secondary">Sin series</AppText>

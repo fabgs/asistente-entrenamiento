@@ -1,9 +1,11 @@
 import { useEffect, useRef } from 'react';
 import { getCardioSession, lastTrackPoint, listSprintFixes, listTrackPoints } from '@/db/repositories/cardioSessions';
 import { hintsSeen } from '@/db/repositories/hints';
+import { listPhotos } from '@/db/repositories/photos';
 import { getSettings } from '@/db/repositories/settings';
 import { LAP_FIXES_MARGIN_MS, measureSprint, type SprintMeasure } from '@/domain/sprint';
 import { isGpsRecording } from '@/services/gpsTracker';
+import { isOnPhone } from '@/services/photos';
 import { useLoader } from './data';
 
 /** What the live sprints screen reads besides the session: the GPS and each sprint measured so far. */
@@ -15,9 +17,10 @@ export interface SprintLive {
 }
 
 /**
- * A cardio session with the settings its screens use. While a GPS session is recording, its points
- * come too and everything is read again every 3 s: the background task stores the fixes. Sprints
- * in progress are read every second, with each finished sprint measured from its fixes.
+ * A cardio session with its photos and the settings its screens use. While a GPS session is
+ * recording, its points come too and everything is read again every 3 s: the background task
+ * stores the fixes. Sprints in progress are read every second, with each finished sprint measured
+ * from its fixes.
  */
 export function useCardioSession(sessionId: number) {
   // Sprints already settled are not measured again on every read.
@@ -53,6 +56,7 @@ export function useCardioSession(sessionId: number) {
       sprintLive,
       settings: await getSettings(db),
       hints: await hintsSeen(db),
+      photos: (await listPhotos(db, { kind: 'cardio', id: sessionId })).filter(isOnPhone),
     };
   });
 

@@ -1,12 +1,13 @@
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useRef, useState, type ComponentRef } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from 'react-native';
 import Svg, { Defs, Pattern, Rect } from 'react-native-svg';
 import { showSnackbar } from '@/components/Dialog';
-import { WalkStory, WorkoutStory, type StoryExercise, type StoryFigure, type StoryStyle } from '@/components/ShareCard';
+import { WalkStory, WorkoutStory, type StoryExercise, type StoryFigure, type StoryFormat, type StoryStyle } from '@/components/ShareCard';
 import { sprintMetres, sprintSpeed } from '@/components/Sprint';
 import { AppText, BottomBar, Button, EmptyState, Loading, Screen, Segmented, TextField } from '@/components/ui';
 import { getCardioSession, setCardioTitle } from '@/db/repositories/cardioSessions';
+import { listPhotos, type Photo } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { getSession, listSets, setSessionTitle } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
@@ -18,15 +19,27 @@ import { lapRows, sprintSummary } from '@/domain/sprint';
 import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useLoader } from '@/hooks/data';
 import { canLoadMapTiles } from '@/services/network';
-import { layoutSize, saveViewToGallery, shareViewAsImage, STICKER_PX, STORY_PX } from '@/services/shareImage';
+import { isOnPhone, photoUri } from '@/services/photos';
+import { layoutSize, saveViewToGallery, shareViewAsImage, SQUARE_PX, STICKER_PX, STORY_PX } from '@/services/shareImage';
 import { colors, radius, spacing } from '@/theme';
 
 const LOOKS: { value: StoryStyle; label: string }[] = [
   { value: 'mapa', label: 'Mapa' },
+  { value: 'foto', label: 'Foto' },
   { value: 'oscuro', label: 'Oscuro' },
   { value: 'transparente', label: 'Sin fondo' },
 ];
+const FORMATS: { value: StoryFormat; label: string }[] = [
+  { value: 'story', label: 'Historia · 9:16' },
+  { value: 'square', label: 'Cuadrado · 1:1' },
+];
 const TITLE_MAX = 40;
+const THUMB = 56;
+/** Height the preview leaves to the rest of the screen (header, controls and bottom bar). */
+const CONTROLS_HEIGHT = 390;
+/** What the format and photo rows add to it, with the gap above each one. */
+const FORMAT_ROW = 72;
+const PHOTO_ROW = THUMB + 24;
 
 /** "3 × 12 · 35 kg" when every set had the same reps, "12, 11, 10 · 35 kg" when not. */
 function exerciseDetail(reps: number[], load: string): string {
@@ -43,8 +56,12 @@ export default function ShareScreen() {
   const card = useRef<ComponentRef<typeof View>>(null);
   const { width: screenW, height: screenH } = useWindowDimensions();
   const [title, setTitle] = useState<string | null>(null);
-  const [look, setLook] = useState<StoryStyle>(isWalk ? 'mapa' : 'oscuro');
-  const [mapReady, setMapReady] = useState(false);
+  // null until chosen: with photos the image starts with one of them.
+  const [look, setLook] = useState<StoryStyle | null>(null);
+  const [format, setFormat] = useState<StoryFormat>('story');
+  const [photoId, setPhotoId] = useState<number | null>(null);
+  // What is drawn and ready to capture: the map's tiles or the photo have loaded for this key.
+  const [ready, setReady] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // null while checking; without internet the map look cannot be drawn.
   const [online, setOnline] = useState<boolean | null>(null);
@@ -61,6 +78,7 @@ export default function ShareScreen() {
   }, [isWalk]);
 
   const { data } = useLoader(async (db) => {
+    const photos = (await listPhotos(db, { kind: isWalk ? 'cardio' : 'workout', id: sessionId })).filter(isOnPhone);
     if (isWalk) {
       const session = await getCardioSession(db, sessionId);
       if (!session) return null;
@@ -72,6 +90,7 @@ export default function ShareScreen() {
         const fig = (label: string, text: string): StoryFigure => ({ label, ...splitUnit(text) });
         return {
           kind: 'sprint' as const,
+          photos,
           defaultTitle: session.name,
           title: session.title ?? '',
           subtitle,
@@ -103,6 +122,7 @@ export default function ShareScreen() {
       const climb = walk.numbers.climbM ?? 0;
       return {
         kind: 'walk' as const,
+        photos,
         defaultTitle: session.name,
         title: session.title ?? '',
         subtitle,
@@ -123,6 +143,7 @@ export default function ShareScreen() {
     const volume = slots.reduce((sum, slot) => sum + volumeOf(sets.filter((s) => s.slotId === slot.id), slot.exercisePair), 0);
     return {
       kind: 'workout' as const,
+      photos,
       defaultTitle: workoutTitle({ ...session, title: null }),
       title: session.title ?? '',
       subtitle: `${formatLongDate(new Date(session.startedAt))}${session.finishedAt ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}`,
@@ -152,14 +173,26 @@ export default function ShareScreen() {
   const typed = title ?? data.title;
   const shownTitle = typed.trim() || data.defaultTitle;
   const hasMap = data.kind === 'walk' && data.segments.length > 0;
-  const shownLook: StoryStyle = look === 'mapa' && (!hasMap || online === false) ? 'oscuro' : look;
+  const hasPhotos = data.photos.length > 0;
+  const wanted: StoryStyle = look ?? (hasPhotos ? 'foto' : hasMap ? 'mapa' : 'oscuro');
+  const shownLook: StoryStyle =
+    (wanted === 'mapa' && (!hasMap || online === false)) || (wanted === 'foto' && !hasPhotos) ? 'oscuro' : wanted;
   const sticker = shownLook === 'transparente';
-  const px = sticker ? STICKER_PX : STORY_PX;
+  const photo: Photo | undefined = data.photos.find((p) => p.id === photoId) ?? data.photos[0];
+  const choosingPhoto = shownLook === 'foto' && data.photos.length > 1;
+  const px = sticker ? STICKER_PX : format === 'square' ? SQUARE_PX : STORY_PX;
   const size = layoutSize(px);
   // The preview takes the free height between the controls and the bottom bar.
-  const scale = Math.min((screenW - 2 * spacing.lg) / size.width, (screenH - 390) / size.height);
-  const looks = hasMap ? LOOKS.map((l) => (l.value === 'mapa' ? { ...l, disabled: online === false } : l)) : LOOKS.slice(1);
-  const waitingForMap = shownLook === 'mapa' && !mapReady;
+  const free = screenH - CONTROLS_HEIGHT - (sticker ? 0 : FORMAT_ROW) - (choosingPhoto ? PHOTO_ROW : 0);
+  const scale = Math.min((screenW - 2 * spacing.lg) / size.width, free / size.height);
+  const looks = LOOKS.filter((l) => (l.value === 'mapa' ? hasMap : l.value === 'foto' ? hasPhotos : true)).map((l) =>
+    l.value === 'mapa' ? { ...l, disabled: online === false } : l,
+  );
+  // A new look, format or photo draws again: capturing waits until its tiles or photo have loaded.
+  const drawKey = `${shownLook}:${format}:${shownLook === 'foto' ? photo?.id : ''}`;
+  const waiting = (shownLook === 'mapa' || shownLook === 'foto') && ready !== drawKey;
+  const markReady = () => setReady(drawKey);
+  const storyPhoto = shownLook === 'foto' && photo ? { uri: photoUri(photo.file) } : null;
   const fileName = `entreno-${tipo}-${sessionId}`;
 
   const run = async (action: 'save' | 'share') => {
@@ -192,10 +225,10 @@ export default function ShareScreen() {
         icon="download-outline"
         title="Guardar"
         onPress={() => run('save')}
-        disabled={busy || waitingForMap}
+        disabled={busy || waiting}
         style={{ flex: 1 }}
       />
-      <Button size="lg" icon="share-variant" title="Compartir" onPress={() => run('share')} disabled={busy || waitingForMap} style={{ flex: 1 }} />
+      <Button size="lg" icon="share-variant" title="Compartir" onPress={() => run('share')} disabled={busy || waiting} style={{ flex: 1 }} />
     </BottomBar>
   );
 
@@ -213,6 +246,25 @@ export default function ShareScreen() {
         <Segmented options={looks} value={shownLook} onChange={setLook} />
         {hasMap && online === false ? <AppText variant="caption">Sin conexión: el estilo Mapa necesita internet</AppText> : null}
       </View>
+      {sticker ? null : <Segmented options={FORMATS} value={format} onChange={setFormat} />}
+      {choosingPhoto ? (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm }}>
+          {data.photos.map((p, i) => {
+            const on = p.id === photo?.id;
+            return (
+              <Pressable
+                key={p.id}
+                onPress={() => setPhotoId(p.id)}
+                accessibilityRole="radio"
+                accessibilityState={{ selected: on }}
+                accessibilityLabel={`Foto ${i + 1} de ${data.photos.length}`}
+                style={[styles.thumb, on && styles.thumbOn]}>
+                <Image source={{ uri: photoUri(p.file) }} style={styles.thumbImage} resizeMode="cover" resizeMethod="resize" />
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : null}
 
       <View style={{ gap: spacing.sm }}>
         <View style={[styles.preview, preview]}>
@@ -220,32 +272,40 @@ export default function ShareScreen() {
           <View style={{ width: size.width, height: size.height, transform: [{ scale }], transformOrigin: 'top left' }}>
             {data.kind === 'walk' ? (
               <WalkStory
+                key={drawKey}
                 ref={card}
-                {...size}
+                width={size.width}
                 look={shownLook}
+                format={format}
                 title={shownTitle}
                 subtitle={data.subtitle}
                 segments={data.segments}
                 figures={data.figures}
-                onMapReady={() => setMapReady(true)}
+                photo={storyPhoto}
+                onMapReady={markReady}
+                onPhotoReady={markReady}
               />
             ) : (
               <WorkoutStory
+                key={drawKey}
                 ref={card}
-                {...size}
+                width={size.width}
                 look={shownLook}
+                format={format}
                 title={shownTitle}
                 subtitle={data.subtitle}
                 figures={data.figures}
                 exercises={data.exercises}
+                photo={storyPhoto}
+                onPhotoReady={markReady}
               />
             )}
           </View>
-          {busy || waitingForMap ? (
+          {busy || waiting ? (
             <View style={styles.preparing}>
               <ActivityIndicator color={colors.primary} />
               <AppText variant="caption" style={{ color: colors.text }}>
-                {busy ? 'Preparando la imagen…' : 'Cargando el mapa…'}
+                {busy ? 'Preparando la imagen…' : shownLook === 'foto' ? 'Cargando la foto…' : 'Cargando el mapa…'}
               </AppText>
             </View>
           ) : null}
@@ -277,6 +337,9 @@ function Checkerboard({ width, height }: { width: number; height: number }) {
 }
 
 const styles = StyleSheet.create({
+  thumb: { width: THUMB, height: THUMB, borderRadius: radius.sm, overflow: 'hidden', borderWidth: 2, borderColor: 'transparent' },
+  thumbOn: { borderColor: colors.primary },
+  thumbImage: { width: '100%', height: '100%' },
   preview: { alignSelf: 'center', borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.bg },
   preparing: {
     ...StyleSheet.absoluteFill,

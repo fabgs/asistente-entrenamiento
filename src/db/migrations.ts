@@ -307,6 +307,23 @@ export const MIGRATIONS: string[] = [
   );
   ${EXERCISE_MUSCLE_DEFAULTS}
   `,
+  `
+  CREATE TABLE photo (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    cardio_session_id INTEGER REFERENCES cardio_session(id) ON DELETE CASCADE,
+    workout_session_id INTEGER REFERENCES workout_session(id) ON DELETE CASCADE,
+    file TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    taken_at INTEGER,
+    lat REAL,
+    lon REAL,
+    created_at INTEGER NOT NULL,
+    CHECK ((cardio_session_id IS NULL) <> (workout_session_id IS NULL))
+  );
+  CREATE INDEX idx_photo_cardio ON photo(cardio_session_id);
+  CREATE INDEX idx_photo_workout ON photo(workout_session_id);
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

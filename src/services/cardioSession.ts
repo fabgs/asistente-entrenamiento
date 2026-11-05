@@ -13,6 +13,7 @@ import {
 import { activeMs } from '@/domain/gps';
 import { cancelCardioTimer, scheduleCardioTimer } from './cardioTimer';
 import { SPRINT_GPS, startGpsTracking, stopGpsTracking, WALK_GPS, type GpsStart } from './gpsTracker';
+import { deletingPhotosOf } from './photos';
 import { finishSprints, stopSprintTracking, syncSprint } from './sprintSession';
 
 /** When the plan's clock would have started without the pauses so far. */
@@ -87,7 +88,7 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
 
 export async function discardCardio(db: Db, session: CardioSession): Promise<void> {
   await stopTracking(session);
-  await discardCardioSession(db, session.id);
+  await deletingPhotosOf(db, { kind: 'cardio', id: session.id }, () => discardCardioSession(db, session.id));
 }
 
 export const GPS_ERROR_MESSAGE: Record<Exclude<GpsStart, 'ok'>, string> = {

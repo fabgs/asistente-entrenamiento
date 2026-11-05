@@ -91,6 +91,7 @@ export default function RootLayout() {
           <Stack.Screen name="cardio-sesion/[id]" options={{ title: 'Cardio' }} />
           <Stack.Screen name="ruta/[id]" options={{ title: 'Mapa' }} />
           <Stack.Screen name="compartir/[tipo]/[id]" options={{ title: 'Compartir' }} />
+          <Stack.Screen name="foto/[id]" options={{ title: 'Foto' }} />
           <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />
           <Stack.Screen name="rutina/[id]" options={{ title: 'Editar rutina' }} />
           <Stack.Screen name="ejercicios" options={{ title: 'Ejercicios' }} />

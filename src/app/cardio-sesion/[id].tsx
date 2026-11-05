@@ -2,9 +2,10 @@ import * as Haptics from 'expo-haptics';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AppState, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { showActions, showDialog, showPrompt } from '@/components/Dialog';
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
 import { MetricBoard } from '@/components/MetricBoard';
+import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { RouteMap } from '@/components/RouteMap';
 import { SprintDetails } from '@/components/Sprint';
 import { askFinishSprints, SprintLive } from '@/components/SprintLive';
@@ -34,6 +35,7 @@ import {
 } from '@/components/ui';
 import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen, type Hint } from '@/db/repositories/hints';
+import type { Photo, PhotoOwner } from '@/db/repositories/photos';
 import { updateSettings, type LivePanel, type Settings } from '@/db/repositories/settings';
 import {
   describePlan,
@@ -46,7 +48,8 @@ import {
   type Phase,
 } from '@/domain/cardioPlan';
 import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
-import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type Split, type TrackPoint } from '@/domain/gps';
+import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
+import { photoPlace, placeFromFix } from '@/domain/photos';
 import { parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
 import { sprintGps } from '@/domain/sprint';
@@ -62,6 +65,7 @@ import {
   pauseCardio,
   resumeCardio,
 } from '@/services/cardioSession';
+import { pickPhotos, takePhoto, type AddPhotosResult } from '@/services/photos';
 import { colors, radius, spacing } from '@/theme';
 
 const KEEP_AWAKE_TAG = 'cardio';
@@ -209,6 +213,42 @@ export default function CardioSessionScreen() {
   };
   const share = () => router.push({ pathname: '/compartir/[tipo]/[id]', params: { tipo: 'cardio', id: String(session.id) } });
 
+  const owner: PhotoOwner = { kind: 'cardio', id: session.id };
+  const afterPhotos = (result: AddPhotosResult, text?: string) => {
+    if (result === 'denied') {
+      showSnackbar('Sin permiso para usar la cámara', { label: 'Ajustes', onPress: () => Linking.openSettings() });
+    } else if (result !== 'canceled' && text) {
+      showSnackbar(text);
+    }
+    reload();
+  };
+  const failedPhoto = (e: unknown) => {
+    console.warn('Could not add the photo', e);
+    showSnackbar('No se pudo añadir la foto');
+  };
+  const addPhoto = () =>
+    askPhotoSource(
+      () => takePhoto(db, owner, null).then((r) => afterPhotos(r), failedPhoto),
+      () => {
+        // A walk places each photo on its route, from what the photo says (see photoPlace).
+        const walk = isWalk ? walkSnapshot(session, null, 0) : null;
+        const track = walk && {
+          startedAt: session.startedAt,
+          finishedAt: session.finishedAt ?? session.startedAt,
+          pausedMs: session.pausedMs,
+          segments: walk.segments,
+          samples: walk.samples,
+        };
+        pickPhotos(db, owner, track ? (meta) => photoPlace(track, meta) : undefined).then((r) => afterPhotos(r), failedPhoto);
+      },
+    );
+  // During the walk: the photo goes where the walker is when the camera opens.
+  const shoot = () => {
+    const place = placeFromFix(data.points?.at(-1) ?? null, Date.now());
+    takePhoto(db, owner, place).then((r) => afterPhotos(r, place ? 'Foto añadida en la ruta' : 'Foto añadida, sin sitio en el mapa'), failedPhoto);
+  };
+  const photoPlaces = placesOf(data.photos);
+
   const togglePause = async () => {
     if (session.pausedAt === null) {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
@@ -239,6 +279,8 @@ export default function CardioSessionScreen() {
         <FinishedView
           session={session}
           prefs={prefs}
+          photos={data.photos}
+          onAddPhoto={addPhoto}
           onRename={async () => {
             const title = await showPrompt('Título', {
               value: session.title ?? '',
@@ -316,9 +358,18 @@ export default function CardioSessionScreen() {
   return (
     <>
       <Stack.Screen
-        options={{ title: session.name, headerTitle: () => <GpsPill last={points.at(-1)} paused={paused} />, headerRight }}
+        options={{
+          title: session.name,
+          headerTitle: () => <GpsPill last={points.at(-1)} paused={paused} />,
+          headerRight: () => (
+            <HeaderActions>
+              <IconButton icon="camera-outline" label="Hacer una foto" onPress={shoot} />
+              <IconButton icon="dots-vertical" label="Más acciones" onPress={menu} />
+            </HeaderActions>
+          ),
+        }}
       />
-      <GpsView session={session} points={points} prefs={prefs} footer={footer} />
+      <GpsView session={session} points={points} photos={photoPlaces} prefs={prefs} footer={footer} />
     </>
   );
 }
@@ -390,11 +441,13 @@ const LIVE_PANELS: { value: LivePanel; label: string }[] = [
 function GpsView({
   session,
   points,
+  photos,
   prefs,
   footer,
 }: {
   session: CardioSession;
   points: TrackPoint[];
+  photos: LatLon[];
   prefs: WalkPrefs;
   footer: ReactNode;
 }) {
@@ -455,6 +508,7 @@ function GpsView({
           <RouteMap
             segments={track.segments}
             height={panelHeight}
+            photos={photos}
             onPress={() => openMap(session.id)}
             corner={<FloatingButton icon="arrow-expand" label="Ampliar el mapa" onPress={() => openMap(session.id)} />}
           />
@@ -482,6 +536,8 @@ function GpsView({
     </Screen>
   );
 }
+
+const placesOf = (photos: Photo[]): LatLon[] => photos.flatMap((p) => (p.place ? [p.place] : []));
 
 const openMap = (sessionId: number, mode?: '3d') =>
   router.push({ pathname: '/ruta/[id]', params: { id: String(sessionId), ...(mode ? { modo: mode } : {}) } });
@@ -518,7 +574,20 @@ function LiveSplits({ splits }: { splits: Split[] }) {
 }
 
 /** Map, chart and splits of a finished walk; the chart's cursor is marked on the map. */
-function WalkDetails({ sessionId, walk, prefs }: { sessionId: number; walk: WalkSnapshot; prefs: WalkPrefs }) {
+function WalkDetails({
+  sessionId,
+  walk,
+  prefs,
+  photos,
+  children,
+}: {
+  sessionId: number;
+  walk: WalkSnapshot;
+  prefs: WalkPrefs;
+  photos: LatLon[];
+  /** Between the map and chart and the splits: the photos. */
+  children?: ReactNode;
+}) {
   const [cursorD, setCursorD] = useState<number | null>(null);
   const [focus, setFocus] = useState<{ min: number; max: number; key: number } | undefined>();
   const splits = kmSplits(walk.samples);
@@ -530,6 +599,7 @@ function WalkDetails({ sessionId, walk, prefs }: { sessionId: number; walk: Walk
           <RouteMap
             segments={walk.segments}
             height={240}
+            photos={photos}
             cursor={cursorD === null ? null : positionAtDistance(walk.segments, cursorD)}
             onPress={() => openMap(sessionId)}
             corner={
@@ -558,6 +628,7 @@ function WalkDetails({ sessionId, walk, prefs }: { sessionId: number; walk: Walk
           <AppText variant="caption">Recorrido demasiado corto para gráficas y parciales.</AppText>
         )}
       </View>
+      {children}
       {splits.length > 0 ? (
         <Section label="Parciales">
           <SplitsTable
@@ -720,17 +791,22 @@ function PhaseBar({ phases, elapsedSec, total }: { phases: Phase[]; elapsedSec: 
 function FinishedView({
   session,
   prefs,
+  photos,
+  onAddPhoto,
   onRename,
   footer,
 }: {
   session: CardioSession;
   prefs: WalkPrefs;
+  photos: Photo[];
+  onAddPhoto: () => void;
   onRename: () => void;
   footer?: ReactNode;
 }) {
   const end = session.finishedAt ?? session.startedAt;
   const walk = session.tracking === 'gps' ? walkSnapshot(session, null, 0) : null;
   const { settings } = prefs;
+  const photoSection = <PhotoSection photos={photos} onAdd={onAddPhoto} />;
 
   return (
     <Screen footer={footer}>
@@ -751,15 +827,23 @@ function FinishedView({
             onHero={prefs.onHero}
             onToggleUnit={prefs.onToggleUnit}
           />
-          <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} />
+          <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} photos={placesOf(photos)}>
+            {photoSection}
+          </WalkDetails>
         </>
       ) : session.tracking === 'sprint' ? (
-        <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} />
+        <>
+          <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} />
+          {photoSection}
+        </>
       ) : (
-        <StatRow>
-          <Stat label="Tiempo" value={formatClock(activeMs(session, end))} big />
-          {session.plan ? <Stat label={PLAN_KIND_LABEL[session.plan.kind]} value={describePlan(session.plan)} /> : null}
-        </StatRow>
+        <>
+          <StatRow>
+            <Stat label="Tiempo" value={formatClock(activeMs(session, end))} big />
+            {session.plan ? <Stat label={PLAN_KIND_LABEL[session.plan.kind]} value={describePlan(session.plan)} /> : null}
+          </StatRow>
+          {photoSection}
+        </>
       )}
     </Screen>
   );

@@ -313,6 +313,7 @@ export async function discardCardioSession(db: Db, id: number): Promise<void> {
     await db.runAsync('DELETE FROM cardio_point WHERE session_id = ?', id);
     // Its day's log goes too: «Hecho» on Hoy must not keep a cardio that is no longer anywhere.
     await db.runAsync('DELETE FROM cardio_log WHERE session_id = ?', id);
+    await db.runAsync('DELETE FROM photo WHERE cardio_session_id = ?', id);
     await db.runAsync('DELETE FROM cardio_session WHERE id = ?', id);
   });
 }

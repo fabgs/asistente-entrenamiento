@@ -4,12 +4,13 @@ import Svg, { Circle, Polyline } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
 import { fitView, osmTileUrl, outline, project, TILE_USER_AGENT, tilesFor } from '@/domain/mapView';
 import { attributionType, colors, radius } from '@/theme';
-import { AppText } from './ui';
+import { AppText, Icon } from './ui';
 
 const tileSource = (z: number, x: number, y: number) => ({ uri: osmTileUrl(z, x, y), headers: { 'User-Agent': TILE_USER_AGENT } });
 
 /** Darkens the light tiles to sit in the dark theme (the 3D map uses raster-brightness-max 0.62). */
 const VEIL = 0.38;
+const PHOTO_MARK = 24;
 
 /**
  * A route drawn over map tiles; without internet only the line shows, over the app background.
@@ -25,10 +26,12 @@ export function RouteMap({
   rounded = true,
   onTilesLoaded,
   fitInset,
+  fitPadding = 24,
   lineWidth = 5,
   veil = VEIL,
   detail = 1,
   attribution = true,
+  photos = [],
 }: {
   segments: LatLon[][];
   height?: number;
@@ -40,6 +43,8 @@ export function RouteMap({
   onTilesLoaded?: () => void;
   /** Space kept free above and below the route (e.g. for text drawn over the map). */
   fitInset?: { top: number; bottom: number };
+  /** Margin around the route inside that space. */
+  fitPadding?: number;
   lineWidth?: number;
   /** How much the light map is darkened to sit in the dark theme. */
   veil?: number;
@@ -47,6 +52,8 @@ export function RouteMap({
   detail?: number;
   /** false when the screen shows «© OpenStreetMap» itself (the share image). */
   attribution?: boolean;
+  /** Where the walk's photos were taken: a camera on the route. */
+  photos?: LatLon[];
 }) {
   const [width, setWidth] = useState(0);
   const points = segments.flat();
@@ -72,10 +79,12 @@ export function RouteMap({
             cursor={cursor}
             onTilesLoaded={onTilesLoaded}
             fitInset={fitInset}
+            fitPadding={fitPadding}
             lineWidth={lineWidth}
             veil={veil}
             detail={detail}
             attribution={attribution}
+            photos={photos}
           />
         </Pressable>
       ) : null}
@@ -92,10 +101,12 @@ function MapContent({
   cursor,
   onTilesLoaded,
   fitInset = { top: 0, bottom: 0 },
+  fitPadding,
   lineWidth,
   veil,
   detail,
   attribution,
+  photos,
 }: {
   segments: LatLon[][];
   points: LatLon[];
@@ -104,12 +115,14 @@ function MapContent({
   cursor: LatLon | null;
   onTilesLoaded?: () => void;
   fitInset?: { top: number; bottom: number };
+  fitPadding: number;
   lineWidth: number;
   veil: number;
   detail: number;
   attribution: boolean;
+  photos: LatLon[];
 }) {
-  const fitted = fitView(points, width, height - fitInset.top - fitInset.bottom);
+  const fitted = fitView(points, width, height - fitInset.top - fitInset.bottom, fitPadding);
   const view = { ...fitted, originY: fitted.originY - fitInset.top };
   const tiles = tilesFor(view, width, height, detail);
   const [settled, setSettled] = useState(0);
@@ -173,6 +186,14 @@ function MapContent({
           </>
         ) : null}
       </Svg>
+      {photos.map((p, i) => {
+        const at = toScreen(p);
+        return (
+          <View key={i} pointerEvents="none" style={[styles.photo, { left: at.x - PHOTO_MARK / 2, top: at.y - PHOTO_MARK / 2 }]}>
+            <Icon name="camera" size={13} color={colors.text} />
+          </View>
+        );
+      })}
       {attribution ? (
         <Text style={styles.attribution} maxFontSizeMultiplier={1}>
           © OpenStreetMap
@@ -210,6 +231,17 @@ const styles = StyleSheet.create({
   square: { borderRadius: 0 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   corner: { position: 'absolute', top: 8, right: 8, gap: 8 },
+  photo: {
+    position: 'absolute',
+    width: PHOTO_MARK,
+    height: PHOTO_MARK,
+    borderRadius: PHOTO_MARK / 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.bg,
+    borderWidth: 2,
+    borderColor: colors.text,
+  },
   attribution: {
     position: 'absolute',
     left: 6,

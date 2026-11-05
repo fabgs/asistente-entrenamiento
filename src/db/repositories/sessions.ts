@@ -466,6 +466,7 @@ export async function deleteFinishedSession(db: Db, sessionId: number, now = Dat
       sessionId,
     );
     await db.runAsync('DELETE FROM set_log WHERE session_id = ?', sessionId);
+    await db.runAsync('DELETE FROM photo WHERE workout_session_id = ?', sessionId);
     await db.runAsync('DELETE FROM workout_session WHERE id = ?', sessionId);
   });
 }

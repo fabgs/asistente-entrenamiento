@@ -24,6 +24,8 @@ export const BACKUP_TABLES = [
   'cardio_log',
   'workout_session',
   'set_log',
+  // Only what each photo is; the pictures stay on the phone (see photos.ts).
+  'photo',
   'weight_change',
   'food',
   'diet_item',

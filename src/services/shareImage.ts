@@ -3,8 +3,9 @@ import * as Sharing from 'expo-sharing';
 import { PixelRatio } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 
-/** An Instagram story is 1080 × 1920 px; a sticker (no background) is cropped to 1080 × 1100. */
+/** An Instagram story is 1080 × 1920 px, a square post 1080 × 1080; a sticker (no background) is cropped to 1080 × 1100. */
 export const STORY_PX = { width: 1080, height: 1920 };
+export const SQUARE_PX = { width: 1080, height: 1080 };
 export const STICKER_PX = { width: 1080, height: 1100 };
 
 /** Size in layout units that comes out at exactly `px` on this phone. */

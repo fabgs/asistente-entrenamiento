@@ -1,7 +1,8 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
+import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { NoChangeLine, RecommendationBox } from '@/components/Recommendation';
 import { Sheet } from '@/components/Sheet';
 import {
@@ -28,6 +29,7 @@ import {
   useBusy,
 } from '@/components/ui';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
+import { listPhotos, type PhotoOwner } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
   deleteFinishedSession,
@@ -49,6 +51,7 @@ import { volumeOf } from '@/domain/progress';
 import { recommend } from '@/domain/progression';
 import type { Recommendation } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
+import { deletingPhotosOf, isOnPhone, pickPhotos, takePhoto, type AddPhotosResult } from '@/services/photos';
 import { colors, radius, spacing } from '@/theme';
 
 /** "1 sube · 1 baja": what «Aplicar las N» will do, without scrolling to each one. */
@@ -102,6 +105,7 @@ export default function SummaryScreen() {
       defaultIncrement: settings.defaultIncrementKg,
       changes: await listChangesForSession(db, id),
       muscles: await allExerciseMuscles(db),
+      photos: (await listPhotos(db, { kind: 'workout', id })).filter(isOnPhone),
     };
   });
 
@@ -133,13 +137,28 @@ export default function SummaryScreen() {
     await reload();
   };
 
+  const owner: PhotoOwner = { kind: 'workout', id };
+  const afterPhotos = (result: AddPhotosResult) => {
+    if (result === 'denied') showSnackbar('Sin permiso para usar la cámara', { label: 'Ajustes', onPress: () => Linking.openSettings() });
+    reload();
+  };
+  const failedPhoto = (e: unknown) => {
+    console.warn('Could not add the photo', e);
+    showSnackbar('No se pudo añadir la foto');
+  };
+  const addPhoto = () =>
+    askPhotoSource(
+      () => takePhoto(db, owner, null).then(afterPhotos, failedPhoto),
+      () => pickPhotos(db, owner).then(afterPhotos, failedPhoto),
+    );
+
   const removeSession = () =>
     showDialog('¿Borrar el entreno?', 'Se borran todas sus series y no se puede deshacer.', [
       {
         text: 'Borrar',
         style: 'destructive',
         onPress: async () => {
-          await deleteFinishedSession(db, id);
+          await deletingPhotosOf(db, owner, () => deleteFinishedSession(db, id));
           if (router.canGoBack()) router.back();
           else router.dismissTo('/');
         },
@@ -306,7 +325,11 @@ export default function SummaryScreen() {
           );
         })}
 
-        {correcting ? <AppText variant="caption">La sugerencia de peso se recalcula al guardar</AppText> : null}
+        {correcting ? (
+          <AppText variant="caption">La sugerencia de peso se recalcula al guardar</AppText>
+        ) : finished ? (
+          <PhotoSection photos={data.photos} onAdd={addPhoto} />
+        ) : null}
       </Screen>
 
       <Sheet

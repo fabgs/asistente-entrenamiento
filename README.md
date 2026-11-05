@@ -27,8 +27,9 @@ npx expo run:android   # build de desarrollo en el móvil o emulador conectado
 ```bash
 npx expo prebuild --platform android
 cd android && ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a
+cd .. && python scripts/sign_release.py
 ```
 
-El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Cópialo al móvil e instálalo (hay que permitir "instalar apps de origen desconocido"), o con el móvil conectado por USB: `adb install -r app-release.apk`.
+`sign_release.py` firma con la clave propia y la prueba de rotación (ver AGENTS.md → Compilar y probar). El APK queda en `android/app/build/outputs/apk/release/app-release.apk`. Cópialo al móvil e instálalo (hay que permitir "instalar apps de origen desconocido"), o con el móvil conectado por USB: `adb install -r app-release.apk`.
 
-Después, en la app: **Perfil → Ajustes y notificaciones → Diagnóstico de avisos**, quita la optimización de batería y comprueba que el resto de permisos pone «Sí».
+Después, en la app: **Perfil → engranaje → Ajustes → Avisos y permisos**, quita la optimización de batería y comprueba que no queda nada en ámbar.

@@ -43,6 +43,7 @@ No objetivos (por ahora): multiusuario, cuentas, servidor propio, publicar en Pl
 | Fotos de las sesiones | **expo-image-picker** (cámara y selector de fotos del sistema, sin permiso de lectura de la galería) y **expo-image-manipulator** (copia reducida a 2160 px, JPEG 0,85, en `Documents/photos/`). La copia de seguridad lleva las filas, no las imágenes. Fase 20. | Una copia propia no se pierde si el original se borra o se mueve; 2160 px bastan para una historia y una foto ocupa ~0,5 MB en vez de 3–8. Las imágenes en GitHub harían la copia enorme (se deja como idea, §16). |
 | Fechas | **date-fns** con locale `es`. | Ligero. |
 | Tests | **jest-expo** + @testing-library/react-native. La lógica de dominio es TS puro y se testea sin RN. | |
+| Firma del APK | **Clave propia** (desde la 1.4.4) con **rotación de clave** (APK Signature Scheme v3) desde la de depuración de la plantilla, que es pública: los móviles con una versión anterior actualizan encima sin perder datos. La clave, fuera del repo; el APK pasa por `scripts/sign_release.py`. | El usuario reparte el APK a amigos: con una clave pública, cualquiera podría firmar una «actualización» que leería sus datos. |
 | Builds | Nunca Expo Go (sonidos de notificación personalizados, canales y permisos lo requieren). **Build local**: `npx expo prebuild --platform android` + `cd android && ./gradlew assembleRelease` → APK firmado con la clave de debug, instalable a mano (ver [README](README.md)). Para desarrollo con recarga en caliente: `npx expo run:android` (incluye `expo-dev-client`). EAS Build es opcional (requiere cuenta de Expo). | |
 | Backup online | **Export/Import JSON** (manual) + **auto-backup a un repo privado de GitHub** vía API REST (§9). | Sin servidor, gratis, los datos son míos, y el historial de git da versiones de cada copia. |
 
@@ -760,7 +761,84 @@ Pedido del usuario del 2026-11-05 con la captura de una historia de «Ver hormig
 - [x] 20.2 Cámara durante la caminata: la foto se queda en ese punto de la ruta y sale en el mapa; las de la galería, por su GPS o su hora (§6.10).
 - [x] 20.3 Imagen para compartir: formato Historia · 9:16 o Cuadrado · 1:1, estilo Foto (la foto de fondo) y la marca y «© OpenStreetMap» en la última línea (§6.8).
 - [x] Verificación en emulador (Android 16, 360 × 780 dp): elegir 3 fotos de la galería (una guardada de lado con EXIF 6 sale derecha; copias de 2160 px sin EXIF), cámara del sistema desde el resumen (permiso, copia y original en la galería), cámara a mitad de una caminata con GPS simulado («Foto añadida en la ruta» y la cámara en el mapa del directo y del detalle), una foto de la galería fechada dentro de esa caminata sin pausas se coloca sola en su punto, visor (deslizar, fecha, «Quitar foto»), borrar la caminata borra sus ficheros, e imágenes Mapa, Foto, Oscuro y Sin fondo de caminata y de entreno en los dos formatos. Corregido en ella: el visor se quedaba en negro o decía «No se encontró esta foto» al quitar la foto con la que se abrió; su pie quedaba bajo la barra de gestos; en el cuadrado con mapa la ruta salía a un cuarto de tamaño (el zoom va a saltos: más alto de mapa y menos margen); con una foto clara, el texto del entreno se leía mal (se oscurece toda la foto); la vista previa se cortaba por abajo con la fila de fotos.
-- [ ] Verificación en móvil real: foto con la cámara a mitad de una caminata (la cámara en su sitio del mapa y el original en la galería), elegir varias de la galería, que una caminata sin pausas coloque las fotos de su hora, quitar una, imagen Foto en historia y en cuadrado en Instagram, y copia → modo pruebas → restaurar con las fotos de vuelta.
+- [ ] Verificación en móvil real: foto con la cámara a mitad de una caminata (la cámara en su sitio del mapa y el original en la galería), elegir varias de la galería, que una caminata sin pausas coloque las fotos de su hora, quitar una, imagen Foto en historia y en cuadrado en Instagram, y copia → modo pruebas → restaurar con las fotos de vuelta. *2026-11-05, OnePlus 7 Pro (Android 12): la foto que el usuario hizo a mitad de su caminata está en su punto de la ruta; copia → modo pruebas → instalar → restaurar devuelve la caminata con su foto; el selector de fotos del sistema elige dos y se añaden sin sitio (capturas sin GPS ni hora de la caminata); quitar una deja «2 de 2»; Compartir con Foto y Mapa en historia y en cuadrado. Faltan: colocar por su hora una foto de la galería hecha en una caminata sin pausas, y subir la imagen a Instagram.*
+
+
+### Fases siguientes (hoja de ruta propuesta el 2026-11-05)
+
+Pedido del usuario: un plan para ir haciendo por partes las ideas de §16, con versiones pequeñas (lo decidió él: 1.4.4 firma propia, 1.4.5 remates, 1.4.6 Mis rutas, 1.4.7 seguir una ruta, 1.5.0 descarga, 1.5.1 sprints, 1.5.2 cardio). Cada fase es una versión que se instala, en este orden salvo que cambie la prioridad. Entre medias, el ciclo de siempre: hacer → emulador → móvil → usarla; las ideas nuevas entran en la versión que toque.
+
+**Cómo se hace y se prueba cada parte** (vale para todas las fases):
+1. **Dominio primero**: la lógica nueva va en `src/domain/` como función pura y con sus tests antes de tocar pantallas. Los casos difíciles (GPS malo, rutas al revés, datos vacíos) son fixtures de los tests, no pruebas a mano.
+2. **Base de datos**: cada migración con su test (migrar desde la anterior), que la tabla entre en `BACKUP_TABLES` si guarda datos del usuario y un test de restaurar una copia de antes de la migración.
+3. **Pantallas** con el sistema de diseño (§12). Lo que cambia la forma de usar la app (dónde vive, cómo se ve) se decide antes con propuestas y un juez, como en la 1.4.x.
+4. `npm run typecheck && npm run lint && npm test` en verde.
+5. **Emulador**: dev build a 360 × 780 dp con la fuente al 100 % y al 130 %; el GPS, con scripts (`adb emu geo fix`); capturas de cada estado.
+6. **Móvil**: un solo ciclo por versión (§14: copia en GitHub → modo pruebas → instalar → restaurar → probar → restaurar). Lo de la calle (caminatas, sprints) lo hace el usuario y se revisa después en su copia.
+7. Lo nativo (N) se agrupa para recompilar una vez por versión. Al terminar: casillas, línea en §17 y ARCHITECTURE.md al día.
+
+#### Fase 21 — Versión 1.4.4: firma propia del APK
+Pedido del usuario del 2026-11-05: ya había pasado el APK a amigos, y hasta la 1.4.3 iba firmado con la clave de depuración de la plantilla de React Native (`android/app/debug.keystore`, SHA-1 `5E:8F:16:06:…:F6:25`), que es pública: cualquiera podría firmar una «actualización» de Entreno que se instalaría encima y leería sus datos. Solo la firma; sin cambios en la app.
+- [x] 21.1 Clave propia (RSA 4096, `~/.android/entreno-release.jks`, contraseña en `~/.gradle/gradle.properties`, fuera del repo) y **rotación de clave** (APK Signature Scheme v3, Android 9+): `signing/entreno-rotation.lineage` dice que la clave vieja autorizó a la nueva, así que un móvil con una versión anterior la acepta como actualización **sin desinstalar ni perder datos**, y desde entonces rechaza lo firmado solo con la clave vieja. `plugins/withReleaseSigning.js` y `scripts/sign_release.py` (AGENTS.md → Compilar y probar). Antes de Android 9 sigue valiendo la clave vieja.
+- [ ] 21.2 El usuario guarda en su gestor de contraseñas el `.jks` y `~/.gradle/gradle.properties` (si se pierden, no hay más actualizaciones para nadie).
+- [x] 21.3 Verificación en emulador (Android 16): el APK 1.4.4 firmado con rotación se instala encima de la versión de desarrollo firmada con la clave vieja y todo sigue (base cifrada, sugerencias, caminatas y sus fotos); después, el mismo APK firmado solo con la clave vieja da `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. En el emulador, un dev build ya no se instala encima: desinstalar antes.
+- [ ] 21.4 Verificación en móvil: instalar encima de la 1.4.2 sin perder nada, y probar lo de la 1.4.3 (fase 20) con lo pendiente de la 1.4.2 y de las fases 16 a 18. *2026-11-05: el usuario la instaló encima de su versión firmada con la clave vieja y todo sigue (la caminata de ese día con su foto sale en Compartir).*
+- [ ] 21.5 Amigos: antes de instalar, «Exportar copia» (Ajustes → Copia de seguridad) a su Drive o a WhatsApp, por si acaso; después, instalar el APK encima. Si Android dice «App no instalada» (Android 8 o anterior, o un conflicto): desinstalar, instalar y «Importar copia». *2026-11-05: un «no se ha instalado porque no es compatible con tu teléfono» fue por instalar el `app-release.apk` de `android/` cuando era una compilación solo `x86_64` para el emulador; el que se reparte es `Entreno-<versión>.apk`, en Descargas.*
+
+#### Fase 22 — Versión 1.4.5: remates de fotos y cosas de una tarde
+Solo JS, sin migración.
+- [ ] 22.1 **Ocultar lo de administrador** antes de pasar el APK a amigos (2026-11-05: el usuario lo repartirá a mano, gratis, sin servidor): la copia en GitHub y el modo pruebas («Reiniciar datos ahora» borra todo) solo aparecen tras tocar 7 veces la versión al pie de Ajustes, como las opciones de desarrollador de Android; se guarda en el móvil. «Exportar copia» sigue a la vista: es la copia de los amigos.
+- [ ] 22.2 Formato **4:5** (1080 × 1350, el de las publicaciones de Instagram) en Compartir: un marco más en `FRAMES`. Prueba: los 4 estilos × 3 formatos guardando la imagen.
+- [ ] 22.3 **No perder la foto** si Android cierra la app con la cámara o el selector abiertos: guardar antes en `app_meta('photo-pending')` de qué sesión es y, al volver, recogerla con `getPendingResultAsync`. Prueba: «No conservar actividades» en las opciones de desarrollador del emulador.
+- [ ] 22.4 **Fotos sin sesión** en Ajustes → Copia de seguridad: cuántas imágenes no tienen fila y cuánto ocupan, con «Borrar» y confirmación. Nunca automático: restaurar una copia las recupera (§6.10). Test: qué ficheros sobran.
+- [ ] 22.5 **1RM estimado** en el progreso de cada ejercicio con carga (Epley con series de hasta 12 reps; con más no es fiable): un récord más y su evolución. Tests con valores conocidos.
+- [ ] 22.6 **Silueta del entreno** en su resumen: los músculos de ese entreno con la misma rampa que «Esta semana» (§6.9). Test del cálculo por sesión. En la imagen para compartir, solo si se ve bien en las capturas.
+
+#### Fase 23 — Versión 1.4.6: Mis rutas (migración 11)
+Decidir antes, con propuestas y un juez: dónde viven (¿un cuarto segmento «Rutas» en Historial o una fila en Cardio?) y cómo es su detalle.
+- [ ] 23.1 Herramienta de pruebas `scripts/simulate_walk.py`: reproduce en el emulador una ruta (GPX o lista de puntos) con ruido, pausas, en sentido contrario o con un desvío. Sirve también para la fase 24.
+- [ ] 23.2 Dominio `routeMatch` (`src/domain/routes.ts`): filtro de salida, llegada y distancia (±15 %); cuadrícula de ~25 m con un cuadrado de margen; solape en los dos sentidos → `same`, `reverse`, `variant` o `none`. Tests: la misma vuelta con otro ruido, al revés, circular frente a ida y vuelta, un desvío de 300 m, dos rutas que comparten medio camino y la salida a 150 m.
+- [ ] 23.3 BD: tabla `route` (nombre, polilínea, distancia, desnivel, salida y llegada, origen `walk` o `gpx`, caminata de la que salió) y `cardio_session.route_id` con su sentido; en la copia. Tests de la migración, de la copia y de restaurar una copia de la 10.
+- [ ] 23.4 «Guardar como ruta» en el ⋮ de una caminata, con un nombre. Al guardarla busca las caminatas anteriores que la repiten y las enlaza («La has hecho 4 veces»).
+- [ ] 23.5 Al terminar una caminata que coincide con una ruta, la enlaza (la primera vez pregunta «¿Es tu ruta «Ver hormigas»?»; una variante siempre pregunta). En el detalle: «Ver hormigas · 3.ª vez · 2:10 más rápido que tu mejor».
+- [ ] 23.6 Pantallas: Mis rutas (miniatura, distancia, desnivel, veces y mejor tiempo) y el detalle de una ruta (mapa con las fotos de todas las veces como puntos de interés, cada vez con su tiempo y ritmo, gráfica de los tiempos), renombrar y borrar (sus caminatas no se borran).
+- [ ] 23.7 Pruebas: emulador con tres caminatas simuladas (la misma, al revés y una variante) más la de prueba; móvil: repetir una ruta de verdad.
+
+#### Fase 24 — Versión 1.4.7: seguir una ruta y GPX
+- [ ] 24.1 Dominio: distancia de un punto a la ruta (proyección sobre los segmentos), progreso (hecho y lo que queda) y detector de «fuera de ruta» con histéresis (fuera: 3 lecturas seguidas a más de 40 m con precisión ≤ 20 m; dentro: 2 lecturas a menos de 25 m). En una ida y vuelta, el progreso esperado evita confundir el tramo de vuelta con el de ida. Tests con trazas sintéticas: curvas cerradas, GPS malo, ida y vuelta.
+- [ ] 24.2 GPX: exportar una caminata (`toGpx`, compartir) e importar uno (`parseGpx` sin dependencias: `trk`/`trkpt`, `rte`/`rtept`, `ele`) como ruta de origen `gpx`. Tests con un GPX de Wikiloc sin datos personales y con ficheros rotos.
+- [ ] 24.3 «Iniciar» con rutas guardadas: «Caminar libre» o «Seguir ruta…». La ruta en gris bajo la tuya en el mapa del directo, el del detalle y el 3D; «2,3 de 5,1 km · quedan 2,8».
+- [ ] 24.4 **Aviso al salirte** (activable): lo evalúa la tarea del GPS también en segundo plano, con su estado guardado en la sesión; notificación inmediata con vibración en un canal nuevo (`route-off-v1`) y una vibración corta al volver. Sin módulo nativo nuevo.
+- [ ] 24.5 Pruebas: emulador con `simulate_walk.py` y un desvío, también con la pantalla bloqueada (`dumpsys notification`); móvil: seguir una ruta y salirse a propósito, y cuánta batería gasta en 1 h.
+- [ ] 24.6 (Opcional, G) Mapa sin cobertura: descargar antes las teselas del pasillo de la ruta. Solo si en el campo hace falta.
+
+#### Fase 25 — Versión 1.5.0: descarga tras estancarse
+Decidir antes con el usuario la regla.
+- [ ] 25.1 **Descarga** tras estancarse (p. ej. 3 sesiones con el mismo peso sin llegar al máximo): una sugerencia más, nunca automática (§6.2), con su motivo en una frase. Dominio y tests con la tabla de §6.2; en el emulador, un historial importado que se estanca.
+
+#### Fase 26 — Versión 1.5.1: sprints
+Requisito: la prueba al aire libre con distancias medidas (§14), para ajustar con datos reales.
+- [ ] 26.1 Ajustar las constantes con los `lap_fixes` reales y recalcular las sesiones antiguas.
+- [ ] 26.2 Detectar la parada con el GPS (como propuesta que el usuario confirma), récords entre sesiones, gráfica de velocidad de cada sprint, distancia marcada y cuenta previa configurable.
+- [ ] 26.3 (N) Parar con el botón de volumen o desde la notificación.
+
+#### Fase 27 — Versión 1.5.2: cardio
+- [ ] 27.1 Repetir el mismo cardio el mismo día, un catálogo de cardio sin día fijo y marcar una actividad con GPS sin grabarla.
+
+#### Por asignar (entran en la versión que toque)
+- **Constancia**: series hechas frente a las planificadas, semana a semana (8–12 semanas), en Músculos.
+- **Avisos del plan** en el editor de rutinas: un músculo trabajado un solo día a la semana; sprints a menos de 24 h de trabajo excéntrico de isquios.
+- **Hacer otra cosa**: un ejercicio «solo hoy» dentro de un entreno de rutina, uno del catálogo que no está en ninguna rutina y un peso solo para esa sesión.
+- Elegir el encuadre de la foto al compartir.
+
+#### Después
+**Cuentas y servidor** (propuesta en §16), después de la 1.5.2. Más adelante: widget de Hoy y Health Connect (N: juntos, para recompilar una vez), registro de comidas y lista de la compra, agenda de estudio, iOS.
+
+#### Pendientes sin versión
+- [ ] Prueba de sprints al aire libre (el usuario, un día de sprints; desbloquea la fase 26).
+- [ ] Revisar con una fuente los músculos de los 22 ejercicios (fase 19): enseñar las diferencias antes de cambiar nada.
+- [ ] Decidir si el recordatorio diario pasa a `alarmClock` (§15).
+- [ ] Revisión de accesibilidad: una pasada con TalkBack (la fuente al 130 % ya se prueba en cada fase).
 
 ---
 
@@ -826,6 +904,7 @@ Pedido del usuario del 2026-11-05 con la captura de una historia de «Ver hormig
 | GPS de móvil en sprints de 10–15 s (precisión, Doppler que falta, desfase de reloj) | Calidad «débil» (≈) visible, puntos guardados (`lap_fixes`) para recalcular y constantes que se ajustan tras medir en pista. |
 | Enfriamiento de notificaciones de Android 15+ (baja el volumen de avisos seguidos de la misma app) | Comprobar que el pitido no baja de un sprint a otro. |
 | Dos notificaciones fijas a la vez en sprints (GPS y cuenta atrás) | Asumido: la del GPS sirve para volver a la app. |
+| Perder la clave de firma del APK (`.jks` o su contraseña) | Copia de los dos en el gestor de contraseñas del usuario; sin ella no se pueden publicar más actualizaciones (habría que desinstalar en todos los móviles). |
 | Olvidar la contraseña de las copias cifradas | No hay recuperación (es la idea): la pantalla pide guardarla en un gestor de contraseñas. La base del móvil no depende de ella. |
 | Perder la clave de la base cifrada (Keystore borrado sin desinstalar) | La base se aparta y se restaura la última copia de GitHub; sin copia, se pierde lo del móvil. |
 | El pitido nativo no suena si se mata la app en los 2 s antes de la salida (la alarma ya saltó) | Asumido: matarla justo ahí es raro; al volver, el sprint está en marcha desde su hora. |
@@ -836,12 +915,18 @@ Pedido del usuario del 2026-11-05 con la captura de una historia de «Ver hormig
 
 ## 16. Ideas futuras (fuera de alcance)
 
-**A debatir (seguridad y servidor; el usuario lo pidió el 2026-11-04, antes de quitar GitHub):**
-- Autenticación con un proveedor (Supabase Auth, Firebase Auth u otro OIDC), no hecha a mano: sesiones cortas, el token de refresco en el almacén seguro y la sesión iniciada para siempre en el móvil (el usuario descarta el bloqueo con huella).
-- Datos en Postgres con seguridad por filas (`user_id` en cada fila y una política que solo deje verla a su dueño); solo HTTPS; cifrado en reposo y en las copias del servidor.
-- ¿Cifrado de extremo a extremo? El móvil cifra antes de enviar y el servidor solo guarda datos ilegibles: aunque lo roben, no se lee nada. El precio: sin la contraseña no hay recuperación, y el servidor no puede buscar ni hacer estadísticas.
-- Límites de peticiones, secretos fuera del repositorio y registro de accesos. Peso y fecha de nacimiento son datos de salud: guardar solo lo necesario.
-- Descartado por ahora: bloqueo con huella al abrir la app y clave de firma propia del APK.
+**Cuentas y servidor** (idea del usuario del 2026-11-04 y 2026-11-05; para después de la 1.5.2). Qué se busca: que otras personas prueben la app con sus datos seguros y recuperables aunque pierdan el móvil, que ocupe menos en el móvil y no depender de GitHub (demasiado técnico para un usuario normal). La copia en GitHub y el modo pruebas quedan solo para la cuenta del usuario.
+
+- **Principio**: la app sigue funcionando sin conexión. La SQLite cifrada del móvil sigue siendo la fuente de verdad (gimnasio sin cobertura, caminatas por el campo, alarmas); el servidor guarda copias y fotos, no sustituye a la base local. Nada de seguridad hecho a mano: un proveedor con cuentas, Postgres con seguridad por filas (RLS) y almacenamiento con permisos por usuario. Propuesta: **Supabase**, en la región de la UE.
+- **Paso 1, cuentas** (1.6.0): entrar con Google o con un enlace por correo; tabla `profiles` con `role` (`admin` para el usuario, `tester` para el resto). Lo de admin (copia en GitHub, modo pruebas, datos de prueba, catálogo de componentes) solo se ve con `role = admin`. La sesión en el almacén seguro. Sin iniciar sesión, la app funciona igual que hoy (todo local).
+- **Paso 2, copia en la nube** (1.6.0): el mismo JSON de ahora (`exportBackup`) subido a `backups/<user_id>/` como mucho una vez al día y al terminar un entreno o un cardio, guardando las últimas 30. Móvil nuevo: iniciar sesión → «Restaurar la última copia». RLS: cada uno solo ve su carpeta. Recuperación garantizada: las copias tienen versiones en el servidor y, aparte, un volcado periódico de todo a un sitio del admin.
+- **Paso 3, fotos en la nube** (1.6.1): cada foto se sube a `photos/<user_id>/`; en el móvil queda una miniatura y la grande se descarga al verla o al compartir (caché con límite). Ocupa menos y las fotos vuelven al restaurar.
+- **Paso 4, sincronización real**, solo si hace falta (varios móviles o una web): tablas en Postgres con `user_id` y RLS y un motor de sincronización para SQLite (PowerSync u otro propio con `updated_at` y borrados lógicos). Es lo caro; para unos pocos testers bastan los pasos 1 a 3.
+- **Cifrado**: el de extremo a extremo choca con «recuperación garantizada» (si se olvida la contraseña, nadie recupera nada). Propuesta: cifrado en el servidor (en reposo y TLS) con RLS para todos, y el de extremo a extremo opcional, como las copias cifradas de ahora, avisando de que sin contraseña no hay recuperación.
+- **Lo que obliga tener otros usuarios**: peso y fecha de nacimiento son datos de salud (RGPD, art. 9): consentimiento explícito al crear la cuenta, aviso de privacidad, servidor en la UE, y borrar la cuenta y exportar los datos desde la app. Para repartir la app a varios, la prueba interna de Google Play (hasta 100 personas y actualizaciones solas; cuenta de desarrollador de pago único) o EAS Update para el JS; Play solo deja `USE_EXACT_ALARM` a apps de alarma o calendario (habría que quitarlo y quedarse con `SCHEDULE_EXACT_ALARM`) y pide declarar los servicios en primer plano y la burbuja. Instalar el APK a mano sigue valiendo para unos pocos.
+- **Coste**: el plan gratuito de Supabase basta para pocos testers (base pequeña y ~1 GB de ficheros, unas 2000 fotos de 0,5 MB), pero pausa el proyecto tras una semana sin uso; con más fotos o uso diario, el de pago (~25 $/mes). Comprobar precios y límites al empezar.
+- **Gratis, sin servidor** (el usuario quiere que sea gratis; de momento reparte el APK a amigos): cada uno guarda su copia con «Exportar copia» (a su Drive o donde quiera). Si hace falta algo automático: **copia en Google Drive** de cada usuario (la carpeta oculta de la app, `appDataFolder`), con su cuenta de Google: gratis para todos, sin servidor propio y sin que el usuario guarde datos de salud de otros. Pide Google Sign-In (nativo) y un proyecto de OAuth en Google Cloud (gratis; en modo de prueba, hasta 100 cuentas y la sesión caduca a los 7 días, así que habría que publicarlo con el permiso `drive.appdata`). Supabase gratis queda para cuando haya cuentas de verdad.
+- Descartado por ahora: bloqueo con huella al abrir la app. La clave de firma propia se hizo en la 1.4.4 (fase 21), al repartir el APK.
 
 **Rutas a lo Wikiloc** (pedido del usuario del 2026-11-05, solo ideas; sin hacer):
 - **Mis rutas**: «Guardar como ruta» en una caminata (o automático al repetirla) y una lista con su mapa, distancia, desnivel, cuántas veces y el mejor tiempo; cada vez que la repites, la comparas con las anteriores (tiempo, ritmo, la gráfica de todas).
@@ -890,3 +975,5 @@ Registro diario de comidas reales y lista de la compra · estimación de 1RM · 
 - 2026-11-04 — **Versión 1.4.1** (fase 18, versionCode 13, sin migración). Iconos de ejercicio en las rutinas y demás sitios, decididos con agentes (tres propuestas, dos críticos y un juez): una fila común `SlotRow` (icono, nombre, la carga como cifra y la prescripción debajo) en las tarjetas de Rutinas y Hoy, el editor de rutina y «Ejercicio suelto»; el icono del siguiente en el descanso y en las tarjetas del resumen; menos texto repetido. Volver a Hoy con `dismissTo` (con `replace` quedaban dos pilas de pestañas). Nuevo [ARCHITECTURE.md](ARCHITECTURE.md). Solo cambia el JS.
 - 2026-11-05 — **Versión 1.4.2** (fase 19, versionCode 14, sin migración). PLAN.md al día con el código. Proteína, grasa y agua por kilo editables en Objetivos del día (con su efecto en gramos y los hidratos que quedan, que ya no salen negativos), y en Ajustes la sección «Sugerencias de peso» (incremento de 0,25 en 0,25, cuándo subir, cuándo bajar), con ejemplos calculados por el motor; las reglas valen desde el próximo entreno. Arreglados motivos que mentían en el modo «Todas las series» y con 3 o 4 sesiones para bajar. Diseñado con agentes. Solo cambia el JS.
 - 2026-11-05 — **Versión 1.4.3** (fase 20, versionCode 15, migración 10). **Fotos** en cualquier sesión de cardio y en el resumen del entreno: con la cámara (el original va también a la galería) o de la galería, una copia de 2160 px en la app, visor una por página y «Quitar foto»; durante la caminata, una cámara en la cabecera deja la foto en ese punto de la ruta, y las de la galería se colocan por su GPS o su hora (caminatas sin pausas). La copia de GitHub lleva las filas, no las imágenes. **Imagen para compartir**: formato Historia · 9:16 o Cuadrado · 1:1, estilo Foto con la foto de fondo, y la marca y «© OpenStreetMap» en la última línea, abajo del todo (aviso del usuario con su historia de «Ver hormigas»). Ideas de rutas a lo Wikiloc en §16, sin hacer. Módulos nativos nuevos (`expo-image-picker`, `expo-image-manipulator`): hace falta recompilar. Verificado en el emulador; falta el móvil.
+- 2026-11-05 — Hoja de ruta de las fases 21 a 26 (1.4.4 a 1.5.2, versionado del usuario) con cómo se prueba cada parte (§13), a partir de las ideas de §16; propuesta de cuentas y servidor en §16 (después de la 1.5.2).
+- 2026-11-05 — **Versión 1.4.4** (fase 21, versionCode 16, sin migración). **Firma propia del APK**: hasta la 1.4.3 iba firmado con la clave de depuración pública de la plantilla de React Native, y el usuario ya lo había pasado a amigos. Ahora, clave propia fuera del repo y rotación de clave (APK Signature Scheme v3): los móviles con Android 9+ actualizan encima sin perder datos y dejan de aceptar lo firmado con la clave vieja. `plugins/withReleaseSigning.js`, `scripts/sign_release.py` y `signing/entreno-rotation.lineage`. La app no cambia. Verificado en el emulador; falta el móvil.

@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.3** (`versionCode` 15, [app.json](app.json)) |
+| Versión de la app | **1.4.4** (`versionCode` 16, [app.json](app.json)) |
 | Esquema de la BD | **10** (`PRAGMA user_version`, 10 migraciones) |
-| Revisado | 2026-11-05, versión 1.4.3 (fotos de las sesiones y formatos de la imagen para compartir) |
+| Revisado | 2026-11-05, versión 1.4.4 (firma propia con rotación de clave) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -28,6 +28,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 | Secretos | `expo-secure-store` (Keystore): clave de la BD, clave de las copias, token de GitHub |
 | Gráficas y mapas | `react-native-svg` (propias), `react-native-webview` + MapLibre GL JS (mapa 3D), teselas OSM/PNOA |
 | Fotos | `expo-image-picker` (cámara y selector de fotos del sistema), `expo-image-manipulator` (copia reducida a 2160 px), `expo-file-system` (carpeta `Documents/photos/`) |
+| Builds y firma | `expo prebuild` + Gradle; release firmado con la clave propia ([withReleaseSigning.js](plugins/withReleaseSigning.js)) y la prueba de rotación desde la clave pública de la plantilla ([sign_release.py](scripts/sign_release.py), [entreno-rotation.lineage](signing/entreno-rotation.lineage)); ver AGENTS.md |
 | Otros | `react-native-body-highlighter` (silueta), `react-native-view-shot` + `expo-sharing` + `expo-media-library` (imagen para compartir), `expo-crypto` (AES-GCM), `date-fns` |
 
 ### 1.2 Carpetas

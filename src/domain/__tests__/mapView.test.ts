@@ -1,4 +1,4 @@
-import { fitView, outline, project, TILE_SIZE, tilesFor } from '../mapView';
+import { fitView, fitViewExact, outline, project, TILE_SIZE, tilesFor, toScreen } from '../mapView';
 
 describe('map view', () => {
   it('projects like slippy map tiles', () => {
@@ -41,14 +41,14 @@ describe('map view', () => {
   });
 
   it('lists the tiles that cover the view', () => {
-    const view = { zoom: 3, originX: 100, originY: 300 };
+    const view = { zoom: 3, originX: 100, originY: 300, scale: 1 };
     const tiles = tilesFor(view, 300, 200); // x 100–400, y 300–500
     expect(tiles.map((t) => `${t.x},${t.y}`)).toEqual(['0,1', '1,1']);
     expect(tiles[0]).toMatchObject({ zoom: 3, left: -100, top: -44, size: 256 });
   });
 
   it('takes sharper tiles from one zoom level further in, drawn at half the size', () => {
-    const view = { zoom: 3, originX: 100, originY: 300 };
+    const view = { zoom: 3, originX: 100, originY: 300, scale: 1 };
     const tiles = tilesFor(view, 300, 200, 1);
     // The same area: 4 × 2 tiles of 128 dp from zoom 4, starting at the same corner.
     expect(tiles).toHaveLength(8);
@@ -58,8 +58,46 @@ describe('map view', () => {
     expect(Math.max(...tiles.map((t) => t.top + t.size))).toBeGreaterThanOrEqual(200);
   });
 
+  it('fills the space exactly, between zoom levels, where the route without map would go', () => {
+    const route = [
+      { lat: 40.41, lon: -3.71 },
+      { lat: 40.43, lon: -3.69 },
+      { lat: 40.42, lon: -3.66 },
+    ];
+    const view = fitViewExact(route, 312, 270, 6);
+    expect(view.zoom).toBe(fitView(route, 312, 270, 6).zoom);
+    expect(view.scale).toBeGreaterThan(1);
+    expect(view.scale).toBeLessThan(2);
+    const [line] = outline([route], 312, 270, 6);
+    route.forEach((p, i) => {
+      const at = toScreen(view, p);
+      expect(at.x).toBeCloseTo(line[i].x, 6);
+      expect(at.y).toBeCloseTo(line[i].y, 6);
+    });
+  });
+
+  it('stops a single point at twice the deepest zoom', () => {
+    const p = { lat: 40.4, lon: -3.7 };
+    const view = fitViewExact([p], 360, 240);
+    expect(view).toMatchObject({ zoom: 17, scale: 2 });
+    expect(toScreen(view, p).x).toBeCloseTo(180, 6);
+    expect(toScreen(view, p).y).toBeCloseTo(120, 6);
+  });
+
+  it('draws the tiles of a scaled view larger and covering it', () => {
+    const view = { zoom: 3, originX: 100, originY: 300, scale: 1.25 };
+    const tiles = tilesFor(view, 300, 200); // world x 100–340, y 300–460
+    expect(tiles.map((t) => `${t.x},${t.y}`)).toEqual(['0,1', '1,1']);
+    expect(tiles[0]).toMatchObject({ zoom: 3, left: -125, top: -55, size: 320 });
+    // Past √2 larger, the tiles come from one level further in.
+    const deeper = tilesFor({ ...view, scale: 1.5 }, 300, 200, 1);
+    expect(deeper.every((t) => t.zoom === 5 && t.size === 64 * 1.5)).toBe(true);
+    expect(Math.max(...deeper.map((t) => t.left + t.size))).toBeGreaterThanOrEqual(300);
+    expect(Math.max(...deeper.map((t) => t.top + t.size))).toBeGreaterThanOrEqual(200);
+  });
+
   it('never asks for tiles past the deepest zoom of the server', () => {
-    const view = { zoom: 18, originX: 0, originY: 0 };
+    const view = { zoom: 18, originX: 0, originY: 0, scale: 1 };
     expect(tilesFor(view, 100, 100, 2)[0]).toMatchObject({ zoom: 19, size: 128 });
   });
 });

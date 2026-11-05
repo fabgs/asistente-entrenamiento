@@ -33,6 +33,8 @@ export interface StoryPhoto {
  * px); the name of the app and «© OpenStreetMap» go at the very bottom, as a footer.
  * «transparente» is a sticker: no background, everything white with a shadow, cropped to its
  * content (1080 × 1100 px, whatever the format). «foto» is the same white text over a photo.
+ * The route takes the same room in the map, the photo and the dark look (the user's choice: the
+ * proportions of «oscuro» for all).
  */
 type StoryRef = Ref<ComponentRef<typeof View>>;
 type ShareTypeName = keyof typeof shareType;
@@ -47,15 +49,12 @@ interface Frame {
   bottom: number;
   /** Text size against the story's. */
   k: number;
-  /** The map of the «mapa» look, from the top, and the space it keeps free for the title and the fade. */
-  map: number;
-  mapInset: { top: number; bottom: number };
-  /** Top of the fade of the map into the background. */
-  fadeFrom: number;
-  /** The route without map («oscuro»). */
+  /** The route, between the side margins: the same in every look. */
   route: { top: number; height: number };
-  /** The route over the photo; null: no route over the photo. */
-  photoRoute: { top: number; height: number } | null;
+  /** The map of the «mapa» look, from the top; its shade under the title, and where it starts to fade into the background. */
+  map: number;
+  shade: number;
+  fadeFrom: number;
   figures: number;
   exercises: number;
 }
@@ -67,11 +66,10 @@ const FRAMES: Record<StoryFormat, Frame> = {
     top: 83,
     bottom: 26,
     k: 1,
-    map: 450,
-    mapInset: { top: 150, bottom: 40 },
-    fadeFrom: 330,
     route: { top: 160, height: 270 },
-    photoRoute: { top: 316, height: 130 },
+    map: 450,
+    shade: 150,
+    fadeFrom: 330,
     figures: 462,
     exercises: 6,
   },
@@ -81,12 +79,10 @@ const FRAMES: Record<StoryFormat, Frame> = {
     top: 20,
     bottom: 16,
     k: 0.8,
-    // As much map as fits: the zoom goes in whole steps, and a little less room halves the route.
-    map: 242,
-    mapInset: { top: 60, bottom: 8 },
-    fadeFrom: 190,
     route: { top: 72, height: 158 },
-    photoRoute: { top: 134, height: 98 },
+    map: 242,
+    shade: 60,
+    fadeFrom: 190,
     figures: 244,
     exercises: 5,
   },
@@ -230,7 +226,7 @@ function RouteLine({ segments, width, height, u, white }: { segments: LatLon[][]
   );
 }
 
-/** Darkens the map under the title and fades it into the background above the figures. */
+/** Darkens the map under the title and fades it into the background above the figures; the route goes over it. */
 function MapFade({ width, frame, u }: { width: number; frame: Frame; u: number }) {
   return (
     <Svg width={width} height={(frame.map + 40) * u} style={StyleSheet.absoluteFill}>
@@ -244,7 +240,7 @@ function MapFade({ width, frame, u }: { width: number; frame: Frame; u: number }
           <Stop offset="1" stopColor={colors.bg} stopOpacity={1} />
         </LinearGradient>
       </Defs>
-      <Rect x={0} y={0} width={width} height={frame.mapInset.top * u} fill="url(#top)" />
+      <Rect x={0} y={0} width={width} height={frame.shade * u} fill="url(#top)" />
       <Rect x={0} y={frame.fadeFrom * u} width={width} height={(frame.map - frame.fadeFrom) * u + 1} fill="url(#bottom)" />
     </Svg>
   );
@@ -342,6 +338,7 @@ export function WalkStory({
   const height = frame.height * u;
   const { k } = frame;
   const onPhoto = look === 'foto' && !!photo;
+  const { route } = frame;
   return (
     <Story ref={ref} width={width} height={height} look={look}>
       {look === 'mapa' ? (
@@ -353,26 +350,24 @@ export function WalkStory({
             veil={0.25}
             detail={TILE_DETAIL}
             attribution={false}
-            fitInset={{ top: frame.mapInset.top * u, bottom: frame.mapInset.bottom * u }}
-            fitPadding={4 * u}
+            exactFit
+            fitInset={{ top: route.top * u, bottom: (frame.map - route.top - route.height) * u, left: pad, right: pad }}
+            // RouteLine's margin, so the route is the same size as in «oscuro».
+            fitPadding={6 * u * k}
             lineWidth={4.7 * u * k}
+            overTiles={<MapFade width={width} frame={frame} u={u} />}
             onTilesLoaded={onMapReady}
           />
-          <MapFade width={width} frame={frame} u={u} />
+          {/* The map's clipped bottom edge leaves a light line under the fade. */}
+          <View style={{ position: 'absolute', left: 0, right: 0, top: (frame.map - 1) * u, height: 2 * u, backgroundColor: colors.bg }} />
         </View>
-      ) : onPhoto ? (
-        <>
-          <PhotoBackground photo={photo} width={width} height={height} onReady={onPhotoReady} />
-          {frame.photoRoute ? (
-            <View style={{ position: 'absolute', left: pad, right: pad, top: frame.photoRoute.top * u, height: frame.photoRoute.height * u }}>
-              <RouteLine segments={segments} width={width - 2 * pad} height={frame.photoRoute.height * u} u={u * k} white />
-            </View>
-          ) : null}
-        </>
       ) : (
-        <View style={{ position: 'absolute', left: pad, right: pad, top: frame.route.top * u, height: frame.route.height * u }}>
-          <RouteLine segments={segments} width={width - 2 * pad} height={frame.route.height * u} u={u * k} white={false} />
-        </View>
+        <>
+          {onPhoto ? <PhotoBackground photo={photo} width={width} height={height} onReady={onPhotoReady} /> : null}
+          <View style={{ position: 'absolute', left: pad, right: pad, top: route.top * u, height: route.height * u }}>
+            <RouteLine segments={segments} width={width - 2 * pad} height={route.height * u} u={u * k} white={onPhoto} />
+          </View>
+        </>
       )}
       <View style={{ position: 'absolute', left: pad, right: pad, top: frame.top * u }}>
         <Header u={u} k={k} title={title} subtitle={subtitle} white={look === 'mapa' || onPhoto} />

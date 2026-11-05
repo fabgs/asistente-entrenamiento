@@ -207,7 +207,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [Ring.tsx](src/components/Ring.tsx) | Anillo del descanso (Reanimated) |
 | [LineChart.tsx](src/components/LineChart.tsx) · [TrackChart.tsx](src/components/TrackChart.tsx) · [MetricBoard.tsx](src/components/MetricBoard.tsx) | Gráfica de progreso/peso; gráfica de la ruta; panel de cifras de la caminata |
 | [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura); MapLibre en un WebView |
-| [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo; la marca y «© OpenStreetMap» en la última línea |
+| [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo con la ruta en el mismo sitio en los tres primeros (en Mapa, zoom entre niveles con `fitViewExact`); la marca y «© OpenStreetMap» en la última línea |
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
 | [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Tabla y detalle de sprints; pantalla en directo |
 | [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Esta semana» del Perfil; hoja de músculos |
@@ -1221,7 +1221,7 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 | Copia reducida | `keep` | `ImageManipulator.manipulate(uri, { maxWidth: 2160, maxHeight: 2160 })` (Glide aplica la orientación del EXIF) → JPEG 0,85 → `Documents/photos/<ms>-<azar>.jpg`. |
 | Ver | Tira de fotos → `/foto/:id` | Una por página, de la misma sesión, con la fecha y «En el mapa de la ruta» si tiene sitio. Las que tienen sitio salen como una cámara en el mapa del detalle y del directo (`RouteMap`). |
 | Quitar | ⋮ de `/foto/:id` | `removePhoto`: borra la fila y el fichero (el original de la galería sigue allí). |
-| Compartir | `/compartir/…` | Estilo «Foto»: la foto llena la imagen (`cover`) con un degradado arriba y abajo, y textos blancos con sombra; en una caminata, la ruta en blanco encima de las cifras. La captura espera a que cargue la foto. |
+| Compartir | `/compartir/…` | Estilo «Foto»: la foto llena la imagen (`cover`) con un degradado arriba y abajo, y textos blancos con sombra; en una caminata, la ruta en blanco en el mismo sitio que en Oscuro. La captura espera a que cargue la foto. |
 
 Si Android destruye la actividad mientras la cámara o el selector están abiertos (poca memoria), el resultado se pierde: no se usa `getPendingResultAsync`.
 

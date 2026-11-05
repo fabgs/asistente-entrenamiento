@@ -8,7 +8,7 @@ import { RouteMap } from './RouteMap';
 import { Icon } from './ui';
 
 export type StoryStyle = 'mapa' | 'foto' | 'oscuro' | 'transparente';
-export type StoryFormat = 'story' | 'square';
+export type StoryFormat = 'story' | 'portrait' | 'square';
 
 export interface StoryFigure {
   label: string;
@@ -27,7 +27,8 @@ export interface StoryPhoto {
 }
 
 /**
- * Images to share: an Instagram story (1080 × 1920 px) or a square post (1080 × 1080). Every size
+ * Images to share: an Instagram story (1080 × 1920 px), a vertical post (1080 × 1350, 4:5) or a
+ * square one (1080 × 1080). Every size
  * is in units of the width (`u` = width / 360, so 1 u is 3 px of the final image). In the story the
  * title and the figures stay inside the area Instagram does not cover (x 72–1008 px, y 250–1700
  * px); the name of the app and «© OpenStreetMap» go at the very bottom, as a footer.
@@ -71,6 +72,19 @@ const FRAMES: Record<StoryFormat, Frame> = {
     shade: 150,
     fadeFrom: 330,
     figures: 462,
+    exercises: 6,
+  },
+  portrait: {
+    height: 450,
+    pad: 22,
+    top: 28,
+    bottom: 18,
+    k: 0.9,
+    route: { top: 92, height: 210 },
+    map: 312,
+    shade: 84,
+    fadeFrom: 250,
+    figures: 316,
     exercises: 6,
   },
   square: {

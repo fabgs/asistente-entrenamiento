@@ -253,3 +253,9 @@ export function workoutTitle(s: { title: string | null; routineName: string | nu
   if (s.looseFirst) return s.looseCount > 1 ? `${s.looseFirst} y ${s.looseCount - 1} más` : s.looseFirst;
   return 'Entreno';
 }
+
+/** Size of files: «850 kB», «1,2 MB» (decimal units, as Android shows them). */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1_000_000) return `${formatNumber(Math.max(1, Math.round(bytes / 1000)), 0)}${NBSP}kB`;
+  return `${formatNumber(bytes / 1_000_000, 1)}${NBSP}MB`;
+}

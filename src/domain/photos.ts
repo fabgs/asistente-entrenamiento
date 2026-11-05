@@ -1,4 +1,5 @@
 import { distanceM, positionAtDistance, type LatLon, type TrackSample } from './gps';
+import { walkSnapshot, type WalkSource } from './walkStats';
 
 /** What the gallery tells about a photo (EXIF), as the picker returns it. */
 export type Exif = Record<string, unknown> | null | undefined;
@@ -67,6 +68,12 @@ export interface WalkTrack {
   samples: TrackSample[];
 }
 
+/** The finished walk as photoPlace needs it. */
+export function walkTrackOf(session: WalkSource): WalkTrack {
+  const { segments, samples } = walkSnapshot(session, null, 0);
+  return { startedAt: session.startedAt, finishedAt: session.finishedAt ?? session.startedAt, pausedMs: session.pausedMs, segments, samples };
+}
+
 /**
  * Where the walk was at `t`. Only without pauses: the profile counts active seconds, and without
  * pauses those are the clock's seconds since the start (the times of the pauses are not kept).
@@ -113,4 +120,14 @@ export function photoPlace(walk: WalkTrack, photo: { takenAt: number | null; pla
     return gap !== null && gap <= PHOTO_MAX_OFF_ROUTE_M ? photo.place : null;
   }
   return photo.takenAt === null ? null : placeAtTime(walk, photo.takenAt);
+}
+
+/**
+ * Pictures in the photos folder that no photo row uses any more: removed in tests, or of a copy
+ * restored without them. Never deleted on their own: restoring a copy that has them brings them back.
+ */
+export function photosWithoutSession(onDisk: readonly { name: string; size: number }[], used: Iterable<string>): { files: string[]; bytes: number } {
+  const inUse = new Set(used);
+  const unused = onDisk.filter((f) => !inUse.has(f.name));
+  return { files: unused.map((f) => f.name), bytes: unused.reduce((sum, f) => sum + f.size, 0) };
 }

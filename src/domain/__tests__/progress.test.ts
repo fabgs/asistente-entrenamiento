@@ -3,10 +3,13 @@ import {
   computeRecords,
   countOf,
   distinctRecords,
+  estimateOneRepMax,
   formatDayMonth,
   formatMonth,
   groupByMonth,
   niceScale,
+  oneRepMaxRecord,
+  sessionOneRepMax,
   splitUnit,
   summarize,
   thinSegments,
@@ -213,5 +216,43 @@ describe('two dumbbells', () => {
     const records = computeRecords([session('2026-11-02', 1, [[10, 12], [10, 11]])], true);
     expect(records.maxVolume?.kg).toBe(460);
     expect(records.maxWeight?.kg).toBe(10);
+  });
+});
+
+describe('estimated one-rep max (Epley)', () => {
+  it('matches known values, rounded to 0.5 kg', () => {
+    // 100 × (1 + 10/30) = 133.3 → 133.5; 80 × (1 + 5/30) = 93.3 → 93.5; 60 × 1.4 = 84.
+    expect(estimateOneRepMax(100, 10)).toBe(133.5);
+    expect(estimateOneRepMax(80, 5)).toBe(93.5);
+    expect(estimateOneRepMax(60, 12)).toBe(84);
+  });
+
+  it('is the weight itself for a single rep', () => {
+    expect(estimateOneRepMax(120, 1)).toBe(120);
+  });
+
+  it('gives nothing past 12 reps or without weight', () => {
+    expect(estimateOneRepMax(40, 13)).toBeNull();
+    expect(estimateOneRepMax(null, 8)).toBeNull();
+    expect(estimateOneRepMax(0, 8)).toBeNull();
+    expect(estimateOneRepMax(50, 0)).toBeNull();
+  });
+
+  it('takes the best set of a session, and the heavier one on a tie', () => {
+    // 90 × 6 = 108; 100 × 3 = 110; 84 × 9 = 109.2 → 109; 15 reps do not count.
+    expect(sessionOneRepMax(session('2026-11-02', 1, [[90, 6], [100, 3], [84, 9], [60, 15]]).sets)).toEqual({ kg: 110, fromKg: 100, reps: 3 });
+    // 75 × 12 = 105 and 90 × 5 = 105: the heavier set.
+    expect(sessionOneRepMax(session('2026-11-02', 1, [[75, 12], [90, 5]]).sets)).toEqual({ kg: 105, fromKg: 90, reps: 5 });
+    expect(sessionOneRepMax(session('2026-11-02', 1, [[40, 15], [null, 10]]).sets)).toBeNull();
+  });
+
+  it('keeps the first session that reached the highest estimate', () => {
+    const history = [
+      session('2026-10-20', 1, [[80, 8]]), // 101.5
+      session('2026-10-27', 2, [[85, 6]]), // 102
+      session('2026-11-03', 3, [[90, 4]]), // 102
+    ];
+    expect(oneRepMaxRecord([...history].reverse())).toEqual({ kg: 102, fromKg: 85, reps: 6, date: '2026-10-27', sessionId: 2 });
+    expect(oneRepMaxRecord([])).toBeNull();
   });
 });

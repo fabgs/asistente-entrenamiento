@@ -2,6 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { Linking, Pressable, StyleSheet, View } from 'react-native';
 import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
+import { SessionMusclesSection } from '@/components/MuscleWeek';
 import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { NoChangeLine, RecommendationBox } from '@/components/Recommendation';
 import { Sheet } from '@/components/Sheet';
@@ -28,7 +29,7 @@ import {
   Tag,
   useBusy,
 } from '@/components/ui';
-import { allExerciseMuscles } from '@/db/repositories/muscles';
+import { allExerciseMuscles, workSetsOfSession } from '@/db/repositories/muscles';
 import { listPhotos, type PhotoOwner } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, slotRule, type Slot } from '@/db/repositories/routines';
 import {
@@ -44,9 +45,10 @@ import {
   updateSetWeight,
   type SetLog,
 } from '@/db/repositories/sessions';
-import { getSettings, toProgressionSettings } from '@/db/repositories/settings';
+import { getProfile, getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
 import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange, workoutTitle } from '@/domain/format';
+import { MUSCLE_KEYS, setsPerMuscle } from '@/domain/muscles';
 import { volumeOf } from '@/domain/progress';
 import { recommend } from '@/domain/progression';
 import type { Recommendation } from '@/domain/types';
@@ -96,6 +98,7 @@ export default function SummaryScreen() {
         if (rec.action === 'keep' || rec.action === 'manual') keepReasons.set(slot.id, rec);
       }
     }
+    const muscles = await allExerciseMuscles(db);
     return {
       session,
       sets,
@@ -104,7 +107,9 @@ export default function SummaryScreen() {
       progression,
       defaultIncrement: settings.defaultIncrementKg,
       changes: await listChangesForSession(db, id),
-      muscles: await allExerciseMuscles(db),
+      muscles,
+      setsPerMuscle: setsPerMuscle(await workSetsOfSession(db, id), muscles),
+      sex: (await getProfile(db)).sex,
       photos: (await listPhotos(db, { kind: 'workout', id })).filter(isOnPhone),
     };
   });
@@ -328,7 +333,11 @@ export default function SummaryScreen() {
         {correcting ? (
           <AppText variant="caption">La sugerencia de peso se recalcula al guardar</AppText>
         ) : finished ? (
-          <PhotoSection photos={data.photos} onAdd={addPhoto} />
+          <>
+            {/* Exercises without muscles count nowhere: with none mapped there is nothing to paint. */}
+            {MUSCLE_KEYS.some((m) => data.setsPerMuscle[m] > 0) ? <SessionMusclesSection sets={data.setsPerMuscle} sex={data.sex} /> : null}
+            <PhotoSection photos={data.photos} onAdd={addPhoto} />
+          </>
         ) : null}
       </Screen>
 

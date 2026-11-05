@@ -59,6 +59,16 @@ export async function workSetsBetween(db: Db, from: string, to: string): Promise
   );
 }
 
+/** Work sets per exercise of one workout, counted as in workSetsBetween: its silhouette in the summary. */
+export async function workSetsOfSession(db: Db, sessionId: number): Promise<{ exerciseId: number; sets: number }[]> {
+  return db.getAllAsync<{ exerciseId: number; sets: number }>(
+    `SELECT exercise_id AS exerciseId, COUNT(*) AS sets
+     FROM set_log WHERE session_id = ? AND is_warmup = 0 AND reps > 0
+     GROUP BY exercise_id`,
+    sessionId,
+  );
+}
+
 export interface MuscleWeekData {
   done: ExerciseSets[];
   planned: ExerciseSets[];

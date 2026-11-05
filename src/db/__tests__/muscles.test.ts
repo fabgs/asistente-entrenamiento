@@ -10,6 +10,7 @@ import {
   plannedWeekSets,
   setExerciseMuscles,
   workSetsBetween,
+  workSetsOfSession,
 } from '../repositories/muscles';
 import { archiveSlot, listRoutines, listSlots, setRoutineWeekdays } from '../repositories/routines';
 import { finishSession, logSet, logWarmupSet, startSession } from '../repositories/sessions';
@@ -119,6 +120,12 @@ describe('sets per muscle', () => {
     // The Excel import left the Monday torso of two weeks ago, with Floor Press done in 2 sets.
     const before = await workSetsBetween(db, '2026-10-19', '2026-10-25');
     expect(before.find((s) => s.exerciseId === floor.exerciseId)?.sets).toBe(2);
+
+    // One workout, for its silhouette: the same sets, without its warm-up.
+    expect(await workSetsOfSession(db, done)).toEqual([{ exerciseId: floor.exerciseId, sets: 2 }]);
+    const sessionMuscles = setsPerMuscle(await workSetsOfSession(db, done), await allExerciseMuscles(db));
+    expect(sessionMuscles.chest).toBe(2);
+    expect(sessionMuscles.triceps).toBe(1);
   });
 
   it('loads the week: done, plan, last week and the exercises that count nowhere', async () => {

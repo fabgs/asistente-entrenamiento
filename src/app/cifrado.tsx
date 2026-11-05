@@ -21,6 +21,8 @@ export default function BackupPasswordScreen() {
     const settings = await getSettings(db);
     return {
       encrypted: await hasBackupPassword(),
+      // Only the developer's phone copies to GitHub: for everyone else the copies are the exported files.
+      github: githubTarget(settings) !== null,
       // In test mode nothing is uploaded on its own: it would replace the real copy with test data.
       upload: !settings.devMode && githubTarget(settings) !== null && (await githubToken.get()) !== null,
     };
@@ -105,7 +107,9 @@ export default function BackupPasswordScreen() {
       />
       <Card>
         <AppText variant="body">
-          Las copias se cifran en el móvil antes de subirlas a GitHub o de exportarlas: fuera de él solo se ven datos ilegibles.
+          {data.github
+            ? 'Las copias se cifran en el móvil antes de subirlas a GitHub o de exportarlas: fuera de él solo se ven datos ilegibles.'
+            : 'Las copias se cifran en el móvil antes de exportarlas: fuera de él solo se ven datos ilegibles.'}
         </AppText>
         <AppText variant="secondary">
           Para restaurarlas en otro móvil hará falta esta contraseña. Si la olvidas, nadie puede recuperarlas: guárdala en tu gestor de contraseñas.
@@ -113,7 +117,9 @@ export default function BackupPasswordScreen() {
         <AppText variant="secondary">
           {data.encrypted
             ? 'Las copias nuevas usarán la contraseña nueva; las de antes se siguen abriendo con la anterior.'
-            : 'Las copias que ya están en GitHub no cambian: siguen sin cifrar en el historial del repositorio.'}
+            : data.github
+              ? 'Las copias que ya están en GitHub no cambian: siguen sin cifrar en el historial del repositorio.'
+              : 'Las copias que ya exportaste no cambian: siguen sin cifrar.'}
         </AppText>
       </Card>
       <TextField

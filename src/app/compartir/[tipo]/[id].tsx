@@ -20,7 +20,7 @@ import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useLoader } from '@/hooks/data';
 import { canLoadMapTiles } from '@/services/network';
 import { isOnPhone, photoUri } from '@/services/photos';
-import { layoutSize, saveViewToGallery, shareViewAsImage, SQUARE_PX, STICKER_PX, STORY_PX } from '@/services/shareImage';
+import { layoutSize, PORTRAIT_PX, saveViewToGallery, shareViewAsImage, SQUARE_PX, STICKER_PX, STORY_PX } from '@/services/shareImage';
 import { colors, radius, spacing } from '@/theme';
 
 const LOOKS: { value: StoryStyle; label: string }[] = [
@@ -29,10 +29,13 @@ const LOOKS: { value: StoryStyle; label: string }[] = [
   { value: 'oscuro', label: 'Oscuro' },
   { value: 'transparente', label: 'Sin fondo' },
 ];
+// Without the ratio (9:16, 4:5, 1:1): three of them do not fit with a large font, and the preview shows the shape.
 const FORMATS: { value: StoryFormat; label: string }[] = [
-  { value: 'story', label: 'Historia · 9:16' },
-  { value: 'square', label: 'Cuadrado · 1:1' },
+  { value: 'story', label: 'Historia' },
+  { value: 'portrait', label: 'Vertical' },
+  { value: 'square', label: 'Cuadrado' },
 ];
+const FORMAT_PX = { story: STORY_PX, portrait: PORTRAIT_PX, square: SQUARE_PX };
 const TITLE_MAX = 40;
 const THUMB = 56;
 /** Height the preview leaves to the rest of the screen (header, controls and bottom bar). */
@@ -180,7 +183,7 @@ export default function ShareScreen() {
   const sticker = shownLook === 'transparente';
   const photo: Photo | undefined = data.photos.find((p) => p.id === photoId) ?? data.photos[0];
   const choosingPhoto = shownLook === 'foto' && data.photos.length > 1;
-  const px = sticker ? STICKER_PX : format === 'square' ? SQUARE_PX : STORY_PX;
+  const px = sticker ? STICKER_PX : FORMAT_PX[format];
   const size = layoutSize(px);
   // The preview takes the free height between the controls and the bottom bar.
   const free = screenH - CONTROLS_HEIGHT - (sticker ? 0 : FORMAT_ROW) - (choosingPhoto ? PHOTO_ROW : 0);

@@ -75,6 +75,49 @@ export function computeRecords(sessions: ExerciseSession[], pair = false): Recor
   return { maxWeight, maxReps, maxVolume };
 }
 
+/** Past this many reps Epley overshoots: such sets give no estimate. */
+export const ONE_REP_MAX_MAX_REPS = 12;
+
+export interface OneRepMax {
+  /** Estimated weight for a single rep, rounded to 0.5 kg. */
+  kg: number;
+  /** The set it comes from. */
+  fromKg: number;
+  reps: number;
+}
+
+/**
+ * Estimated one-rep max of a set with Epley's formula, kg × (1 + reps / 30); a single rep is its
+ * own weight. Null without weight or past 12 reps. With two dumbbells it is that of each one, as
+ * the weight is entered.
+ */
+export function estimateOneRepMax(kg: number | null, reps: number): number | null {
+  if (kg === null || kg <= 0 || reps < 1 || reps > ONE_REP_MAX_MAX_REPS) return null;
+  const estimate = reps === 1 ? kg : kg * (1 + reps / 30);
+  return Math.round(estimate * 2) / 2;
+}
+
+/** The best estimate among the sets of a session; ties go to the heavier set. */
+export function sessionOneRepMax(sets: LoggedSet[]): OneRepMax | null {
+  let best: OneRepMax | null = null;
+  for (const set of sets) {
+    const kg = estimateOneRepMax(set.weightKg, set.reps);
+    if (kg === null || set.weightKg === null) continue;
+    if (!best || kg > best.kg || (kg === best.kg && set.weightKg > best.fromKg)) best = { kg, fromKg: set.weightKg, reps: set.reps };
+  }
+  return best;
+}
+
+/** The highest estimate ever; ties go to the first time. */
+export function oneRepMaxRecord(sessions: ExerciseSession[]): (OneRepMax & { date: string; sessionId: number }) | null {
+  let record: (OneRepMax & { date: string; sessionId: number }) | null = null;
+  for (const session of [...sessions].sort((a, b) => a.startedAt - b.startedAt)) {
+    const best = sessionOneRepMax(session.sets);
+    if (best && (!record || best.kg > record.kg)) record = { ...best, date: session.date, sessionId: session.sessionId };
+  }
+  return record;
+}
+
 /**
  * The records to show side by side: «Más reps» is left out when it is the very set of «Mejor
  * peso» (the heaviest set was also the longest one), so the same set is never shown twice.

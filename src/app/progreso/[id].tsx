@@ -22,16 +22,17 @@ import { getExercise } from '@/db/repositories/exercises';
 import { getExerciseMuscles } from '@/db/repositories/muscles';
 import { exerciseSessions, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
 import { formatKg, formatNumber, formatSetGroups, formatShortDate, NBSP } from '@/domain/format';
-import { capitalize, computeRecords, distinctRecords, formatDayMonth, summarize } from '@/domain/progress';
+import { capitalize, computeRecords, distinctRecords, formatDayMonth, oneRepMaxRecord, sessionOneRepMax, summarize } from '@/domain/progress';
 import { localDateString } from '@/domain/schedule';
 import { useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
-type ChartMetric = 'weight' | 'reps';
+type ChartMetric = 'weight' | 'reps' | 'oneRepMax';
 
 const METRICS: { value: ChartMetric; label: string }[] = [
   { value: 'weight', label: 'Peso' },
   { value: 'reps', label: 'Reps' },
+  { value: 'oneRepMax', label: '1RM' },
 ];
 
 // Remembered while the app is open: every exercise opens on the last chart looked at.
@@ -74,10 +75,15 @@ export default function ExerciseProgressScreen() {
   const records = distinctRecords(computeRecords(sessions, exercise.pair));
   const chronological = [...sessions]
     .reverse()
-    .map((s) => ({ label: formatShortDate(s.date), ...summarize(s.sets, exercise.pair) }));
+    .map((s) => ({ label: formatShortDate(s.date), ...summarize(s.sets, exercise.pair), oneRepMax: sessionOneRepMax(s.sets)?.kg ?? null }));
   const hasWeight = chronological.some((s) => s.topWeightKg > 0);
+  // Only with a load: the ballast of a bodyweight exercise is not what one lifts.
+  const oneRepMaxes = bodyweight ? [] : chronological.flatMap((s) => (s.oneRepMax === null ? [] : [{ label: s.label, value: s.oneRepMax }]));
+  const oneRepMax = bodyweight ? null : oneRepMaxRecord(sessions);
+  const metrics = oneRepMaxes.length >= 2 ? METRICS : METRICS.filter((m) => m.value !== 'oneRepMax');
+  const pairPrefix = exercise.pair ? `2${NBSP}×${NBSP}` : '';
   // Bodyweight work without ballast only has reps to show.
-  const shown: ChartMetric = hasWeight ? metric : 'reps';
+  const shown: ChartMetric = !hasWeight ? 'reps' : metrics.some((m) => m.value === metric) ? metric : 'weight';
 
   return (
     <Screen>
@@ -94,8 +100,15 @@ export default function ExerciseProgressScreen() {
 
       {chronological.length >= 2 ? (
         <Card>
-          {hasWeight ? <Segmented options={METRICS} value={shown} onChange={setMetric} /> : null}
-          {shown === 'weight' ? (
+          {hasWeight ? <Segmented options={metrics} value={shown} onChange={setMetric} /> : null}
+          {shown === 'oneRepMax' ? (
+            <LineChart
+              key="oneRepMax"
+              title={exercise.pair ? '1RM estimado de cada mancuerna' : '1RM estimado por sesión'}
+              points={oneRepMaxes}
+              format={formatKg}
+            />
+          ) : shown === 'weight' ? (
             <LineChart
               key="weight"
               title={exercise.pair ? 'Peso de cada mancuerna por sesión' : 'Peso de trabajo por sesión'}
@@ -117,11 +130,21 @@ export default function ExerciseProgressScreen() {
 
       {records.maxWeight || records.maxReps || records.maxVolume ? (
         <Section label="Récords">
+          {oneRepMax ? (
+            <StatRow>
+              <Stat
+                label="1RM estimado"
+                value={`${pairPrefix}${formatNumber(oneRepMax.kg)}`}
+                unit="kg"
+                caption={`De ${formatKg(oneRepMax.fromKg)} × ${oneRepMax.reps} · ${formatShortDate(oneRepMax.date)} · Fórmula de Epley`}
+              />
+            </StatRow>
+          ) : null}
           <StatRow>
             {records.maxWeight ? (
               <Stat
                 label="Mejor peso"
-                value={`${exercise.pair ? `2${NBSP}×${NBSP}` : ''}${formatNumber(records.maxWeight.kg)}`}
+                value={`${pairPrefix}${formatNumber(records.maxWeight.kg)}`}
                 unit="kg"
                 caption={`× ${records.maxWeight.reps} · ${formatShortDate(records.maxWeight.date)}`}
               />

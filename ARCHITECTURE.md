@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.4** (`versionCode` 16, [app.json](app.json)) |
+| Versión de la app | **1.4.5** (`versionCode` 17, [app.json](app.json)) |
 | Esquema de la BD | **10** (`PRAGMA user_version`, 10 migraciones) |
-| Revisado | 2026-11-05, versión 1.4.4 (firma propia con rotación de clave) |
+| Revisado | 2026-11-05, versión 1.4.5 (opciones de administrador, Vertical 4:5, fotos pendientes y sin sesión, 1RM, silueta del entreno) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -134,14 +134,15 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn` |
 | [weightChanges.ts](src/db/repositories/weightChanges.ts) | `weight_change`, `routine_slot.weight_kg` | `listOpenChanges`, `createRecommendation`, `applyChange`, `dismissChange`, `undoChange`, `setSlotWeightManually`, `expireOpenChanges` |
 | [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise` |
-| [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `loadMuscleWeek`, `plannedWeekSets` |
+| [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek`, `plannedWeekSets` |
 | [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `cardioEntries` |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio`, `cardioLogOn`, `setCardioDone`, `addCardio`, `updateCardio`, `archiveCardio`, `unarchiveCardio` |
 | [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession`, `addTrackPoints`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
-| [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `getPhoto`, `deletePhoto`, `photoFilesOf` |
+| [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
 | [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`) |
+| [admin.ts](src/db/repositories/admin.ts) | `app_meta` (`admin`) | `getAdminOptions` (la primera vez, sí si ya hay copia en GitHub o modo pruebas), `setAdminOptions` |
 
 </details>
 
@@ -157,7 +158,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [bodyProfile.ts](src/domain/bodyProfile.ts) | Objetivo Perder/Mantener/Ganar ↔ `deficit_kcal`, niveles de actividad, qué falta del perfil |
 | [schedule.ts](src/domain/schedule.ts) | Días ISO, fechas locales, `buildDailyMessage`, `isoToExpoWeekday`, frase de ánimo |
 | [muscles.ts](src/domain/muscles.ts) | 18 músculos, series por músculo (1 / 0,5), niveles, `CATALOG_MUSCLES`, búsqueda por músculo, patrón de movimiento |
-| [progress.ts](src/domain/progress.ts) | Volumen, récords, escalas de ejes, agrupar por meses |
+| [progress.ts](src/domain/progress.ts) | Volumen, récords, 1RM estimado (Epley, hasta 12 reps), escalas de ejes, agrupar por meses |
 | [cardioPlan.ts](src/domain/cardioPlan.ts) | Planes LISS/MISS/HIIT → fases y alarmas; `sharesLockCountdown` |
 | [cardioPool.ts](src/domain/cardioPool.ts) | «Hacer otro cardio»: agrupar y filtrar el cardio de otros días |
 | [gps.ts](src/domain/gps.ts) | Filtrado, distancia, tramos, muestras, parciales, polilínea |
@@ -165,9 +166,10 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [trackChart.ts](src/domain/trackChart.ts) | Series, zoom y escalas de la gráfica de la ruta |
 | [mapView.ts](src/domain/mapView.ts) | Teselas de OSM y encuadre del mapa estático |
 | [sprint.ts](src/domain/sprint.ts) | Estado de los sprints a partir de las vueltas, transiciones y medición GPS |
-| [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`) |
+| [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`, `walkTrackOf`); imágenes sin sesión (`photosWithoutSession`) |
+| [secretTaps.ts](src/domain/secretTaps.ts) | Siete toques en la versión para ver u ocultar las opciones de administrador (`addTap`, `tapOutcome`) |
 | [backupCipher.ts](src/domain/backupCipher.ts) | Formato de copia cifrada, PBKDF2/AES con un «kit» inyectado |
-| [format.ts](src/domain/format.ts) | Formatos es-ES (kg, duraciones, fechas, `workoutTitle`) |
+| [format.ts](src/domain/format.ts) | Formatos es-ES (kg, duraciones, fechas, tamaños de fichero, `workoutTitle`) |
 | [types.ts](src/domain/types.ts) | Tipos compartidos (`IsoWeekday`, `RepTarget`, `Recommendation`…) |
 
 </details>
@@ -189,7 +191,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub, modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
 | [backupCipher.ts](src/services/backupCipher.ts) | Kit nativo (PBKDF2 del módulo + AES-GCM de `expo-crypto`) y la clave guardada | backup |
 | [githubBackup.ts](src/services/githubBackup.ts) | API de contenidos de GitHub (GET sha, PUT, descarga raw) | backup |
-| [photos.ts](src/services/photos.ts) | Hacer una foto o elegirla de la galería, guardar su copia reducida, quitarla y borrar las de una sesión | Sesión de cardio, Resumen, Foto, Compartir, cardioSession |
+| [photos.ts](src/services/photos.ts) | Hacer una foto o elegirla de la galería, guardar su copia reducida, quitarla y borrar las de una sesión; recuperar la que Android dejó a medias (`recoverPendingPhotos`); imágenes sin sesión | Sesión de cardio, Resumen, Foto, Compartir, cardioSession |
 | [shareImage.ts](src/services/shareImage.ts) | Captura de una vista, guardar en la galería, compartir | Compartir |
 | [network.ts](src/services/network.ts) | ¿Se pueden cargar teselas ahora? | Compartir |
 
@@ -253,7 +255,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [pesos.tsx](src/app/pesos.tsx) | `/pesos` | Pesajes | Todos los pesajes, por meses, de 30 en 30 |
 | [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
 | [alimento/[id].tsx](src/app/alimento/[id].tsx) | `/alimento/:id` · `/alimento/nuevo?nombre=` | «Alimento» o «Nuevo alimento» | Editor de alimento |
-| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, copia, modo pruebas |
+| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, copia, modo pruebas (GitHub y modo pruebas, solo con las opciones de administrador) |
 | [cifrado.tsx](src/app/cifrado.tsx) | `/cifrado` | «Cifrar las copias» o «Cambiar la contraseña» | Contraseña de las copias |
 | [dev/componentes.tsx](src/app/dev/componentes.tsx) | `/dev/componentes` | Componentes | Catálogo de componentes; solo `__DEV__` (en release redirige a `/`) |
 
@@ -309,7 +311,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Resumen · `/workout/resumen/:sessionId`
 - **Llega desde**: fin del entreno (⇄, con `?nuevo=1`); Hoy (fila de Hecho, «Terminar» del entreno viejo); Historial · Entrenos; Progreso (fila de sesión); `<Redirect>` del entreno terminado.
 - **Lleva a**: compartir → `/compartir/entreno/:id`; nombre de un ejercicio → `/progreso/:exerciseId`; una foto → `/foto/:id`; con `?nuevo=1`: «Compartir» y «Listo» ⤒; ⋮ «Borrar entreno» ↩ (o ⤒, y borra sus fotos).
-- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
+- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; «Músculos» (1.4.5): la silueta del entreno (`SessionMusclesSection`, `workSetsOfSession`) y, al tocar una zona, sus series; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
 
 #### Ejercicio suelto · `/ejercicio-suelto`
 - **Llega desde**: Hoy «Hacer un ejercicio suelto»; lista de un entreno suelto «Añadir otro ejercicio» (`?sesion=`).
@@ -317,7 +319,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Progreso · `/progreso/:exerciseId`
 - **Llega desde**: Historial · Ejercicios; Resumen (nombre del ejercicio); «Últimas sesiones» del editor del slot y del ejercicio del catálogo.
-- **Lleva a**: fila de sesión → `/workout/resumen/:sessionId`. Segmentado Peso · Reps (se recuerda).
+- **Lleva a**: fila de sesión → `/workout/resumen/:sessionId`. Segmentado Peso · Reps · 1RM (se recuerda; 1RM con dos sesiones que lo estimen) y el récord «1RM estimado» encima de los otros.
 
 #### Cardio (sesión) · `/cardio-sesion/:id`
 - **Llega desde**: Hoy («Iniciar», «Ver», fila «En curso», fila de cardio hecho, hoja «Hacer otro cardio», diálogos «Ver cardio/sprints» y «Seguir sin GPS»); Historial · Cardio; alarma de fase (`cardio-<id>-*`, `navigate`); Ajustes · Modo pruebas «Añadir caminata/sprints de prueba» (solo desarrollo).
@@ -336,7 +338,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Compartir · `/compartir/:tipo/:id`
 - **Llega desde**: Resumen (`tipo = entreno`); sesión de cardio terminada, caminata o sprints (`tipo = cardio`).
-- **Lleva a**: ninguna ruta. «Guardar» (galería) y «Compartir» (menú de Android); sin permiso de galería, el Snackbar abre los ajustes de la app (`Linking.openSettings`). Estilos Mapa · Foto (si la sesión tiene fotos; empieza en él) · Oscuro · Sin fondo, formato Historia 9:16 · Cuadrado 1:1 (no en Sin fondo) y, con varias fotos, una fila para elegir cuál; el título se guarda en la sesión.
+- **Lleva a**: ninguna ruta. «Guardar» (galería) y «Compartir» (menú de Android); sin permiso de galería, el Snackbar abre los ajustes de la app (`Linking.openSettings`). Estilos Mapa · Foto (si la sesión tiene fotos; empieza en él) · Oscuro · Sin fondo, formato Historia · Vertical · Cuadrado (9:16, 4:5 y 1:1; no en Sin fondo) y, con varias fotos, una fila para elegir cuál; el título se guarda en la sesión.
 
 #### Foto · `/foto/:id`
 - **Llega desde**: la tira de fotos del detalle de una sesión de cardio y del Resumen.
@@ -393,6 +395,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Ajustes · `/ajustes`
 - **Llega desde**: engranaje del Perfil; etiqueta «Pruebas» de Hoy.
 - **Lleva a**: «Cifrar las copias» / «Copias cifradas» → `/cifrado`; modo pruebas: «Reiniciar datos ahora» y «Cargar datos de prueba (Excel)» ⤒; «Añadir caminata de prueba» / «Añadir sprints de prueba» → `/cardio-sesion/:id`; «Catálogo de componentes» → `/dev/componentes` (estas tres y «Cargar datos de prueba», solo en desarrollo). Las filas de permisos piden el permiso o abren el ajuste de Android correspondiente (`expo-intent-launcher`).
+- **Opciones de administrador** (1.4.5): la copia en GitHub y el modo pruebas solo se ven con ellas (el modo pruebas, también mientras esté activo); siete toques en «Entreno vX» del pie las muestran u ocultan; desde el tercero el pie dice cuántos faltan (un Snackbar taparía la versión) y al séptimo sale el Snackbar ([secretTaps.ts](src/domain/secretTaps.ts), `app_meta('admin')`).
 - **Capas**: hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
 
 #### Cifrar las copias · `/cifrado`
@@ -928,7 +931,7 @@ erDiagram
 |---|---|---|
 | `profile` | Datos del cuerpo y de los objetivos | El peso no va aquí: es el último de `weight_log`. Los g/kg de proteína y grasa y los L/kg de agua se editan en Objetivos del día (el agua en ml/kg). `name` no se usa. |
 | `settings` | Ajustes de la app y estado de la copia | `progression_mode`, `sessions_below_to_decrease` y `default_increment_kg` se editan en Ajustes → «Sugerencias de peso» y `getSettings` los limpia (`sanitizeProgression`). `cardio_*` y `distance_unit` recuerdan la vista de la caminata. |
-| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas) y `hint:<pista>` (pistas de un solo uso). No va en la copia. |
+| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas), `hint:<pista>` (pistas de un solo uso), `admin` (opciones de administrador) y `photo-pending` (la foto mientras la cámara o la galería están abiertas). No va en la copia. |
 | `weight_log` | Un pesaje por día | `logWeight` hace *upsert* por fecha. |
 | `exercise` | Catálogo de ejercicios | `pair = 1`: el peso es de cada mancuerna y el volumen cuenta las dos. Crear uno con el nombre de un archivado lo recupera. |
 | `exercise_muscle` | Músculos principales y secundarios de cada ejercicio | Un músculo es principal o secundario, no ambos. Claves desconocidas se ignoran al leer. |
@@ -1223,7 +1226,8 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 | Quitar | ⋮ de `/foto/:id` | `removePhoto`: borra la fila y el fichero (el original de la galería sigue allí). |
 | Compartir | `/compartir/…` | Estilo «Foto»: la foto llena la imagen (`cover`) con un degradado arriba y abajo, y textos blancos con sombra; en una caminata, la ruta en blanco en el mismo sitio que en Oscuro. La captura espera a que cargue la foto. |
 
-Si Android destruye la actividad mientras la cámara o el selector están abiertos (poca memoria), el resultado se pierde: no se usa `getPendingResultAsync`.
+| Si Android cierra la app | Cámara o galería abiertas | `launching` guarda `app_meta('photo-pending')` (sesión, origen, sitio y hora) y lo borra al volver. Si no vuelve, al arrancar `recoverPendingPhotos` (desde `_layout.tsx`) añade lo de `getPendingResultAsync` o, si Android mató el proceso, la imagen que la cámara escribió en `cache/ImagePicker` después de abrirla (`cameraFileSince`), y abre la sesión con «Foto añadida». |
+| Fotos sin sesión | Ajustes → Copia de seguridad | `unusedPhotos`: ficheros de `Documents/photos` sin fila (`photosWithoutSession`); la fila sale solo si hay alguno y «Borrar» (con confirmación) los borra (`deleteUnusedPhotos`). |
 
 ---
 

@@ -91,15 +91,34 @@ export function MuscleWeekSection({ week, sex }: { week: MuscleWeekData; sex: Se
   );
 }
 
+/**
+ * The muscles of one workout, in its summary: the same ramp as «Esta semana», so a big session reads
+ * against a week of 10 or more sets per muscle. Tapping a region reads its sets.
+ */
+export function SessionMusclesSection({ sets, sex }: { sets: MuscleSets; sex: Sex }) {
+  const [selected, setSelected] = useState<Muscle[] | null>(null);
+  const toggle = (muscles: Muscle[]) => setSelected((s) => (s?.[0] === muscles[0] ? null : muscles));
+  return (
+    <Section label="Músculos">
+      <Card>
+        <BodyMap levels={muscleLevels(sets)} sex={sex} width={MAP_WIDTH} selected={selected?.[0] ?? null} onPress={toggle} />
+        <View style={styles.slot}>
+          {selected ? <Reading muscles={selected} done={sets} /> : <HeatLegend label="Series de este entreno, de ninguna a 10 o más" />}
+        </View>
+      </Card>
+    </Section>
+  );
+}
+
 /** What a tapped region holds: one muscle, or the two the drawing puts together. */
-function Reading({ muscles, done, planned }: { muscles: Muscle[]; done: MuscleSets; planned: MuscleSets }) {
+function Reading({ muscles, done, planned }: { muscles: Muscle[]; done: MuscleSets; planned?: MuscleSets }) {
   return (
     <View style={styles.reading}>
       {muscles.map((m) => (
         <Row key={m} between>
           <AppText variant="rowTitle">{muscleLabel(m)}</AppText>
           <AppText variant="rowValue" tabular>
-            {formatSetsOfPlan(done[m], planned[m], true)}
+            {formatSetsOfPlan(done[m], planned?.[m] ?? 0, true)}
           </AppText>
         </Row>
       ))}
@@ -108,9 +127,9 @@ function Reading({ muscles, done, planned }: { muscles: Muscle[]; done: MuscleSe
 }
 
 /** From nothing to «10 o más» sets this week, the start of the 10–20 range. */
-export function HeatLegend() {
+export function HeatLegend({ label = 'Series esta semana, de ninguna a 10 o más' }: { label?: string }) {
   return (
-    <View style={styles.legend} accessible accessibilityLabel="Series esta semana, de ninguna a 10 o más">
+    <View style={styles.legend} accessible accessibilityLabel={label}>
       <AppText variant="caption">0</AppText>
       <View style={styles.swatches}>
         {HEAT.map((c) => (

@@ -1,7 +1,8 @@
 import * as Application from 'expo-application';
-import { useState } from 'react';
-import { View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, View } from 'react-native';
 import { BackupSection, DevModeSection, SettingSwitch } from '@/components/DataSettings';
+import { showSnackbar } from '@/components/Dialog';
 import { Sheet } from '@/components/Sheet';
 import { WeightRulesSection } from '@/components/WeightRules';
 import {
@@ -19,11 +20,14 @@ import {
   type IconName,
 } from '@/components/ui';
 import type { Db } from '@/db/db';
+import { getAdminOptions, setAdminOptions } from '@/db/repositories/admin';
 import { countOwnIncrements } from '@/db/repositories/exercises';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatCountdown } from '@/domain/format';
+import { addTap, TAP_GAP_MS, tapOutcome, tapsLeftText, type Taps } from '@/domain/secretTaps';
 import { useDb, useLoader } from '@/hooks/data';
 import { githubToken, hasBackupPassword } from '@/services/backup';
+import { unusedPhotos } from '@/services/photos';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import {
   countScheduledNotifications,
@@ -44,6 +48,9 @@ interface Loaded {
   hasToken: boolean;
   encrypted: boolean;
   ownIncrements: number;
+  /** The copy in GitHub and test mode show (seven taps on the version). */
+  admin: boolean;
+  unusedPhotos: { files: string[]; bytes: number };
 }
 
 const load = async (db: Db): Promise<Loaded> => ({
@@ -53,6 +60,8 @@ const load = async (db: Db): Promise<Loaded> => ({
   hasToken: (await githubToken.get()) !== null,
   encrypted: await hasBackupPassword(),
   ownIncrements: await countOwnIncrements(db),
+  admin: await getAdminOptions(db),
+  unusedPhotos: await unusedPhotos(db),
 });
 
 /** Everything is saved as soon as it changes (PLAN.md §8). */
@@ -74,6 +83,25 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
   // The controls own their values while the screen is open; `data` brings permissions and backup state.
   const [settings, setSettings] = useState(data.settings);
   const [restOpen, setRestOpen] = useState(false);
+  const [admin, setAdmin] = useState(data.admin);
+  const taps = useRef<Taps | null>(null);
+  // «Faltan 3 toques» replaces the version until the count would start again.
+  const [tapsLeft, setTapsLeft] = useState<string | null>(null);
+  const clearTapsLeft = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => clearTimeout(clearTapsLeft.current ?? undefined), []);
+
+  const tapVersion = () => {
+    taps.current = addTap(taps.current, Date.now());
+    const outcome = tapOutcome(taps.current);
+    clearTimeout(clearTapsLeft.current ?? undefined);
+    setTapsLeft(outcome.kind === 'left' ? tapsLeftText(outcome.left) : null);
+    if (outcome.kind === 'left') clearTapsLeft.current = setTimeout(() => setTapsLeft(null), TAP_GAP_MS);
+    if (outcome.kind === 'toggle') {
+      setAdmin(!admin);
+      void setAdminOptions(db, !admin);
+      showSnackbar(admin ? 'Opciones de administrador ocultas' : 'Ya ves la copia en GitHub y el modo pruebas');
+    }
+  };
 
   const save = async (patch: Partial<Settings>) => {
     setSettings((s) => ({ ...s, ...patch }));
@@ -135,15 +163,20 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
         hasToken={data.hasToken}
         encrypted={data.encrypted}
         devMode={settings.devMode}
+        github={admin}
+        unusedPhotos={data.unusedPhotos}
         onChanged={reload}
         onReplaced={onReplaced}
       />
 
-      <DevModeSection enabled={settings.devMode} onChange={(devMode) => save({ devMode })} />
+      {/* Shown while it is on even without the admin options: it wipes the data on the next install. */}
+      {admin || settings.devMode ? <DevModeSection enabled={settings.devMode} onChange={(devMode) => save({ devMode })} /> : null}
 
-      <AppText variant="caption" style={{ textAlign: 'center' }}>
-        Entreno v{Application.nativeApplicationVersion ?? '?'}
-      </AppText>
+      <Pressable onPress={tapVersion} hitSlop={spacing.md}>
+        <AppText variant="caption" style={{ textAlign: 'center' }}>
+          {tapsLeft ?? `Entreno v${Application.nativeApplicationVersion ?? '?'}`}
+        </AppText>
+      </Pressable>
 
       <Sheet visible={restOpen} title="Descanso entre series" onClose={() => setRestOpen(false)}>
         <DurationField value={settings.restSecondsDefault} onChange={(restSecondsDefault) => save({ restSecondsDefault })} />

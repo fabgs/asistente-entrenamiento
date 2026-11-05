@@ -5,6 +5,7 @@ import { captureRef } from 'react-native-view-shot';
 
 /** An Instagram story is 1080 × 1920 px, a square post 1080 × 1080; a sticker (no background) is cropped to 1080 × 1100. */
 export const STORY_PX = { width: 1080, height: 1920 };
+export const PORTRAIT_PX = { width: 1080, height: 1350 };
 export const SQUARE_PX = { width: 1080, height: 1080 };
 export const STICKER_PX = { width: 1080, height: 1100 };
 

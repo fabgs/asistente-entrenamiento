@@ -49,7 +49,7 @@ import {
 } from '@/domain/cardioPlan';
 import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
 import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
-import { photoPlace, placeFromFix } from '@/domain/photos';
+import { photoPlace, placeFromFix, walkTrackOf } from '@/domain/photos';
 import { parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
 import { sprintGps } from '@/domain/sprint';
@@ -231,14 +231,7 @@ export default function CardioSessionScreen() {
       () => takePhoto(db, owner, null).then((r) => afterPhotos(r), failedPhoto),
       () => {
         // A walk places each photo on its route, from what the photo says (see photoPlace).
-        const walk = isWalk ? walkSnapshot(session, null, 0) : null;
-        const track = walk && {
-          startedAt: session.startedAt,
-          finishedAt: session.finishedAt ?? session.startedAt,
-          pausedMs: session.pausedMs,
-          segments: walk.segments,
-          samples: walk.samples,
-        };
+        const track = isWalk ? walkTrackOf(session) : null;
         pickPhotos(db, owner, track ? (meta) => photoPlace(track, meta) : undefined).then((r) => afterPhotos(r), failedPhoto);
       },
     );

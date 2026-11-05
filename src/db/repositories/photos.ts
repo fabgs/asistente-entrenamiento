@@ -97,3 +97,8 @@ export async function photoFilesOf(db: Db, owner: PhotoOwner): Promise<string[]>
   const rows = await db.getAllAsync<{ file: string }>(`SELECT file FROM photo WHERE ${column(owner)} = ?`, owner.id);
   return rows.map((r) => r.file);
 }
+
+/** The pictures every photo row uses, of any session. */
+export async function allPhotoFiles(db: Db): Promise<string[]> {
+  return (await db.getAllAsync<{ file: string }>('SELECT file FROM photo')).map((r) => r.file);
+}

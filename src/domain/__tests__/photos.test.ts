@@ -1,5 +1,6 @@
 import { buildSamples, distanceM, type TrackPoint } from '../gps';
-import { exifPlace, exifTakenAt, gapToRoute, photoPlace, placeAtTime, placeFromFix, type WalkTrack } from '../photos';
+import { exifPlace, exifTakenAt, gapToRoute, photoPlace, photosWithoutSession, placeAtTime, placeFromFix, type WalkTrack } from '../photos';
+import { formatBytes } from '../format';
 
 const DEG_PER_M = 1 / 111_195;
 const START = { lat: 38.07, lon: -0.97 };
@@ -125,5 +126,24 @@ describe('photoPlace', () => {
   it('uses the time without GPS', () => {
     expect(distanceM(START, photoPlace(walk, { takenAt: T0 + 200_000, place: null })!)).toBeCloseTo(300, -1);
     expect(photoPlace(walk, { takenAt: null, place: null })).toBeNull();
+  });
+});
+
+describe('pictures without a session', () => {
+  it('are the files of the folder that no photo uses, with their size', () => {
+    const onDisk = [
+      { name: 'a.jpg', size: 400_000 },
+      { name: 'b.jpg', size: 500_000 },
+      { name: 'c.jpg', size: 750_000 },
+    ];
+    expect(photosWithoutSession(onDisk, ['b.jpg'])).toEqual({ files: ['a.jpg', 'c.jpg'], bytes: 1_150_000 });
+    expect(photosWithoutSession(onDisk, ['a.jpg', 'b.jpg', 'c.jpg', 'gone.jpg'])).toEqual({ files: [], bytes: 0 });
+    expect(photosWithoutSession([], ['a.jpg'])).toEqual({ files: [], bytes: 0 });
+  });
+
+  it('say how much they take', () => {
+    expect(formatBytes(1_150_000)).toBe('1,2 MB');
+    expect(formatBytes(850_400)).toBe('850 kB');
+    expect(formatBytes(120)).toBe('1 kB');
   });
 });

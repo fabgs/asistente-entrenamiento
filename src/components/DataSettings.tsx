@@ -6,9 +6,10 @@ import type { Backup } from '@/db/maintenance';
 import type { SeedData } from '@/db/seedTypes';
 import { updateSettings, type Settings } from '@/db/repositories/settings';
 import { WrongPasswordError } from '@/domain/backupCipher';
-import { formatAgo, formatDateWithYear } from '@/domain/format';
+import { formatAgo, formatBytes, formatDateWithYear } from '@/domain/format';
 import { localDateString } from '@/domain/schedule';
 import { useDb } from '@/hooks/data';
+import { deleteUnusedPhotos } from '@/services/photos';
 import {
   backupToGithub,
   downloadFromGithub,
@@ -152,6 +153,24 @@ export function DevModeSection({ enabled, onChange }: { enabled: boolean; onChan
   );
 }
 
+function confirmDeleteUnused(count: number, onDelete: () => Promise<void>): void {
+  showDialog(
+    count === 1 ? '¿Borrar la foto sin sesión?' : `¿Borrar las ${count} fotos sin sesión?`,
+    'Son imágenes de fotos que ya no están en ninguna sesión: se quitaron en pruebas o se restauró una copia sin ellas. Restaurar una copia que las tenga las recupera; borradas, ya no.',
+    [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Borrar',
+        style: 'destructive',
+        onPress: async () => {
+          await onDelete();
+          showSnackbar(count === 1 ? 'Foto borrada' : 'Fotos borradas');
+        },
+      },
+    ],
+  );
+}
+
 function confirmRestore(backup: Backup): Promise<boolean> {
   const date = formatDateWithYear(localDateString(new Date(backup.exportedAt)));
   return new Promise((resolve) =>
@@ -192,6 +211,8 @@ export function BackupSection({
   hasToken,
   encrypted,
   devMode,
+  github,
+  unusedPhotos,
   onChanged,
   onReplaced,
 }: {
@@ -200,6 +221,10 @@ export function BackupSection({
   /** Copies leave the phone encrypted with the user's password. */
   encrypted: boolean;
   devMode: boolean;
+  /** The copy in GitHub: only with the admin options (exporting a file is for everyone). */
+  github: boolean;
+  /** Pictures no session uses any more (tests, a copy restored without them). */
+  unusedPhotos: { files: string[]; bytes: number };
   onChanged: () => Promise<void>;
   onReplaced: () => Promise<void>;
 }) {
@@ -286,7 +311,19 @@ export function BackupSection({
         )}
       </ListGroup>
 
-      {target ? (
+      {unusedPhotos.files.length > 0 ? (
+        <ListGroup inset={72}>
+          <ListRow
+            left={<RowIcon name="image-off-outline" />}
+            title="Fotos sin sesión"
+            subtitle={`${unusedPhotos.files.length === 1 ? '1 imagen' : `${unusedPhotos.files.length} imágenes`} · ${formatBytes(unusedPhotos.bytes)}`}
+            onPress={() => confirmDeleteUnused(unusedPhotos.files.length, () => deleteUnusedPhotos(db).then(onChanged))}
+            chevron={false}
+          />
+        </ListGroup>
+      ) : null}
+
+      {!github ? null : target ? (
         <ListGroup inset={72}>
           <ListRow left={<RowIcon name="github" />} title="Repositorio" subtitle={`${target.owner}/${target.repo}`} />
           <LastBackupRow settings={settings} hasToken={hasToken} devMode={devMode} onFix={() => setEditing(true)} />
@@ -327,7 +364,7 @@ export function BackupSection({
         </ListGroup>
       )}
 
-      {editing ? (
+      {github && editing ? (
         <GithubForm
           settings={settings}
           hasToken={hasToken}

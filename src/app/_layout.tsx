@@ -4,7 +4,7 @@ import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
-import { DialogHost, SnackbarHost } from '@/components/Dialog';
+import { DialogHost, showSnackbar, SnackbarHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
 import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
@@ -20,6 +20,7 @@ import {
   getPermissionState,
   requestNotificationPermission,
 } from '@/services/notifications';
+import { recoverPendingPhotos } from '@/services/photos';
 import { DATABASE, keyPragma, prepareDatabase } from '@/services/secureDatabase';
 import { restoreWorkoutInProgress } from '@/services/workoutInProgress';
 import { colors, headerOptions, navigationTheme } from '@/theme';
@@ -51,6 +52,13 @@ function Bootstrap() {
       await rescheduleDailyReminders(db);
       await restoreWorkoutInProgress(db);
       await restoreCardioInProgress(db);
+      // Android may have closed the app while the camera or the gallery was open.
+      const recovered = await recoverPendingPhotos(db);
+      if (recovered) {
+        const { kind, id } = recovered.owner;
+        router.navigate(kind === 'cardio' ? `/cardio-sesion/${id}` : `/workout/resumen/${id}`);
+        showSnackbar(recovered.added === 1 ? 'Foto añadida' : `${recovered.added} fotos añadidas`);
+      }
       await maybeAutoBackup(db);
     })().catch((e) => console.warn('Start-up tasks failed', e));
   }, [db]);

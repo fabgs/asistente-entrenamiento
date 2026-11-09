@@ -83,6 +83,16 @@ export async function listPhotos(db: Db, owner: PhotoOwner): Promise<Photo[]> {
   return rows.map(fromRow);
 }
 
+/** The photos of every walk of a saved route, in the order they were taken. */
+export async function listRoutePhotos(db: Db, routeId: number): Promise<Photo[]> {
+  const rows = await db.getAllAsync<PhotoRow>(
+    `SELECT photo.* FROM photo JOIN cardio_session ON cardio_session.id = photo.cardio_session_id
+     WHERE cardio_session.route_id = ? ORDER BY COALESCE(photo.taken_at, photo.created_at), photo.id`,
+    routeId,
+  );
+  return rows.map(fromRow);
+}
+
 export async function getPhoto(db: Db, id: number): Promise<Photo | null> {
   const row = await db.getFirstAsync<PhotoRow>('SELECT * FROM photo WHERE id = ?', id);
   return row ? fromRow(row) : null;

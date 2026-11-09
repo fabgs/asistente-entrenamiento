@@ -20,6 +20,8 @@ export const BACKUP_TABLES = [
   'routine_weekday',
   'routine_slot',
   'cardio_activity',
+  // Before the walks that point to it.
+  'route',
   'cardio_session',
   'cardio_log',
   'workout_session',

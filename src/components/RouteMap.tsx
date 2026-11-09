@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import Svg, { Circle, Polyline } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
 import { fitView, fitViewExact, osmTileUrl, outline, TILE_USER_AGENT, tilesFor, toScreen } from '@/domain/mapView';
+import { thinSegments } from '@/domain/progress';
 import { attributionType, colors, radius } from '@/theme';
 import { AppText, Icon } from './ui';
 
@@ -218,6 +219,23 @@ function MapContent({
   );
 }
 
+/** Points of a route a 48 dp thumbnail needs. */
+const ROW_THUMBNAIL_POINTS = 100;
+
+/**
+ * The 48 dp outline at the start of a row of a walk or a route, centred on the 40 dp column of the
+ * round icons so every title starts at the same place.
+ */
+export function RouteRowThumbnail({ segments }: { segments: LatLon[][] }) {
+  // A long walk is thousands of points: thinned once, not on every render.
+  const thin = useMemo(() => thinSegments(segments, ROW_THUMBNAIL_POINTS), [segments]);
+  return (
+    <View style={styles.rowThumbnail}>
+      <RouteThumbnail segments={thin} size={48} />
+    </View>
+  );
+}
+
 /** Small outline of a route, without map tiles, for lists. */
 export function RouteThumbnail({ segments, size = 56 }: { segments: LatLon[][]; size?: number }) {
   if (segments.flat().length < 2) return null;
@@ -242,6 +260,7 @@ export function RouteThumbnail({ segments, size = 56 }: { segments: LatLon[][]; 
 
 const styles = StyleSheet.create({
   thumbnail: { borderRadius: radius.sm, backgroundColor: colors.cardAlt, overflow: 'hidden' },
+  rowThumbnail: { width: 40, alignItems: 'center' },
   box: { borderRadius: radius.lg, overflow: 'hidden', backgroundColor: colors.cardAlt },
   square: { borderRadius: 0 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },

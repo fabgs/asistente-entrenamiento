@@ -333,6 +333,23 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE set_log ADD COLUMN rest_seconds INTEGER;
   ALTER TABLE settings ADD COLUMN muscle_map_mode TEXT NOT NULL DEFAULT 'week';
   `,
+  // Mis rutas (1.4.8). A route keeps its own copy of the line, so deleting the walk it came from
+  // changes nothing; deleting the route leaves its walks without one.
+  `
+  CREATE TABLE route (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'walk' CHECK (source IN ('walk', 'gpx')),
+    path TEXT NOT NULL,
+    distance_m REAL NOT NULL,
+    climb_m REAL,
+    created_at INTEGER NOT NULL
+  );
+  ALTER TABLE cardio_session ADD COLUMN route_id INTEGER REFERENCES route(id) ON DELETE SET NULL;
+  ALTER TABLE cardio_session ADD COLUMN route_relation TEXT CHECK (route_relation IN ('same', 'reverse', 'variant'));
+  ALTER TABLE cardio_session ADD COLUMN route_declined INTEGER NOT NULL DEFAULT 0;
+  CREATE INDEX idx_cardio_session_route ON cardio_session(route_id);
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

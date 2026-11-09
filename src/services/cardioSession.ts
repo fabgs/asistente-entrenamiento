@@ -10,6 +10,7 @@ import {
   startCardioSession,
   type CardioSession,
 } from '@/db/repositories/cardioSessions';
+import { linkToRepeatedRoute } from '@/db/repositories/routes';
 import { activeMs } from '@/domain/gps';
 import { cancelCardioTimer, scheduleCardioTimer } from './cardioTimer';
 import { SPRINT_GPS, startGpsTracking, stopGpsTracking, WALK_GPS, type GpsStart } from './gpsTracker';
@@ -84,6 +85,10 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
   }
   await stopTracking(session);
   await finishCardioSession(db, session.id, now);
+  if (session.tracking === 'gps') {
+    // A walk that repeats a saved route is linked to it by itself; a failure here must not lose the walk.
+    await linkToRepeatedRoute(db, session.id).catch((e) => console.warn('Could not match the walk with a route', e));
+  }
 }
 
 export async function discardCardio(db: Db, session: CardioSession): Promise<void> {

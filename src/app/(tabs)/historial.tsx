@@ -1,19 +1,21 @@
 import { router } from 'expo-router';
 import { useMemo, useState } from 'react';
 import { SectionList, StyleSheet, View } from 'react-native';
-import { RouteThumbnail } from '@/components/RouteMap';
+import { RouteRowThumbnail } from '@/components/RouteMap';
 import {
-  AppText,
   Button,
   Divider,
   EmptyState,
   ExerciseIcon,
   Figure,
+  ListGroup,
   ListRow,
   Loading,
+  ROW_ICON_INSET,
   RowIcon,
   SectionLabel,
   Segmented,
+  SubtitleLines,
   cardioIcon,
 } from '@/components/ui';
 import {
@@ -24,11 +26,12 @@ import {
   type ExerciseOverview,
 } from '@/db/repositories/progress';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
+import { routeCount } from '@/db/repositories/routes';
 import type { SessionSummaryRow } from '@/db/repositories/sessions';
 import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatSpeedKmh, formatTimeOfDay, workoutTitle } from '@/domain/format';
 import { decodeRoute } from '@/domain/gps';
 import type { ExerciseMuscles } from '@/domain/muscles';
-import { capitalize, countOf, formatDayMonth, formatMonth, groupByMonth, splitUnit, thinSegments } from '@/domain/progress';
+import { capitalize, countOf, formatDayMonth, formatMonth, groupByMonth, splitUnit } from '@/domain/progress';
 import { useLoader } from '@/hooks/data';
 import { colors, radius, spacing } from '@/theme';
 
@@ -61,6 +64,7 @@ interface HistoryData {
   exercises: ExerciseOverview[];
   muscles: Map<number, ExerciseMuscles>;
   cardio: CardioEntry[];
+  routes: number;
 }
 
 /** One section per month, newest first, with how many items it holds («12 entrenos»). */
@@ -116,6 +120,7 @@ export default function HistoryScreen() {
       exercises: await exercisesWithHistory(db),
       muscles: await allExerciseMuscles(db),
       cardio: await cardioEntries(db),
+      routes: await routeCount(db),
     }),
   );
 
@@ -147,6 +152,10 @@ export default function HistoryScreen() {
           </View>
         )}
         ItemSeparatorComponent={RowSeparator}
+        ListHeaderComponent={
+          // Mis rutas lives with the walks, from the first one (PLAN.md §6.8).
+          view === 'cardio' && data.cardio.some((c) => c.kind === 'gps') ? <RoutesRow count={data.routes} /> : undefined
+        }
         ListEmptyComponent={
           <View style={styles.emptyBox}>
             <View style={{ flex: 1 }} />
@@ -219,16 +228,27 @@ function ExerciseRow({ exercise, muscles }: { exercise: ExerciseOverview; muscle
   );
 }
 
-const THUMBNAIL_SIZE = 48;
-/** Points of a route a 48 dp thumbnail needs. */
-const THUMBNAIL_POINTS = 100;
+/** The way into Mis rutas, over the months of the cardio. */
+function RoutesRow({ count }: { count: number }) {
+  return (
+    <View style={styles.routes}>
+      <ListGroup inset={ROW_ICON_INSET}>
+        <ListRow
+          title="Mis rutas"
+          subtitle={count === 0 ? 'Ninguna todavía' : undefined}
+          left={<RowIcon name="map-marker-path" />}
+          right={count > 0 ? String(count) : undefined}
+          onPress={() => router.push('/mis-rutas')}
+        />
+      </ListGroup>
+    </View>
+  );
+}
 
 function CardioRow({ entry }: { entry: CardioEntry }) {
   // Decoded once per row, not on every render: a long walk is thousands of points.
-  const thumbnail = useMemo(() => {
-    const segments = decodeRoute(entry.route);
-    return segments.flat().length >= 2 ? thinSegments(segments, THUMBNAIL_POINTS) : null;
-  }, [entry.route]);
+  const segments = useMemo(() => decodeRoute(entry.route), [entry.route]);
+  const thumbnail = segments.flat().length >= 2 ? segments : null;
 
   const day = dayOf(entry.date);
   if (entry.kind === 'check' || entry.sessionId === null) {
@@ -248,10 +268,7 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
       subtitle={entry.startedAt !== null ? `${day} · ${formatTimeOfDay(entry.startedAt)}` : day}
       left={
         thumbnail ? (
-          // Centred on the column of the round icons, so every title starts at the same place.
-          <View style={styles.thumbnail}>
-            <RouteThumbnail segments={thumbnail} size={THUMBNAIL_SIZE} />
-          </View>
+          <RouteRowThumbnail segments={thumbnail} />
         ) : (
           <RowIcon name={cardioIcon(entry.activity, entry.kind)} />
         )
@@ -278,18 +295,6 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
 /** A figure written as text («5,2 km»), split into value and unit for `Figure`. */
 const TextFigure = ({ text, caption }: { text: string; caption: string }) => <Figure {...splitUnit(text)} caption={caption} />;
 
-function SubtitleLines({ lines }: { lines: string[] }) {
-  return (
-    <>
-      {lines.map((line) => (
-        <AppText key={line} variant="secondary" numberOfLines={1}>
-          {line}
-        </AppText>
-      ))}
-    </>
-  );
-}
-
 /** Hairline between rows, starting where the text of the row above starts. */
 function RowSeparator({ leadingItem }: { leadingItem?: Item }) {
   return (
@@ -313,6 +318,6 @@ const styles = StyleSheet.create({
   groupTop: { borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg },
   groupBottom: { borderBottomLeftRadius: radius.lg, borderBottomRightRadius: radius.lg },
   separatorBox: { backgroundColor: colors.card },
-  thumbnail: { width: ROW_ICON_SIZE, alignItems: 'center' },
+  routes: { paddingBottom: spacing.xl },
   emptyBox: { flex: 1 },
 });

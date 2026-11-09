@@ -924,6 +924,19 @@ export function ListRow({
   );
 }
 
+/** A subtitle of several lines, each kept to one line (a route under the facts, the times under the distance). */
+export function SubtitleLines({ lines }: { lines: string[] }) {
+  return (
+    <>
+      {lines.map((line) => (
+        <AppText key={line} variant="secondary" numberOfLines={1}>
+          {line}
+        </AppText>
+      ))}
+    </>
+  );
+}
+
 /** Icon in a 40 dp circle, for the start of a row. */
 export function RowIcon({ name, color = colors.text, tint, size = 24 }: { name: IconName; color?: string; tint?: string; size?: number }) {
   return (

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { getCardioSession, lastTrackPoint, listSprintFixes, listTrackPoints } from '@/db/repositories/cardioSessions';
 import { hintsSeen } from '@/db/repositories/hints';
 import { listPhotos } from '@/db/repositories/photos';
+import { walkRoute } from '@/db/repositories/routes';
 import { getSettings } from '@/db/repositories/settings';
 import { LAP_FIXES_MARGIN_MS, measureSprint, type SprintMeasure } from '@/domain/sprint';
 import { isGpsRecording } from '@/services/gpsTracker';
@@ -17,7 +18,7 @@ export interface SprintLive {
 }
 
 /**
- * A cardio session with its photos and the settings its screens use. While a GPS session is
+ * A cardio session with its photos, its route and the settings its screens use. While a GPS session is
  * recording, its points come too and everything is read again every 3 s: the background task
  * stores the fixes. Sprints in progress are read every second, with each finished sprint measured
  * from its fixes.
@@ -57,6 +58,8 @@ export function useCardioSession(sessionId: number) {
       settings: await getSettings(db),
       hints: await hintsSeen(db),
       photos: (await listPhotos(db, { kind: 'cardio', id: sessionId })).filter(isOnPhone),
+      // A finished walk: its saved route, or the question about the one it seems to repeat.
+      route: session.status === 'finished' && session.tracking === 'gps' ? await walkRoute(db, sessionId) : null,
     };
   });
 

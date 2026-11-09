@@ -7,6 +7,7 @@ import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/
 import { MetricBoard } from '@/components/MetricBoard';
 import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { RouteMap } from '@/components/RouteMap';
+import { openRoute, WalkRouteBlock } from '@/components/Routes';
 import { SprintDetails } from '@/components/Sprint';
 import { askFinishSprints, SprintLive } from '@/components/SprintLive';
 import { TrackChart } from '@/components/TrackChart';
@@ -36,6 +37,7 @@ import {
 import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen, type Hint } from '@/db/repositories/hints';
 import type { Photo, PhotoOwner } from '@/db/repositories/photos';
+import { linkWalk, saveWalkAsRoute, setRouteDeclined, unlinkWalk, type WalkRoute } from '@/db/repositories/routes';
 import { updateSettings, type LivePanel, type Settings } from '@/db/repositories/settings';
 import {
   describePlan,
@@ -48,8 +50,9 @@ import {
   type Phase,
 } from '@/domain/cardioPlan';
 import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
-import { activeMs, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
+import { activeMs, decodeRoute, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
 import { photoPlace, placeFromFix, walkTrackOf } from '@/domain/photos';
+import { defaultRouteName } from '@/domain/routes';
 import { parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
 import { sprintGps } from '@/domain/sprint';
@@ -200,6 +203,32 @@ export default function CardioSessionScreen() {
         { text: 'Cancelar', style: 'cancel' },
       ],
     );
+  // A finished walk with a line can be saved as a route, or taken out of the one it is linked to.
+  const routeLink = data.route?.kind === 'linked' ? data.route : null;
+  const canSaveRoute = isWalk && !inProgress && !routeLink && decodeRoute(session.route).flat().length >= 2;
+  const saveRoute = async () => {
+    const name = await showPrompt('Guardar como ruta', {
+      value: defaultRouteName(session.title, session.distanceM ?? 0),
+      placeholder: 'Nombre de la ruta',
+      maxLength: 40,
+      confirm: 'Guardar',
+    });
+    if (name === null) return;
+    const { routeId, count } = await saveWalkAsRoute(db, session.id, name.trim() || defaultRouteName(session.title, session.distanceM ?? 0));
+    reload();
+    showSnackbar(count > 1 ? `Ruta guardada · la has hecho ${count} veces` : 'Ruta guardada', { label: 'Ver', onPress: () => openRoute(routeId) });
+  };
+  const leaveRoute = async (link: Extract<WalkRoute, { kind: 'linked' }>) => {
+    const was = await unlinkWalk(db, session.id);
+    reload();
+    showSnackbar(`Quitada de «${link.name}»`, {
+      label: 'Deshacer',
+      onPress: async () => {
+        if (was) await linkWalk(db, session.id, was.routeId, was.relation);
+        reload();
+      },
+    });
+  };
   const menu = () => {
     const at = Date.now();
     // «Terminar ahora» once there is something to keep: a sprint done or one running.
@@ -208,8 +237,30 @@ export default function CardioSessionScreen() {
       ...(somethingToKeep
         ? [{ text: 'Terminar ahora', icon: 'flag-checkered' as const, onPress: () => askFinishSprints(session, at, () => finish()) }]
         : []),
+      ...(canSaveRoute ? [{ text: 'Guardar como ruta', icon: 'map-marker-path' as const, onPress: saveRoute }] : []),
+      ...(routeLink ? [{ text: 'Quitar de la ruta', icon: 'link-variant-off' as const, onPress: () => leaveRoute(routeLink) }] : []),
       { text: inProgress ? `Descartar ${what}` : `Borrar ${what}`, icon: 'trash-can-outline', destructive: true, onPress: discard },
     ]);
+  };
+  const answerRoute = {
+    yes: async () => {
+      if (data.route?.kind !== 'question') return;
+      await linkWalk(db, session.id, data.route.routeId, data.route.relation);
+      reload();
+    },
+    no: async () => {
+      if (data.route?.kind !== 'question') return;
+      const { name } = data.route;
+      await setRouteDeclined(db, session.id, true);
+      reload();
+      showSnackbar(`No se enlaza a «${name}»`, {
+        label: 'Deshacer',
+        onPress: async () => {
+          await setRouteDeclined(db, session.id, false);
+          reload();
+        },
+      });
+    },
   };
   const share = () => router.push({ pathname: '/compartir/[tipo]/[id]', params: { tipo: 'cardio', id: String(session.id) } });
 
@@ -273,6 +324,9 @@ export default function CardioSessionScreen() {
           session={session}
           prefs={prefs}
           photos={data.photos}
+          route={
+            data.route ? <WalkRouteBlock key={data.route.kind} info={data.route} onYes={answerRoute.yes} onNo={answerRoute.no} /> : null
+          }
           onAddPhoto={addPhoto}
           onRename={async () => {
             const title = await showPrompt('Título', {
@@ -785,6 +839,7 @@ function FinishedView({
   session,
   prefs,
   photos,
+  route,
   onAddPhoto,
   onRename,
   footer,
@@ -792,6 +847,8 @@ function FinishedView({
   session: CardioSession;
   prefs: WalkPrefs;
   photos: Photo[];
+  /** The walk's saved route or the question about one: between its figures and its map. */
+  route: ReactNode;
   onAddPhoto: () => void;
   onRename: () => void;
   footer?: ReactNode;
@@ -820,6 +877,7 @@ function FinishedView({
             onHero={prefs.onHero}
             onToggleUnit={prefs.onToggleUnit}
           />
+          {route}
           <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} photos={placesOf(photos)}>
             {photoSection}
           </WalkDetails>

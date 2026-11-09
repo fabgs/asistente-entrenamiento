@@ -14,7 +14,7 @@ import {
   RowIcon,
   SectionLabel,
   Segmented,
-  TRACKING_ICON,
+  cardioIcon,
 } from '@/components/ui';
 import {
   cardioEntries,
@@ -236,7 +236,7 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
       <ListRow
         title={entry.name}
         subtitle={`${day} · ${entry.value ?? 'Hecho'}`}
-        left={<RowIcon name="check-circle-outline" color={colors.muted} />}
+        left={<RowIcon name={cardioIcon(entry.activity, 'check')} color={colors.muted} />}
       />
     );
   }
@@ -253,7 +253,7 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
             <RouteThumbnail segments={thumbnail} size={THUMBNAIL_SIZE} />
           </View>
         ) : (
-          <RowIcon name={TRACKING_ICON[entry.kind]} />
+          <RowIcon name={cardioIcon(entry.activity, entry.kind)} />
         )
       }
       right={

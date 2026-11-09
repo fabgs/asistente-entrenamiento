@@ -157,6 +157,66 @@ export function muscleLevel(sets: number): number {
 export const muscleLevels = (sets: MuscleSets): Record<Muscle, number> =>
   Object.fromEntries(MUSCLE_KEYS.map((m) => [m, muscleLevel(sets[m])])) as Record<Muscle, number>;
 
+/**
+ * «Últimos días» (1.4.7): how many days the body map keeps a muscle painted after the last day it
+ * worked. Today is the brightest step and each day takes one off: 3 days ago is the faintest, 4 days
+ * ago has no colour. It says when, never whether it has recovered.
+ */
+export const RECENT_DAYS = 3;
+
+/** Whole calendar days from one local date to another ('YYYY-MM-DD'): Monday to Tuesday is 1, at any hour. */
+export function calendarDaysBetween(from: string, to: string): number {
+  const utc = (iso: string) => {
+    const [y, m, d] = iso.split('-').map(Number);
+    return Date.UTC(y, m - 1, d);
+  };
+  return Math.round((utc(to) - utc(from)) / 86_400_000);
+}
+
+export interface LastWorked {
+  /** The last local date with a work set that has the muscle as primary or secondary. */
+  date: string;
+  /** That day it only worked as a secondary muscle. */
+  secondaryOnly: boolean;
+}
+
+/**
+ * The last day each muscle worked, from the latest date of each muscle in each role (rows with an
+ * unknown muscle are dropped, as everywhere else).
+ */
+export function lastWorkedPerMuscle(rows: readonly { muscle: string; role: string; date: string }[]): Partial<Record<Muscle, LastWorked>> {
+  const result: Partial<Record<Muscle, LastWorked>> = {};
+  for (const muscle of MUSCLE_KEYS) {
+    const primary = rows.filter((r) => r.muscle === muscle && r.role === 'primary').map((r) => r.date).sort().at(-1);
+    const secondary = rows.filter((r) => r.muscle === muscle && r.role === 'secondary').map((r) => r.date).sort().at(-1);
+    const date = [primary, secondary].filter((d): d is string => d !== undefined).sort().at(-1);
+    if (date) result[muscle] = { date, secondaryOnly: primary === undefined || primary < date };
+  }
+  return result;
+}
+
+/** Step of «Últimos días», 0–4: today 4, yesterday 3, 2 days 2, 3 days 1, earlier or never 0. */
+export function recencyLevel(daysAgo: number | null): number {
+  if (daysAgo === null || daysAgo < 0 || daysAgo > RECENT_DAYS) return 0;
+  return RECENT_DAYS + 1 - daysAgo;
+}
+
+export function recencyLevels(last: Partial<Record<Muscle, LastWorked>>, today: string): Record<Muscle, number> {
+  return Object.fromEntries(
+    MUSCLE_KEYS.map((m) => {
+      const worked = last[m];
+      return [m, recencyLevel(worked ? calendarDaysBetween(worked.date, today) : null)];
+    }),
+  ) as Record<Muscle, number>;
+}
+
+/** «Hoy», «Ayer», «Hace 2 días». */
+export function formatDaysAgo(days: number): string {
+  if (days <= 0) return 'Hoy';
+  if (days === 1) return 'Ayer';
+  return `Hace ${days} días`;
+}
+
 /** «6 de 11» against a plan, or «2 series» without one; `unit` adds «series» after the plan too. */
 export function formatSetsOfPlan(done: number, planned: number, unit = false): string {
   const n = (v: number) => formatNumber(v, 1);

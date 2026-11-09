@@ -3,6 +3,7 @@ import { activeMs } from '@/domain/gps';
 import type { RepUnit } from '@/domain/types';
 import type { ExerciseSession } from '@/domain/progress';
 import { decodeLaps, formatSprintResult, lapRows, sprintSummary } from '@/domain/sprint';
+import { exerciseRestAcross, PROGRESS_REST_SESSIONS, type TimedSet } from '@/domain/workoutTimes';
 import { bool, type Db } from '../db';
 import { listFinishedSessions, type SessionSummaryRow } from './sessions';
 import type { WeightChange } from './weightChanges';
@@ -58,6 +59,34 @@ export async function exerciseSessions(db: Db, exerciseId: number): Promise<Exer
   return [...sessions.values()];
 }
 
+/**
+ * The rest between sets of an exercise in its latest timed workouts (1.4.7): every set of those
+ * workouts is read, as a rest ends at the start of whatever set came next.
+ */
+export async function exerciseRest(db: Db, exerciseId: number): Promise<ReturnType<typeof exerciseRestAcross>> {
+  const sessions = await db.getAllAsync<{ id: number }>(
+    `SELECT ws.id FROM workout_session ws
+     WHERE ws.status = 'finished'
+       AND EXISTS (SELECT 1 FROM set_log sl WHERE sl.session_id = ws.id AND sl.exercise_id = ? AND sl.is_warmup = 0
+                   AND sl.started_at IS NOT NULL)
+     ORDER BY ws.started_at DESC LIMIT ?`,
+    exerciseId,
+    // Some may have no rest between sets (one set, or every rest an interruption).
+    PROGRESS_REST_SESSIONS * 2,
+  );
+  const workouts: (TimedSet & { exerciseId: number })[][] = [];
+  for (const { id } of sessions) {
+    const rows = await db.getAllAsync<Omit<TimedSet, 'isWarmup'> & { isWarmup: number; exerciseId: number }>(
+      `SELECT slot_id AS slotId, exercise_id AS exerciseId, is_warmup AS isWarmup, reps, started_at AS startedAt,
+              completed_at AS completedAt, rest_seconds AS restSeconds
+       FROM set_log WHERE session_id = ? ORDER BY completed_at, id`,
+      id,
+    );
+    workouts.push(rows.map((r) => ({ ...r, isWarmup: bool(r.isWarmup) })));
+  }
+  return exerciseRestAcross(workouts, (set) => set.exerciseId === exerciseId);
+}
+
 export interface ExerciseOverview {
   id: number;
   name: string;
@@ -106,6 +135,8 @@ export interface CardioEntry {
   date: string;
   /** The title of the session if it has one, otherwise the activity name. */
   name: string;
+  /** The name of the activity, which tells its sport (and icon) when the title is the user's. */
+  activity: string;
   kind: CardioKind;
   /** Short result, as on Hoy ("5,14 km · 59 min"); null for an activity only checked off. */
   value: string | null;
@@ -163,6 +194,7 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
       key: `l${c.id}`,
       date: c.date,
       name: c.name,
+      activity: c.name,
       kind: 'check',
       value: c.value,
       sessionId: null,
@@ -184,6 +216,7 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
       key: `s${s.id}`,
       date: s.date,
       name: s.title ?? s.name,
+      activity: s.name,
       kind: s.tracking,
       value: laps ? formatSprintResult(laps) : formatCardioResult(s.distance_m, active),
       sessionId: s.id,

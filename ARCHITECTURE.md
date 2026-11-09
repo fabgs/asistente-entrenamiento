@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.6** (`versionCode` 18, [app.json](app.json)) |
-| Esquema de la BD | **10** (`PRAGMA user_version`, 10 migraciones) |
-| Revisado | 2026-11-06, versión 1.4.6 (series de tiempo, importadas, ejercicios archivados, ejercicio suelto desde el catálogo) |
+| Versión de la app | **1.4.7** (`versionCode` 19, [app.json](app.json)) |
+| Esquema de la BD | **11** (`PRAGMA user_version`, 11 migraciones) |
+| Revisado | 2026-11-09, versión 1.4.7 (récords, calentamiento y tiempos, silueta por días, zoom en las fotos, icono del cardio por deporte) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -130,17 +130,18 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 | Fichero | Tablas | Funciones principales |
 |---|---|---|
-| [routines.ts](src/db/repositories/routines.ts) | `routine`, `routine_weekday`, `routine_slot` | `listRoutines`, `listSlots`, `createRoutine`, `renameRoutine`, `setRoutineWeekdays`, `setRoutineOnWeekday`, `archiveRoutine`, `addSlot`, `updateSlotPrescription`, `archiveSlot`, `moveSlot`, `looseSlotFor` (la ficha de un ejercicio suelto; los que no están en ninguna rutina, en la oculta `LOOSE_ROUTINE`) |
-| [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn` |
+| [routines.ts](src/db/repositories/routines.ts) | `routine`, `routine_weekday`, `routine_slot` | `listRoutines`, `listSlots`, `createRoutine`, `renameRoutine`, `setRoutineWarmup`, `setRoutineWeekdays`, `setRoutineOnWeekday`, `archiveRoutine`, `addSlot`, `updateSlotPrescription`, `archiveSlot`, `moveSlot`, `looseSlotFor` (la ficha de un ejercicio suelto; los que no están en ninguna rutina, en la oculta `LOOSE_ROUTINE`) |
+| [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession` (con calentamiento si la rutina lo tiene), `endWarmup`, `endRest`, `openSlot` (marcan dónde empieza cada serie), `isWarmingUp`, `lastWarmupOf`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn` |
 | [weightChanges.ts](src/db/repositories/weightChanges.ts) | `weight_change`, `routine_slot.weight_kg` | `listOpenChanges`, `createRecommendation`, `applyChange`, `dismissChange`, `undoChange`, `setSlotWeightManually`, `expireOpenChanges` |
 | [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise`, `listArchivedExercises`, `isExerciseArchived`, `restoreExercise` |
-| [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek`, `plannedWeekSets` |
-| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
+| [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek` (también el último día de cada músculo, `lastWorkedDates`), `plannedWeekSets` |
+| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio`, `cardioLogOn`, `setCardioDone`, `addCardio`, `updateCardio`, `archiveCardio`, `unarchiveCardio` |
 | [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession`, `addTrackPoints`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
 | [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
+| [records.ts](src/db/repositories/records.ts) | lecturas | `loadRecords` (totales, por año, mejor serie de cada ejercicio, tiempos y caminatas), `workoutCounts` (la fila del Perfil) |
 | [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`) |
 | [admin.ts](src/db/repositories/admin.ts) | `app_meta` (`admin`) | `getAdminOptions` (la primera vez, sí si ya hay copia en GitHub o modo pruebas), `setAdminOptions` |
 
@@ -157,7 +158,11 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [nutrition.ts](src/domain/nutrition.ts) | Edad, TMB, gasto, objetivos, macros, desviación (PLAN §4–5) |
 | [bodyProfile.ts](src/domain/bodyProfile.ts) | Objetivo Perder/Mantener/Ganar ↔ `deficit_kcal`, niveles de actividad, qué falta del perfil |
 | [schedule.ts](src/domain/schedule.ts) | Días ISO, fechas locales, `buildDailyMessage`, `isoToExpoWeekday`, frase de ánimo |
-| [muscles.ts](src/domain/muscles.ts) | 18 músculos, series por músculo (1 / 0,5), niveles, `CATALOG_MUSCLES`, búsqueda por músculo, patrón de movimiento |
+| [muscles.ts](src/domain/muscles.ts) | 18 músculos, series por músculo (1 / 0,5), niveles, `CATALOG_MUSCLES`, búsqueda por músculo, patrón de movimiento; «Últimos días»: `lastWorkedPerMuscle`, `recencyLevel`, `calendarDaysBetween`, `formatDaysAgo` |
+| [workoutTimes.ts](src/domain/workoutTimes.ts) | Tiempos del entreno: serie, descanso real (`restsOf`), atípicos, medianas frente al plan (`restStats`, `sessionTimes`, `exerciseTimes`, `exerciseRestAcross`), duración de una rutina (`workoutDuration`) |
+| [records.ts](src/domain/records.ts) | Récords: mejor serie de un ejercicio en su unidad (`exerciseBest`, `recordReading`), entrenos por semana de un año, caminatas por actividad (`walkRecords`) |
+| [cardioSport.ts](src/domain/cardioSport.ts) | El deporte de una actividad de cardio por su nombre, para su icono (`cardioSport`) |
+| [zoom.ts](src/domain/zoom.ts) | Geometría del zoom de las fotos (worklets): encaje, límites, pellizco sobre los dedos, página tras deslizar |
 | [progress.ts](src/domain/progress.ts) | Volumen, récords, 1RM estimado (Epley, hasta 12 reps), escalas de ejes, agrupar por meses |
 | [cardioPlan.ts](src/domain/cardioPlan.ts) | Planes LISS/MISS/HIIT → fases y alarmas; `sharesLockCountdown` |
 | [cardioPool.ts](src/domain/cardioPool.ts) | «Hacer otro cardio»: agrupar y filtrar el cardio de otros días |
@@ -211,8 +216,9 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura); MapLibre en un WebView |
 | [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo con la ruta en el mismo sitio en los tres primeros (en Mapa, zoom entre niveles con `fitViewExact`); la marca y «© OpenStreetMap» en la última línea |
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
+| [PhotoPager.tsx](src/components/PhotoPager.tsx) | Visor de fotos con páginas y zoom (pellizco, doble toque, arrastre) en un solo juego de gestos de `react-native-gesture-handler` 3 y Reanimated |
 | [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Tabla y detalle de sprints; pantalla en directo |
-| [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Esta semana» del Perfil; hoja de músculos |
+| [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda; hoja de músculos |
 | [WeightSheet.tsx](src/components/WeightSheet.tsx) | Hoja de un pesaje |
 | [DataSettings.tsx](src/components/DataSettings.tsx) | Secciones de Ajustes: copia de seguridad y modo pruebas |
 | [FormRow.tsx](src/components/FormRow.tsx) · [SearchField.tsx](src/components/SearchField.tsx) | Fila de formulario; buscador |
@@ -225,7 +231,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 ### 2.1 Rutas
 
-29 ficheros en `src/app/`: 2 layouts, 5 pestañas y 22 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
+30 ficheros en `src/app/`: 2 layouts, 5 pestañas y 23 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
 
 | Fichero | URL y parámetros | Título | Para qué |
 |---|---|---|---|
@@ -235,7 +241,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [(tabs)/rutinas.tsx](src/app/(tabs)/rutinas.tsx) | `/rutinas` | Rutinas | Semana, rutinas con pesos y sugerencias, accesos a editores |
 | [(tabs)/historial.tsx](src/app/(tabs)/historial.tsx) | `/historial` | Historial | Entrenos · Ejercicios · Cardio, por meses |
 | [(tabs)/dieta.tsx](src/app/(tabs)/dieta.tsx) | `/dieta` | Dieta | Plan semanal y totales frente a objetivos |
-| [(tabs)/perfil.tsx](src/app/(tabs)/perfil.tsx) | `/perfil` | Perfil | Esta semana (músculos), peso, objetivos, mis datos |
+| [(tabs)/perfil.tsx](src/app/(tabs)/perfil.tsx) | `/perfil` | Perfil | Músculos (esta semana o últimos días), Récords, peso, objetivos, mis datos |
 | [workout/[sessionId].tsx](src/app/workout/[sessionId].tsx) | `/workout/:sessionId` | Nombre de la rutina o «Ejercicio suelto» («Entrenando» mientras carga) | Modo entrenamiento: lista · serie · descanso |
 | [workout/resumen/[sessionId].tsx](src/app/workout/resumen/[sessionId].tsx) | `/workout/resumen/:sessionId` · `?nuevo=1` recién terminado | Vacío (título editable en la página) o «Corregir series» | Resumen, sugerencias, corregir o borrar |
 | [ejercicio-suelto.tsx](src/app/ejercicio-suelto.tsx) | `/ejercicio-suelto` · `?sesion=:id` para añadir a una sesión suelta | «Ejercicio suelto» o «Añadir otro ejercicio» | Elegir un ejercicio del catálogo |
@@ -243,7 +249,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [cardio-sesion/[id].tsx](src/app/cardio-sesion/[id].tsx) | `/cardio-sesion/:cardioSessionId` | En directo: nombre o píldora del GPS; terminada: vacío | Caminata, Fases o Sprints en directo, o su detalle |
 | [ruta/[id].tsx](src/app/ruta/[id].tsx) | `/ruta/:cardioSessionId` · `?modo=3d` | Sin cabecera | Mapa a pantalla completa con gráfica |
 | [compartir/[tipo]/[id].tsx](src/app/compartir/[tipo]/[id].tsx) | `/compartir/cardio/:id` · `/compartir/entreno/:id` | Compartir | Imagen para compartir (historia o cuadrado) |
-| [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página |
+| [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página, con zoom |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
 | [slot/[id].tsx](src/app/slot/[id].tsx) | `/slot/:slotId` | Nombre del ejercicio | Ejercicio de la rutina: peso y prescripción |
 | [ejercicios.tsx](src/app/ejercicios.tsx) | `/ejercicios` · `?pickFor=:routineId` · `?sinMusculos=1,2,3` · `?archivados=1` | «Ejercicios», «Añadir ejercicio», «Sin músculos» o «Archivados» | Catálogo, selector para una rutina, filtro de ejercicios sin músculos o los archivados |
@@ -251,6 +257,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [cardio.tsx](src/app/cardio.tsx) | `/cardio` · `?dia=1..7` | «Cardio semanal» o el nombre del día | Cardio de la semana, o editor de un día (sus rutinas y su cardio) |
 | [cardio/actividad/[id].tsx](src/app/cardio/actividad/[id].tsx) | `/cardio/actividad/:id` · `/cardio/actividad/nueva?dia=N` | «Editar actividad» o «Nueva actividad» | Editor de una actividad de cardio |
 | [musculos.tsx](src/app/musculos.tsx) | `/musculos` | Músculos | Series por músculo de la semana frente al plan |
+| [records.tsx](src/app/records.tsx) | `/records` · `?otros=1` | «Récords» u «Otros ejercicios» | Totales, por año, mejor serie de cada ejercicio, tiempos y caminatas |
 | [objetivos.tsx](src/app/objetivos.tsx) | `/objetivos` | Objetivos del día | Calorías y macros, objetivo, actividad y proteína, grasa y agua por kilo |
 | [pesos.tsx](src/app/pesos.tsx) | `/pesos` | Pesajes | Todos los pesajes, por meses, de 30 en 30 |
 | [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
@@ -295,31 +302,32 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Perfil · `/perfil`
 - **Llega desde**: pestaña; «Completa tu perfil» de Hoy, Dieta y Objetivos.
-- **Lleva a**: engranaje → `/ajustes`; Esta semana: «Sin rutinas todavía» → `/rutinas` (`navigate`), «N ejercicios sin músculos» → `/ejercicio/:id` (si es uno) o `/ejercicios?sinMusculos=…`, «Series por músculo» → `/musculos`; «Todos los pesajes» (solo con más de 3) → `/pesos`; «Objetivos del día» → `/objetivos`.
-- **Capas**: tocar la silueta muestra la lectura del músculo; `WeightSheet` («Registrar peso» o tocar un pesaje: guardar o borrar con «Deshacer», nunca el único); fecha de nacimiento con el calendario nativo; altura y sexo guardan al momento.
+- **Lleva a**: engranaje → `/ajustes`; Músculos: «Sin rutinas todavía» → `/rutinas` (`navigate`), «N ejercicios sin músculos» → `/ejercicio/:id` (si es uno) o `/ejercicios?sinMusculos=…`, «Series por músculo» → `/musculos`; «Récords» → `/records`; «Todos los pesajes» (solo con más de 3) → `/pesos`; «Objetivos del día» → `/objetivos`.
+- **Capas**: segmentado «Esta semana · Últimos días» (se guarda en `settings.muscle_map_mode`); tocar la silueta muestra la lectura del músculo; `WeightSheet` («Registrar peso» o tocar un pesaje: guardar o borrar con «Deshacer», nunca el único); fecha de nacimiento con el calendario nativo; altura y sexo guardan al momento.
 
 #### Entrenando · `/workout/:sessionId`
 - **Llega desde**: Hoy («Empezar rutina», «Continuar entreno», hoja «Entrenar otra rutina», «Ver entreno» de los diálogos); `/ejercicio-suelto` (⇄); notificación «¡Descanso terminado!» (`router.navigate`, no apila otra copia).
-- **Lleva a** (tres vistas en la misma ruta, según `rest_ends_at` y `current_slot_id`):
+- **Lleva a** (cuatro vistas en la misma ruta, según `warmup_started_at`/`warmup_ended_at`, `rest_ends_at` y `current_slot_id`):
+  - **Calentamiento** (rutina con `warmup`, 1.4.7): «Empezar · <ejercicio>» → `endWarmup` → vista serie; ⋮ «Descartar entreno» ⤒.
   - **Lista**: fila de ejercicio → vista serie (o, si se está descansando, lo marca como siguiente); «Añadir ejercicio a la rutina» (rutina) → `/ejercicios?pickFor=:routineId`; «Añadir otro ejercicio» (suelto, fuera del descanso) → `/ejercicio-suelto?sesion=:id`; «Terminar…» ⇄ `/workout/resumen/:id?nuevo=1` (⤒ si era una sesión suelta vacía); ⋮ «Descartar entreno» ⤒; mini barra del descanso → vista descanso.
   - **Serie**: ⋮ «Editar ejercicio de la rutina» → `/slot/:id` (además «Saltar ejercicio» y «Añadir aproximación», sin navegar).
-  - **Descanso**: sin navegación propia; al acabar, vista serie o lista.
+  - **Descanso**: sin navegación propia; al acabar (`endRest`, que marca el inicio de la serie siguiente), vista serie o lista.
   - Si la sesión ya no está `in_progress` → `<Redirect>` a `/workout/resumen/:id`.
-- **Atrás**: desde serie o descanso vuelve a la lista (`usePreventRemove`); desde la lista sale. En una sesión suelta sin series, Atrás la descarta.
+- **Atrás**: desde serie, descanso o calentamiento vuelve a la lista (`usePreventRemove`; con el calentamiento, la lista muestra abajo `WarmupBar` y elegir un ejercicio lo pone como siguiente y vuelve al calentamiento); desde la lista sale. En una sesión suelta sin series, Atrás la descarta.
 - **Capas**: hojas de corrección de serie, aproximación y «Cambiar peso»/«Cambiar lastre»; diálogos «¿Terminar ya?», «¿Descartar el entreno?»; Snackbar con «Deshacer» (serie borrada, ejercicio saltado).
 
 #### Resumen · `/workout/resumen/:sessionId`
 - **Llega desde**: fin del entreno (⇄, con `?nuevo=1`); Hoy (fila de Hecho, «Terminar» del entreno viejo); Historial · Entrenos; Progreso (fila de sesión); `<Redirect>` del entreno terminado.
 - **Lleva a**: compartir → `/compartir/entreno/:id`; nombre de un ejercicio → `/progreso/:exerciseId`; una foto → `/foto/:id`; con `?nuevo=1`: «Compartir» y «Listo» ⤒; ⋮ «Borrar entreno» ↩ (o ⤒, y borra sus fotos).
-- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; «Músculos» (1.4.5): la silueta del entreno (`SessionMusclesSection`, `workSetsOfSession`) y, al tocar una zona, sus series; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
+- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; «Tiempos» (1.4.7, solo con datos): calentamiento y descanso entre series frente al plan (`sessionTimes`), y en cada tarjeta «12 min · descansos 2:41 · 3:15»; «Músculos» (1.4.5): la silueta del entreno (`SessionMusclesSection`, `workSetsOfSession`) y, al tocar una zona, sus series; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
 
 #### Ejercicio suelto · `/ejercicio-suelto`
 - **Llega desde**: Hoy «Hacer un ejercicio suelto»; lista de un entreno suelto «Añadir otro ejercicio» (`?sesion=`).
 - **Lleva a**: elegir (todo el catálogo, por orden alfabético; `looseSlotFor` da la ficha) → ⇄ `/workout/:nuevaSesion`; con `?sesion=` → `addLooseExercise` y ↩; si ya hay otro entreno, diálogo «Ver entreno» ⇄ `/workout/:activo`.
 
 #### Progreso · `/progreso/:exerciseId`
-- **Llega desde**: Historial · Ejercicios; Resumen (nombre del ejercicio); «Últimas sesiones» del editor del slot y del ejercicio del catálogo.
-- **Lleva a**: fila de sesión → `/workout/resumen/:sessionId`. Segmentado Peso · Reps · 1RM (se recuerda; 1RM con dos sesiones que lo estimen) y el récord «1RM estimado» encima de los otros.
+- **Llega desde**: Historial · Ejercicios; Resumen (nombre del ejercicio); «Últimas sesiones» del editor del slot y del ejercicio del catálogo; Récords (fila de un ejercicio).
+- **Lleva a**: fila de sesión → `/workout/resumen/:sessionId`. Segmentado Peso · Reps · 1RM (se recuerda; 1RM con dos sesiones que lo estimen) y el récord «1RM estimado» encima de los otros; con dos sesiones cronometradas, «Descanso entre series» (`exerciseRest`).
 
 #### Cardio (sesión) · `/cardio-sesion/:id`
 - **Llega desde**: Hoy («Iniciar», «Ver», fila «En curso», fila de cardio hecho, hoja «Hacer otro cardio», diálogos «Ver cardio/sprints» y «Seguir sin GPS»); Historial · Cardio; alarma de fase (`cardio-<id>-*`, `navigate`); Ajustes · Modo pruebas «Añadir caminata/sprints de prueba» (solo desarrollo).
@@ -342,12 +350,12 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Foto · `/foto/:id`
 - **Llega desde**: la tira de fotos del detalle de una sesión de cardio y del Resumen.
-- **Lleva a**: deslizar pasa a las otras fotos de la misma sesión; ⋮ «Quitar foto» → «¿Quitar esta foto?» → quita la fila y su fichero; si era la última, ↩.
+- **Lleva a**: deslizar pasa a las otras fotos de la misma sesión (a su tamaño; pellizcar o el doble toque amplían y, ampliada, se arrastra: `PhotoPager`); ⋮ «Quitar foto» → «¿Quitar esta foto?» → quita la fila y su fichero; si era la última, ↩.
 
 #### Editar rutina · `/rutina/:id`
 - **Llega desde**: Rutinas («+» tras el diálogo, lápiz de la tarjeta).
 - **Lleva a**: fila de ejercicio → `/slot/:id`; «Añadir ejercicio» → `/ejercicios?pickFor=:id`; ⋮ «Borrar rutina» ↩.
-- **Capas**: tocar el título → diálogo «Nombre de la rutina»; días (`DayPicker`) y «Ordenar» guardan al momento.
+- **Capas**: tocar el título → diálogo «Nombre de la rutina»; días (`DayPicker`), «Calentamiento al empezar» (`setRoutineWarmup`) y «Ordenar» guardan al momento.
 
 #### Ejercicio de la rutina · `/slot/:id`
 - **Llega desde**: Rutinas (ejercicio de una tarjeta desplegada); Editar rutina; ⋮ de la serie en el entreno; `/ejercicios?pickFor` (⇄, tras añadir); `/ejercicio/nuevo?pickFor` (⇄, tras crear).
@@ -374,6 +382,11 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Músculos · `/musculos`
 - **Llega desde**: Rutinas y Perfil («Series por músculo»).
 - **Lleva a**: «N ejercicios sin músculos» → `/ejercicio/:id` o `/ejercicios?sinMusculos=…`; un músculo → hoja con los ejercicios que suman → `/ejercicio/:id`.
+
+#### Récords · `/records`
+- **Llega desde**: Perfil (fila «Récords»); la fila «Otros ejercicios» abre `/records?otros=1`.
+- **Lleva a**: fila de un ejercicio → `/progreso/:exerciseId`; «Otros ejercicios» → `/records?otros=1`; «Más larga» y «Mejor km» de una caminata → `/cardio-sesion/:id`.
+- **Capas**: ninguna. Totales, por año, «Tus rutinas», «Tiempos» y un bloque por actividad con GPS; los vacíos no se pintan (`loadRecords`).
 
 #### Objetivos del día · `/objetivos`
 - **Llega desde**: Perfil («Objetivos del día»); ⋮ de Dieta.
@@ -443,6 +456,7 @@ flowchart LR
     ACT["Actividad"]
     MUS["Músculos"]
   end
+  REC["Récords<br/>/records"]
   subgraph BOD["Cuerpo y dieta"]
     OBJ["Objetivos del día"]
     PES["Pesajes"]
@@ -499,6 +513,9 @@ flowchart LR
   PER --> EJ
   PER --> EJS
   PER --> RUT
+  PER --> REC
+  REC --> PRO
+  REC --> CS
   DIE --> OBJ
   DIE --> ALS
   DIE --> PER
@@ -517,7 +534,7 @@ flowchart LR
 ```mermaid
 flowchart TD
   HOY["Hoy"]
-  WO["Entrenando<br/>/workout/:id<br/>lista · serie · descanso"]
+  WO["Entrenando<br/>/workout/:id<br/>calentamiento · lista · serie · descanso"]
   RES["Resumen<br/>/workout/resumen/:id"]
   SUE["Ejercicio suelto<br/>/ejercicio-suelto"]
   EJS["Ejercicios<br/>?pickFor=:routineId"]
@@ -637,12 +654,17 @@ flowchart TD
   CIF["Cifrar las copias<br/>/cifrado"]
   DEV["Componentes<br/>/dev/componentes"]
   RUT["Rutinas"]
+  REC["Récords<br/>/records"]
+  PRO["Progreso<br/>/progreso/:id"]
   HOY -->|"Completa tu perfil"| PER
   HOY -->|"etiqueta Pruebas"| AJ
   PER -->|"engranaje"| AJ
   PER -->|"Objetivos del día"| OBJ
   PER -->|"Todos los pesajes (más de 3)"| PES
   PER -->|"Sin rutinas todavía"| RUT
+  PER -->|"Récords"| REC
+  REC -->|"Otros ejercicios ?otros=1"| REC
+  REC -->|"fila de un ejercicio"| PRO
   DIE -->|"⋮ Objetivos del día"| OBJ
   DIE -->|"⋮ Catálogo de alimentos"| ALS
   DIE -->|"Añadir alimento ?pickDay&pickMeal"| ALS
@@ -746,6 +768,7 @@ erDiagram
     TEXT distance_unit "km o m"
     TEXT cardio_chart "pace speed altitude"
     TEXT cardio_live_panel "map chart splits"
+    TEXT muscle_map_mode "week o days"
   }
   app_meta {
     TEXT key PK
@@ -776,6 +799,7 @@ erDiagram
     TEXT name
     INTEGER position
     INTEGER archived
+    INTEGER warmup "calentamiento al empezar"
   }
   routine_weekday {
     INTEGER routine_id PK, FK
@@ -816,6 +840,9 @@ erDiagram
     INTEGER current_slot_id "sin FK"
     TEXT skipped_slot_ids "JSON"
     TEXT title
+    INTEGER warmup_started_at "NULL = sin calentamiento"
+    INTEGER warmup_ended_at "NULL = calentando"
+    INTEGER set_started_at "serie en curso"
   }
   set_log {
     INTEGER id PK
@@ -828,6 +855,8 @@ erDiagram
     INTEGER is_extra
     INTEGER completed_at
     INTEGER is_warmup
+    INTEGER started_at "NULL antes de la 1.4.7"
+    INTEGER rest_seconds "descanso previsto"
   }
   weight_change {
     INTEGER id PK
@@ -937,8 +966,8 @@ erDiagram
 | `exercise_muscle` | Músculos principales y secundarios de cada ejercicio | Un músculo es principal o secundario, no ambos. Claves desconocidas se ignoran al leer. |
 | `routine` / `routine_weekday` | Rutinas y en qué días tocan | Archivar una rutina borra sus días. Dos rutinas archivadas guardan fichas que no son de ninguna rutina: «Ejercicios sueltos» (`LOOSE_ROUTINE`, las de los ejercicios sueltos que no están en ninguna, 1.4.6) y, en los datos del usuario, «Notas antiguas» (las sesiones importadas de sus notas, manuales y al fallo). Nada las muestra. |
 | `routine_slot` | Un ejercicio dentro de una rutina con su prescripción | **El peso actual vive aquí**; solo cambia al aplicar una sugerencia o a mano. |
-| `workout_session` | Un entreno | `routine_id` NULL = sesión suelta (sus ejercicios salen de `set_log.slot_id` y `current_slot_id`). `rest_ends_at`, `current_slot_id` y `skipped_slot_ids` guardan el estado en curso. `imported` = vino del Excel. Descartar **borra** la fila (el estado `abandoned` existe en el tipo pero no se escribe). |
-| `set_log` | Cada serie | `weight_kg` copia el peso del slot al registrar (el historial no cambia si el slot sube). `is_warmup = 1` = aproximación: no cuenta para series, volumen, récords ni progresión. |
+| `workout_session` | Un entreno | `routine_id` NULL = sesión suelta (sus ejercicios salen de `set_log.slot_id` y `current_slot_id`). `rest_ends_at`, `current_slot_id` y `skipped_slot_ids` guardan el estado en curso. `imported` = vino del Excel. Descartar **borra** la fila (el estado `abandoned` existe en el tipo pero no se escribe). `warmup_started_at`/`warmup_ended_at` (calentamiento) y `set_started_at` (inicio de la serie en curso, null durante el descanso), desde la 1.4.7. |
+| `set_log` | Cada serie | `weight_kg` copia el peso del slot al registrar (el historial no cambia si el slot sube). `is_warmup = 1` = aproximación: no cuenta para series, volumen, récords ni progresión. `started_at` (inicio) y `rest_seconds` (descanso previsto entonces) cronometran series y descansos desde la 1.4.7 (`workoutTimes.ts`). |
 | `weight_change` | Sugerencias y cambios de peso | Abiertas = `pending` + `dismissed`. Como mucho una abierta por slot. |
 | `cardio_activity` | Cardio de la semana, por día | `plan`: JSON de Fases (`liss`/`miss`/`hiit`) o de sprints (`{kind:'sprint', sprints, restSec}`). |
 | `cardio_log` | Cardio hecho un día | `UNIQUE(date, activity_id)`; desmarcar pone `done = 0`. Con `session_id` si se grabó. |
@@ -965,6 +994,7 @@ erDiagram
 | 8 | 1.3.4 | `cardio_session.laps` y `lap_fixes`, `cardio_point.received_at`; `SPRINT_TRACKING_DEFAULTS` (Fases HIIT con «sprint» en el nombre → Sprints 6 × 1:30) |
 | 9 | 1.4.0 | Tabla `exercise_muscle` y `EXERCISE_MUSCLE_DEFAULTS` (los 22 del catálogo, por nombre, sin tocar los que ya tengan) |
 | 10 | 1.4.3 | Tabla `photo` y sus dos índices |
+| 11 | 1.4.7 | `routine.warmup`; `workout_session.warmup_started_at`, `warmup_ended_at` y `set_started_at`; `set_log.started_at` y `rest_seconds`; `settings.muscle_map_mode` |
 
 ### 4.5 Cifrado de la base (SQLCipher)
 
@@ -1046,7 +1076,9 @@ sequenceDiagram
   W->>W: replace /workout/resumen/:id?nuevo=1
 ```
 
-1. **Empezar** (Hoy, `start`): si hay otro entreno activo → diálogo «Hay un entreno en curso»; si hay sprints o Fases en curso (`sharesLockCountdown`) → diálogo; si no, `startSession` (fila `in_progress`) → `openNextSet` (`current_slot_id` = `slotToOpen`) → `/workout/:id`.
+1. **Empezar** (Hoy, `start`): si hay otro entreno activo → diálogo «Hay un entreno en curso»; si hay sprints o Fases en curso (`sharesLockCountdown`) → diálogo; si no, `startSession` (fila `in_progress`; con `routine.warmup`, `warmup_started_at` = inicio, y si no, `set_started_at` = inicio) → `openNextSet` (`current_slot_id` = `slotToOpen`) → `/workout/:id`.
+   - **Calentamiento** (1.4.7): mientras `warmup_ended_at` es NULL, la pantalla muestra `WarmupView` (cronómetro desde `warmup_started_at`, «La última vez» con `lastWarmupOf` y lo siguiente); «Empezar · …» → `endWarmup` (fin del calentamiento, `set_started_at` = ahora, `current_slot_id`) → vista serie. La notificación dice «Calentamiento · Siguiente: …».
+   - **Tiempos** (1.4.7): `logSet` y `logWarmupSet` copian `set_started_at` en `set_log.started_at` (y `logSet`, el descanso previsto en `rest_seconds`); después `logSet` lo deja en NULL (empieza el descanso) y `logWarmupSet` lo pone a ahora. `endRest` y `endWarmup` lo ponen a ahora y `openSlot`, si era NULL. El resumen, el progreso y Récords lo leen con `workoutTimes.ts`.
 2. **Pantalla**: carga sesión, series, slots (`sessionSlots`), reps y aproximaciones de la última vez, ajustes y sugerencias abiertas. Cada recarga llama a `showWorkoutInProgress` (notificación fija). Pantalla encendida si `keep_awake`.
 3. **Serie** (`SetView`): stepper de reps precargado; «Serie hecha» → `logSet` + háptico → `nextStep`. Si era la última de todo, sin descanso: `current_slot_id = NULL` y la lista muestra «Rutina completada». Si no, `scheduleRestEnd` y `rest_ends_at` + `rest_notification_id`.
    - Antes de la primera serie, sugerencia pendiente como botón ancho (`applyChange` / `undoChange`); después, línea discreta.
@@ -1096,7 +1128,7 @@ sequenceDiagram
 - **Alarma**: `scheduleRestEnd` cancela la anterior y programa `rest-<sesión>` con `delivery: 'alarmClock'` (→ `AlarmManager.setAlarmClock`, exenta de Doze), sonido `rest_end.wav`, vibración y `data.url`. Con la app delante, el handler la muestra y suena igual; además la pantalla vibra al llegar a 0.
 - **Cuenta atrás visible**: `RestTimerService` es un servicio en primer plano (`specialUse`) con una sola notificación (id 7341): cuenta atrás con `setChronometerCountDown`, `setTimeoutAfter`, pública en bloqueo, coloreada o *Live Update* en Android 16. Al llegar a 0 o con `stop`, vuelve a la del entreno (o se para si no hay entreno).
 - **Burbuja**: si el ajuste está activo y hay permiso «Mostrar sobre otras apps», la muestra solo con la app en segundo plano (`OnActivityEntersBackground`); arrastrable, recuerda la posición, tocarla abre la app.
-- **«Entreno en curso»**: título de la sesión o de la rutina, texto `inProgressText` («Serie 2 de 3 · Remo con barra · 37,5 kg» o «4 de 19 series») y tiempo desde el inicio. La quitan terminar, descartar, `resetNotifications` (reiniciar o restaurar datos).
+- **«Entreno en curso»**: título de la sesión o de la rutina, texto `inProgressText` («Serie 2 de 3 · Remo con barra · 37,5 kg», «4 de 19 series» o, calentando, «Calentamiento · Siguiente: Remo con barra · 37,5 kg») y tiempo desde el inicio. La quitan terminar, descartar, `resetNotifications` (reiniciar o restaurar datos).
 
 ### 5.4 Caminata con GPS
 
@@ -1178,10 +1210,12 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 4. ⋮ «Copiar el <día> a…» → hoja de días → `copyDietDay` (reemplaza esos días) con «Deshacer» (`restoreDietDays`).
 5. Catálogo: búsqueda sin tildes, grupos por inicial; editor con macros por 100 g (no pueden sumar más de 100 g), kcal calculadas, nombre único; borrar archiva.
 
-### 5.10 Perfil, músculos de la semana y objetivos
+### 5.10 Perfil, músculos, récords y objetivos
 
 - **Esta semana** (`loadMuscleWeek`): series de trabajo de entrenos terminados del lunes a hoy (sin aproximaciones ni series sin reps) y el plan (`plannedWeekSets`: series de cada slot activo × días de su rutina). Cada serie suma 1 a cada músculo principal y 0,5 a cada secundario. La silueta (`BodyMap`, del sexo del perfil) se pinta por niveles (`muscleLevel`: menos de 3, 6, 10, 10 o más). Ejercicios sin músculos → fila ámbar.
+- **Últimos días** (1.4.7): el mismo `loadMuscleWeek` trae el último día de cada músculo como principal o secundario (`lastWorkedDates` → `lastWorkedPerMuscle`) y el del último entreno; la silueta usa `recencyLevels` (hoy 4 … hace 3 días 1, después nada). El modo se guarda en `settings.muscle_map_mode`.
 - **Músculos** (`/musculos`): barra por músculo frente al plan con la franja de 10 a 20; la hoja de un músculo lista los ejercicios que suman.
+- **Récords** (`/records`, 1.4.7): `loadRecords` lee todas las series de trabajo de entrenos terminados (con la unidad de su slot) y agrupa en JS: totales, por año (`workoutsPerWeek`), la mejor serie de cada ejercicio de las rutinas activas en su orden y de los demás (`exerciseBest` con `computeRecords`), los tiempos (duración mediana de cada rutina, calentamiento y descanso entre series) y las caminatas por actividad (`cardioKey`, `walkRecords` con `kmSplits`). La fila del Perfil usa `workoutCounts`.
 - **Peso**: `WeightSheet` → `logWeight` (uno por fecha) o `deleteWeight` (nunca el único) con «Deshacer»; la gráfica usa `LineChart`; `/pesos` pagina con `listWeightsPage`.
 - **Mis datos**: fecha de nacimiento (calendario nativo), altura y sexo → `updateProfile` al momento.
 - **Objetivos** (`/objetivos`): objetivo con signo en `deficit_kcal`, actividad (`activity_factor`) y proteína, grasa y agua por kilo → `updateProfile`; recalcula TMB, gasto, IMC, calorías y macros en la misma pantalla (`computeTargets`: hidratos ≥ 0 y `kcalOver`).
@@ -1222,7 +1256,7 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 | Hacer una foto | Cámara de la cabecera de la caminata en directo; «Añadir foto» → «Hacer una foto» en el detalle de cardio y en el Resumen | `takePhoto` ([photos.ts](src/services/photos.ts)): permiso de cámara → cámara del sistema (`launchCameraAsync`) → copia reducida → `addPhoto` con `taken_at` = ahora y el sitio (solo en directo) → el original va también a la galería (`Asset.create`). Sin permiso, Snackbar con «Ajustes». |
 | Elegir de la galería | «Añadir foto» → «Elegir de la galería» | `pickPhotos`: selector de fotos del sistema (hasta 10, sin permiso de lectura), `exifTakenAt` y `exifPlace` del EXIF; en una caminata `photoPlace` decide su sitio: su GPS si está a menos de 200 m de la ruta, o la hora si la caminata no tuvo pausas (`placeAtTime`). |
 | Copia reducida | `keep` | `ImageManipulator.manipulate(uri, { maxWidth: 2160, maxHeight: 2160 })` (Glide aplica la orientación del EXIF) → JPEG 0,85 → `Documents/photos/<ms>-<azar>.jpg`. |
-| Ver | Tira de fotos → `/foto/:id` | Una por página, de la misma sesión, con la fecha y «En el mapa de la ruta» si tiene sitio. Las que tienen sitio salen como una cámara en el mapa del detalle y del directo (`RouteMap`). |
+| Ver | Tira de fotos → `/foto/:id` | Una por página, de la misma sesión (`PhotoPager`: pellizcar hasta ×5 sobre los dedos, doble toque ×2,5 o vuelta, arrastrar ampliada; se pasa de foto a su tamaño), con la fecha y «En el mapa de la ruta» si tiene sitio. Las que tienen sitio salen como una cámara en el mapa del detalle y del directo (`RouteMap`). |
 | Quitar | ⋮ de `/foto/:id` | `removePhoto`: borra la fila y el fichero (el original de la galería sigue allí). |
 | Compartir | `/compartir/…` | Estilo «Foto»: la foto llena la imagen (`cover`) con un degradado arriba y abajo, y textos blancos con sombra; en una caminata, la ruta en blanco en el mismo sitio que en Oscuro. La captura espera a que cargue la foto. |
 

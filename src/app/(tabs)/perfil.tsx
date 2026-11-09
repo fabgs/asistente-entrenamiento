@@ -22,18 +22,23 @@ import {
   Value,
 } from '@/components/ui';
 import { loadMuscleWeek, type MuscleWeekData } from '@/db/repositories/muscles';
+import { workoutCounts } from '@/db/repositories/records';
 import {
   deleteWeight,
   getProfile,
+  getSettings,
   listWeights,
   logWeight,
   nutritionTargetsOf,
   updateProfile,
+  updateSettings,
+  type MuscleMapMode,
   type Profile,
   type WeightEntry,
 } from '@/db/repositories/settings';
 import { formatWeightDelta, goalLabel, missingForTargets } from '@/domain/bodyProfile';
 import { formatDateWithYear, formatNumber, formatShortDate, NBSP } from '@/domain/format';
+import { countOf } from '@/domain/progress';
 import { ageOn, type Sex } from '@/domain/nutrition';
 import { localDateString, pickerStartDate, today as todayDate } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -63,6 +68,8 @@ export default function ProfileScreen() {
       profile: await getProfile(db),
       weights: await listWeights(db),
       muscles: await loadMuscleWeek(db, today),
+      mapMode: (await getSettings(db)).muscleMapMode,
+      counts: await workoutCounts(db),
     };
   });
 
@@ -74,6 +81,8 @@ export default function ProfileScreen() {
       initial={data.profile}
       weights={data.weights}
       muscles={data.muscles}
+      mapMode={data.mapMode}
+      counts={data.counts}
       today={data.today}
       onWeightsChanged={reload}
     />
@@ -84,6 +93,8 @@ function ProfileBody({
   initial,
   weights,
   muscles,
+  mapMode,
+  counts,
   today,
   onWeightsChanged,
 }: {
@@ -91,12 +102,19 @@ function ProfileBody({
   /** Newest first. */
   weights: WeightEntry[];
   muscles: MuscleWeekData;
+  mapMode: MuscleMapMode;
+  counts: { workouts: number; sets: number };
   today: string;
   onWeightsChanged: () => Promise<void>;
 }) {
   const db = useDb();
   const [profile, setProfile] = useState(initial);
   const [sheet, setSheet] = useState<{ entry: WeightEntry | null } | null>(null);
+  const [mode, setMode] = useState(mapMode);
+  const changeMode = (next: MuscleMapMode) => {
+    setMode(next);
+    void updateSettings(db, { muscleMapMode: next });
+  };
   const weight = weights[0]?.weightKg ?? null;
   const targets = nutritionTargetsOf(profile, weight, today);
   const missing = missingForTargets({ ...profile, weightKg: weight });
@@ -133,7 +151,20 @@ function ProfileBody({
         </ListGroup>
       ) : null}
 
-      <MuscleWeekSection week={muscles} sex={profile.sex} />
+      <MuscleWeekSection week={muscles} sex={profile.sex} today={today} mode={mode} onModeChange={changeMode} />
+
+      {/* Of all time, apart from the week above. */}
+      <ListGroup>
+        <ListRow
+          title="Récords"
+          subtitle={
+            counts.workouts > 0
+              ? `${countOf(counts.workouts, 'entreno', 'entrenos')} · ${countOf(counts.sets, 'serie', 'series')}`
+              : 'Sin entrenos todavía'
+          }
+          onPress={() => router.push('/records')}
+        />
+      </ListGroup>
 
       <Section label="Peso corporal">
         <Button kind="secondary" icon="plus" title="Registrar peso" onPress={() => setSheet({ entry: null })} />

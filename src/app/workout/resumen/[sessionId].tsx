@@ -23,6 +23,7 @@ import {
   Row,
   RowIcon,
   Screen,
+  Section,
   Stat,
   StatRow,
   Stepper,
@@ -47,11 +48,21 @@ import {
 } from '@/db/repositories/sessions';
 import { getProfile, getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
-import { formatDuration, formatKg, formatLongDate, formatNumber, formatSetGroups, formatTimeRange, workoutTitle } from '@/domain/format';
+import {
+  formatDuration,
+  formatKg,
+  formatLongDate,
+  formatMinutes,
+  formatNumber,
+  formatSetGroups,
+  formatTimeRange,
+  workoutTitle,
+} from '@/domain/format';
 import { MUSCLE_KEYS, setsPerMuscle } from '@/domain/muscles';
 import { volumeOf } from '@/domain/progress';
 import { recommend } from '@/domain/progression';
 import type { Recommendation } from '@/domain/types';
+import { exerciseTimes, formatOverPlan, formatRest, sessionTimes, type SessionTimes } from '@/domain/workoutTimes';
 import { useDb, useLoader } from '@/hooks/data';
 import { deletingPhotosOf, isOnPhone, pickPhotos, takePhoto, type AddPhotosResult } from '@/services/photos';
 import { colors, radius, spacing } from '@/theme';
@@ -132,6 +143,8 @@ export default function SummaryScreen() {
   );
   // An imported session has no real duration (it was stored with a made-up hour).
   const duration = session.finishedAt && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : '—';
+  // Warm-up and rests, measured since 1.4.7: nothing for older or imported sessions.
+  const times = sessionTimes(session, sets);
 
   const applyAll = run(async () => {
     for (const c of pending) await applyChange(db, c.id);
@@ -282,6 +295,7 @@ export default function SummaryScreen() {
                   ) : (
                     <AppText variant="secondary">Sin series</AppText>
                   )}
+                  {correcting ? null : <ExerciseTimesLine slotId={slot.id} sets={sets} />}
                 </View>
                 <Icon name="chevron-right" size={20} color={colors.muted} />
               </Pressable>
@@ -335,6 +349,7 @@ export default function SummaryScreen() {
           <AppText variant="caption">La sugerencia de peso se recalcula al guardar</AppText>
         ) : finished ? (
           <>
+            <TimesSection times={times} />
             {/* Exercises without muscles count nowhere: with none mapped there is nothing to paint. */}
             {MUSCLE_KEYS.some((m) => data.setsPerMuscle[m] > 0) ? <SessionMusclesSection sets={data.setsPerMuscle} sex={data.sex} /> : null}
             <PhotoSection photos={data.photos} onAdd={addPhoto} />
@@ -399,6 +414,55 @@ export default function SummaryScreen() {
         />
       </Sheet>
     </>
+  );
+}
+
+/** «12 min · descansos 2:41 · 3:15 · 2:30»: how long the exercise took and each rest between its sets. */
+function ExerciseTimesLine({ slotId, sets }: { slotId: number; sets: SetLog[] }) {
+  const { spanMs, rests } = exerciseTimes(slotId, sets);
+  const parts = [
+    spanMs !== null ? formatDuration(spanMs) : null,
+    rests.length > 0 ? `${rests.length === 1 ? 'descanso' : 'descansos'} ${rests.map(formatRest).join(' · ')}` : null,
+  ].filter(Boolean);
+  if (parts.length === 0) return null;
+  return (
+    <AppText variant="caption" tabular>
+      {parts.join(' · ')}
+    </AppText>
+  );
+}
+
+/**
+ * The warm-up and the rests between sets, against the plan (PLAN.md §6.4): medians, so a phone call
+ * does not sink the figure; rests longer than 10 min are told apart.
+ */
+function TimesSection({ times }: { times: SessionTimes }) {
+  const { warmupMs, rests, interruptions } = times;
+  if (warmupMs === null && rests.medianMs === null) return null;
+  return (
+    <Section label="Tiempos">
+      <ListGroup>
+        {warmupMs !== null ? <ListRow title="Calentamiento" right={formatMinutes(warmupMs)} /> : null}
+        {rests.medianMs !== null ? (
+          <ListRow
+            title="Descanso entre series"
+            subtitle={
+              <AppText variant="secondary">
+                {[`Mediana de ${rests.count}`, rests.overPlanMs !== null ? formatOverPlan(rests.overPlanMs) : null].filter(Boolean).join(' · ')}
+              </AppText>
+            }
+            right={formatRest(rests.medianMs)}
+          />
+        ) : null}
+      </ListGroup>
+      {interruptions.length > 0 ? (
+        <AppText variant="caption">
+          {interruptions.length === 1
+            ? `No cuenta 1 descanso de ${formatMinutes(interruptions[0])}`
+            : `No cuentan ${interruptions.length} descansos de más de 10 min`}
+        </AppText>
+      ) : null}
+    </Section>
   );
 }
 

@@ -324,6 +324,15 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_photo_cardio ON photo(cardio_session_id);
   CREATE INDEX idx_photo_workout ON photo(workout_session_id);
   `,
+  `
+  ALTER TABLE routine ADD COLUMN warmup INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE workout_session ADD COLUMN warmup_started_at INTEGER;
+  ALTER TABLE workout_session ADD COLUMN warmup_ended_at INTEGER;
+  ALTER TABLE workout_session ADD COLUMN set_started_at INTEGER;
+  ALTER TABLE set_log ADD COLUMN started_at INTEGER;
+  ALTER TABLE set_log ADD COLUMN rest_seconds INTEGER;
+  ALTER TABLE settings ADD COLUMN muscle_map_mode TEXT NOT NULL DEFAULT 'week';
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

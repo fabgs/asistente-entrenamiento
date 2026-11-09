@@ -23,6 +23,9 @@ const session = (over: Partial<Session> = {}): Session => ({
   skippedSlotIds: [],
   looseFirst: 'Remo',
   looseCount: 1,
+  warmupStartedAt: null,
+  warmupEndedAt: null,
+  setStartedAt: null,
   ...over,
 });
 
@@ -36,6 +39,8 @@ const set = (slotId: number, n: number): SetLog => ({
   reps: 12,
   isExtra: false,
   isWarmup: false,
+  startedAt: null,
+  restSeconds: null,
   completedAt: n,
 });
 
@@ -60,5 +65,16 @@ describe('workout notification text', () => {
     expect(completedLabel(session({ routineId: 1 }), [remo])).toBe('Rutina completada');
     const all = [set(1, 1), set(1, 2), set(1, 3)];
     expect(inProgressText(session({ routineId: 1, routineName: 'Día 1' }), [remo], all)).toBe('Rutina completada');
+  });
+
+  it('says it is warming up, and what comes after', () => {
+    const press = slot(2, 'Press');
+    const warming = { routineId: 1, warmupStartedAt: 0, warmupEndedAt: null };
+    expect(inProgressText(session(warming), [remo, press], [])).toBe('Calentamiento · Siguiente: Remo · 35 kg');
+    // An exercise chosen in the list comes next.
+    expect(inProgressText(session({ ...warming, currentSlotId: 2 }), [remo, press], [])).toBe('Calentamiento · Siguiente: Press · 35 kg');
+    expect(inProgressText(session(warming), [], [])).toBe('Calentamiento');
+    // Once it ended, the set as always.
+    expect(inProgressText(session({ ...warming, warmupEndedAt: 1, currentSlotId: 1 }), [remo], [])).toBe('Serie 1 de 3 · Remo · 35 kg');
   });
 });

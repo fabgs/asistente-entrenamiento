@@ -27,7 +27,20 @@ export interface Session {
   looseFirst: string | null;
   /** A loose session: how many exercises it has sets of. */
   looseCount: number;
+  /** The stopwatch before the first exercise (PLAN.md §6.4): null without one. */
+  warmupStartedAt: number | null;
+  /** Null while warming up. */
+  warmupEndedAt: number | null;
+  /**
+   * When the set in course started: at the end of a rest, of the warm-up or of the previous warm-up
+   * set, or when its exercise was opened. Null while resting (its set has not started).
+   */
+  setStartedAt: number | null;
 }
+
+/** Warming up: the stopwatch before the first exercise is running. */
+export const isWarmingUp = (s: Pick<Session, 'warmupStartedAt' | 'warmupEndedAt'>) =>
+  s.warmupStartedAt !== null && s.warmupEndedAt === null;
 
 export interface SetLog {
   id: number;
@@ -40,6 +53,10 @@ export interface SetLog {
   isExtra: boolean;
   /** Warm-up set: logged with its own weight, never counts for sets, volume, records or progression. */
   isWarmup: boolean;
+  /** When it started (see Session.setStartedAt); null in sessions from before 1.4.7 and imported ones. */
+  startedAt: number | null;
+  /** The rest planned after it when it was logged (without the ±30 s); null for warm-ups and old sets. */
+  restSeconds: number | null;
   completedAt: number;
 }
 
@@ -59,6 +76,9 @@ interface SessionRow {
   skipped_slot_ids: string;
   loose_first: string | null;
   loose_count: number;
+  warmup_started_at: number | null;
+  warmup_ended_at: number | null;
+  set_started_at: number | null;
 }
 
 /**
@@ -93,6 +113,9 @@ function toSession(row: SessionRow): Session {
     skippedSlotIds: JSON.parse(row.skipped_slot_ids) as number[],
     looseFirst: row.loose_first,
     looseCount: row.loose_count,
+    warmupStartedAt: row.warmup_started_at,
+    warmupEndedAt: row.warmup_ended_at,
+    setStartedAt: row.set_started_at,
   };
 }
 
@@ -108,14 +131,89 @@ export async function getActiveSession(db: Db): Promise<Session | null> {
   return row ? toSession(row) : null;
 }
 
+/**
+ * Starts a routine: with its warm-up on, the stopwatch before the first exercise; otherwise the
+ * first set starts now.
+ */
 export async function startSession(db: Db, routineId: number, now: Date): Promise<number> {
+  const routine = await db.getFirstAsync<{ warmup: number }>('SELECT warmup FROM routine WHERE id = ?', routineId);
+  const at = now.getTime();
+  const warmup = bool(routine?.warmup);
   const result = await db.runAsync(
-    `INSERT INTO workout_session (routine_id, date, started_at, status) VALUES (?, ?, ?, 'in_progress')`,
+    `INSERT INTO workout_session (routine_id, date, started_at, status, warmup_started_at, set_started_at)
+     VALUES (?, ?, ?, 'in_progress', ?, ?)`,
     routineId,
     localDateString(now),
-    now.getTime(),
+    at,
+    warmup ? at : null,
+    warmup ? null : at,
   );
   return result.lastInsertRowId;
+}
+
+/**
+ * Ends the warm-up and opens `slotId` (null keeps the exercise in course): its first set starts now.
+ * Nothing if it was not warming up.
+ */
+export async function endWarmup(db: Db, sessionId: number, slotId: number | null, now = Date.now()): Promise<void> {
+  await db.runAsync(
+    `UPDATE workout_session SET warmup_ended_at = ?, set_started_at = ?, current_slot_id = COALESCE(?, current_slot_id)
+     WHERE id = ? AND warmup_started_at IS NOT NULL AND warmup_ended_at IS NULL`,
+    now,
+    now,
+    slotId,
+    sessionId,
+  );
+}
+
+/** The warm-up of the latest finished workout of a routine that had one (ms), for «La última vez». */
+export async function lastWarmupOf(db: Db, routineId: number): Promise<number | null> {
+  const row = await db.getFirstAsync<{ ms: number }>(
+    `SELECT warmup_ended_at - warmup_started_at AS ms FROM workout_session
+     WHERE routine_id = ? AND status = 'finished' AND warmup_started_at IS NOT NULL AND warmup_ended_at IS NOT NULL
+     ORDER BY started_at DESC LIMIT 1`,
+    routineId,
+  );
+  return row?.ms ?? null;
+}
+
+/**
+ * Leaves the rest (its end, «Saltar descanso», «Siguiente serie»…): the next set starts now, on
+ * `slotId` or, with 'same', on the exercise in course.
+ */
+export async function endRest(db: Db, sessionId: number, slotId: number | null | 'same', now = Date.now()): Promise<void> {
+  if (slotId === 'same') {
+    await db.runAsync(
+      'UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ? WHERE id = ?',
+      now,
+      sessionId,
+    );
+    return;
+  }
+  await db.runAsync(
+    `UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ?, current_slot_id = ?
+     WHERE id = ?`,
+    now,
+    slotId,
+    sessionId,
+  );
+}
+
+/**
+ * Opens an exercise from the list, outside a running rest (one already over ends now). Its set
+ * starts now unless one had already started: going back to the list and in again is the same set.
+ */
+export async function openSlot(db: Db, sessionId: number, slotId: number, skippedSlotIds: number[], now = Date.now()): Promise<void> {
+  await db.runAsync(
+    `UPDATE workout_session
+     SET current_slot_id = ?, skipped_slot_ids = ?, rest_ends_at = NULL, rest_notification_id = NULL,
+         set_started_at = COALESCE(set_started_at, ?)
+     WHERE id = ?`,
+    slotId,
+    JSON.stringify(skippedSlotIds),
+    now,
+    sessionId,
+  );
 }
 
 /**
@@ -127,10 +225,12 @@ export async function startLooseSession(db: Db, slotId: number, now: Date): Prom
   await db.withTransactionAsync(async () => {
     if (await db.getFirstAsync(`SELECT id FROM workout_session WHERE status = 'in_progress'`)) return;
     const result = await db.runAsync(
-      `INSERT INTO workout_session (routine_id, date, started_at, status, current_slot_id) VALUES (NULL, ?, ?, 'in_progress', ?)`,
+      `INSERT INTO workout_session (routine_id, date, started_at, status, current_slot_id, set_started_at)
+       VALUES (NULL, ?, ?, 'in_progress', ?, ?)`,
       localDateString(now),
       now.getTime(),
       slotId,
+      now.getTime(),
     );
     id = result.lastInsertRowId;
   });
@@ -191,7 +291,8 @@ export async function updateSessionState(
 
 const SET_SELECT = `
   SELECT id, session_id AS sessionId, slot_id AS slotId, exercise_id AS exerciseId, set_index AS setIndex,
-         weight_kg AS weightKg, reps, is_extra AS isExtra, is_warmup AS isWarmup, completed_at AS completedAt
+         weight_kg AS weightKg, reps, is_extra AS isExtra, is_warmup AS isWarmup, started_at AS startedAt,
+         rest_seconds AS restSeconds, completed_at AS completedAt
   FROM set_log`;
 
 type SetRow = Omit<SetLog, 'isExtra' | 'isWarmup'> & { isExtra: number; isWarmup: number };
@@ -220,8 +321,9 @@ export async function logSet(
   );
   const setIndex = (row?.n ?? 0) + 1;
   const result = await db.runAsync(
-    `INSERT INTO set_log (session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO set_log (session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, started_at, rest_seconds, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, (SELECT set_started_at FROM workout_session WHERE id = ?),
+             COALESCE(?, (SELECT rest_seconds_default FROM settings WHERE id = 1)), ?)`,
     sessionId,
     slot.id,
     slot.exerciseId,
@@ -229,8 +331,12 @@ export async function logSet(
     slot.weightKg,
     reps,
     setIndex > slot.sets ? 1 : 0,
+    sessionId,
+    slot.restSeconds,
     now,
   );
+  // The rest starts: the next set has not.
+  await db.runAsync('UPDATE workout_session SET set_started_at = NULL WHERE id = ?', sessionId);
   return result.lastInsertRowId;
 }
 
@@ -249,16 +355,19 @@ export async function logWarmupSet(
     slot.id,
   );
   const result = await db.runAsync(
-    `INSERT INTO set_log (session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, 0, 1, ?)`,
+    `INSERT INTO set_log (session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, started_at, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, 0, 1, (SELECT set_started_at FROM workout_session WHERE id = ?), ?)`,
     sessionId,
     slot.id,
     slot.exerciseId,
     (row?.n ?? 0) + 1,
     weightKg,
     reps,
+    sessionId,
     now,
   );
+  // No rest after a warm-up set: the next one starts now.
+  await db.runAsync('UPDATE workout_session SET set_started_at = ? WHERE id = ?', now, sessionId);
   return result.lastInsertRowId;
 }
 
@@ -288,8 +397,8 @@ export async function deleteSet(db: Db, setId: number): Promise<void> {
 /** Puts a deleted set back exactly as it was («Deshacer»), numbering its siblings again. */
 export async function restoreSet(db: Db, set: SetLog): Promise<void> {
   await db.runAsync(
-    `INSERT INTO set_log (id, session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, completed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO set_log (id, session_id, slot_id, exercise_id, set_index, weight_kg, reps, is_extra, is_warmup, started_at, rest_seconds, completed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     set.id,
     set.sessionId,
     set.slotId,
@@ -299,6 +408,8 @@ export async function restoreSet(db: Db, set: SetLog): Promise<void> {
     set.reps,
     set.isExtra ? 1 : 0,
     set.isWarmup ? 1 : 0,
+    set.startedAt,
+    set.restSeconds,
     set.completedAt,
   );
   const siblings = await db.getAllAsync<{ id: number }>(
@@ -412,8 +523,11 @@ export async function finishSession(
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `UPDATE workout_session
-       SET status = 'finished', finished_at = ?, rest_ends_at = NULL, rest_notification_id = NULL, current_slot_id = NULL
+       SET status = 'finished', finished_at = ?, rest_ends_at = NULL, rest_notification_id = NULL, current_slot_id = NULL,
+           set_started_at = NULL,
+           warmup_ended_at = CASE WHEN warmup_started_at IS NULL THEN NULL ELSE COALESCE(warmup_ended_at, ?) END
        WHERE id = ?`,
+      now,
       now,
       sessionId,
     );

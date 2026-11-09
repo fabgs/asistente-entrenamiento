@@ -1,9 +1,12 @@
 import {
+  calendarDaysBetween,
   CATALOG_MUSCLES,
   contributionsTo,
+  formatDaysAgo,
   formatSetsOfPlan,
   hasMuscles,
   isMuscle,
+  lastWorkedPerMuscle,
   matchesExercise,
   MUSCLE_INFO,
   MUSCLE_KEYS,
@@ -12,6 +15,9 @@ import {
   muscleLevels,
   musclesFromRows,
   muscleWeek,
+  RECENT_DAYS,
+  recencyLevel,
+  recencyLevels,
   weekBefore,
   setShare,
   setsPerMuscle,
@@ -181,5 +187,47 @@ describe('muscles', () => {
   it('names every muscle in Spanish and in one of the six groups', () => {
     expect(MUSCLE_KEYS).toHaveLength(18);
     for (const m of MUSCLE_KEYS) expect(MUSCLE_INFO[m].label).toMatch(/^[A-ZÁÉÍÓÚ]/);
+  });
+});
+
+describe('«Últimos días»', () => {
+  it('counts calendar days, whatever the hour or a change of time', () => {
+    expect(calendarDaysBetween('2026-11-09', '2026-11-09')).toBe(0);
+    expect(calendarDaysBetween('2026-11-08', '2026-11-09')).toBe(1);
+    // Across the end of summer time (25 October 2026 in Spain).
+    expect(calendarDaysBetween('2026-10-24', '2026-10-26')).toBe(2);
+    expect(calendarDaysBetween('2026-10-31', '2026-11-02')).toBe(2);
+  });
+
+  it('paints today brightest and one step less each day, nothing from 4 days', () => {
+    expect([0, 1, 2, 3, 4, 9].map(recencyLevel)).toEqual([4, 3, 2, 1, 0, 0]);
+    expect(recencyLevel(null)).toBe(0);
+    expect(recencyLevel(-1)).toBe(0);
+    expect(RECENT_DAYS).toBe(3);
+  });
+
+  it('takes the latest day of each muscle as primary or secondary', () => {
+    const last = lastWorkedPerMuscle([
+      { muscle: 'chest', role: 'primary', date: '2026-11-05' },
+      { muscle: 'chest', role: 'secondary', date: '2026-11-08' },
+      { muscle: 'triceps', role: 'primary', date: '2026-11-08' },
+      { muscle: 'triceps', role: 'secondary', date: '2026-11-08' },
+      { muscle: 'lats', role: 'primary', date: '2026-11-06' },
+      { muscle: 'forearms', role: 'secondary', date: '2026-11-02' },
+      { muscle: 'neck', role: 'primary', date: '2026-11-09' },
+    ]);
+    expect(last.chest).toEqual({ date: '2026-11-08', secondaryOnly: true });
+    expect(last.triceps).toEqual({ date: '2026-11-08', secondaryOnly: false });
+    expect(last.lats).toEqual({ date: '2026-11-06', secondaryOnly: false });
+    expect(last.forearms).toEqual({ date: '2026-11-02', secondaryOnly: true });
+    expect(last.quads).toBeUndefined();
+    expect(Object.keys(last)).not.toContain('neck');
+
+    const levels = recencyLevels(last, '2026-11-09');
+    expect([levels.chest, levels.lats, levels.forearms, levels.quads]).toEqual([3, 1, 0, 0]);
+  });
+
+  it('reads the days in words', () => {
+    expect([0, 1, 2, 9].map(formatDaysAgo)).toEqual(['Hoy', 'Ayer', 'Hace 2 días', 'Hace 9 días']);
   });
 });

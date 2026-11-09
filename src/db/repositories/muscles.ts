@@ -1,4 +1,5 @@
 import {
+  lastWorkedPerMuscle,
   musclesFromRows,
   NO_MUSCLES,
   totalSets,
@@ -7,6 +8,8 @@ import {
   withoutMuscles,
   type ExerciseMuscles,
   type ExerciseSets,
+  type LastWorked,
+  type Muscle,
 } from '@/domain/muscles';
 import type { Db } from '../db';
 
@@ -78,6 +81,26 @@ export interface MuscleWeekData {
   /** Exercises of the catalog in the plan or done this week without a primary muscle: their sets count nowhere. */
   unmapped: number[];
   names: Map<number, string>;
+  /** «Últimos días»: the last day each muscle worked, up to today. */
+  lastWorked: Partial<Record<Muscle, LastWorked>>;
+  /** The date of the latest finished workout, for a body map with nothing in the last days. */
+  lastWorkout: string | null;
+}
+
+/**
+ * The latest date of each muscle in each role, over the work sets of finished workouts up to `today`
+ * (the same sets as «Esta semana»; imported and loose workouts too).
+ */
+export async function lastWorkedDates(db: Db, today: string): Promise<{ muscle: string; role: string; date: string }[]> {
+  return db.getAllAsync<{ muscle: string; role: string; date: string }>(
+    `SELECT em.muscle, em.role, MAX(w.date) AS date
+     FROM set_log s
+     JOIN workout_session w ON w.id = s.session_id
+     JOIN exercise_muscle em ON em.exercise_id = s.exercise_id
+     WHERE w.status = 'finished' AND s.is_warmup = 0 AND s.reps > 0 AND w.date <= ?
+     GROUP BY em.muscle, em.role`,
+    today,
+  );
 }
 
 /** Everything the muscles of «esta semana» need (Perfil and its detail). */
@@ -98,6 +121,12 @@ export async function loadMuscleWeek(db: Db, today: string): Promise<MuscleWeekD
     musclesOf,
     unmapped: withoutMuscles([...planned, ...done].map((s) => s.exerciseId), musclesOf).filter((id) => active.has(id)),
     names: new Map(exercises.map((e) => [e.id, e.name])),
+    lastWorked: lastWorkedPerMuscle(await lastWorkedDates(db, today)),
+    lastWorkout:
+      (await db.getFirstAsync<{ date: string | null }>(
+        `SELECT MAX(date) AS date FROM workout_session WHERE status = 'finished' AND date <= ?`,
+        today,
+      ))?.date ?? null,
   };
 }
 

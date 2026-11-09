@@ -2,6 +2,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { showActions, showDialog, showPrompt } from '@/components/Dialog';
+import { FormRow } from '@/components/FormRow';
 import { routineCounts } from '@/components/RoutineCard';
 import { SlotRow } from '@/components/SlotRow';
 import {
@@ -19,6 +20,7 @@ import {
   ROW_ICON_INSET,
   Screen,
   Section,
+  SwitchRow,
 } from '@/components/ui';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
 import {
@@ -27,6 +29,7 @@ import {
   listSlots,
   moveSlot,
   renameRoutine,
+  setRoutineWarmup,
   setRoutineWeekdays,
   type Slot,
 } from '@/db/repositories/routines';
@@ -48,6 +51,11 @@ export default function RoutineEditorScreen() {
   });
   const [days, setDays] = useSavedAtOnce<IsoWeekday[]>(data?.routine.weekdays ?? [], async (next) => {
     await setRoutineWeekdays(db, routineId, next);
+    reschedule(db);
+    await reload();
+  });
+  const [warmup, setWarmup] = useSavedAtOnce<boolean>(data?.routine.warmup ?? false, async (on) => {
+    await setRoutineWarmup(db, routineId, on);
     reschedule(db);
     await reload();
   });
@@ -135,6 +143,18 @@ export default function RoutineEditorScreen() {
       <Section label="Días">
         <DayPicker value={days} onChange={setDays} />
       </Section>
+
+      {/* In the order of the workout: the days, the warm-up, the exercises. */}
+      <ListGroup>
+        <FormRow>
+          <SwitchRow
+            label="Calentamiento al empezar"
+            subtitle="Un cronómetro antes del primer ejercicio"
+            value={warmup}
+            onValueChange={setWarmup}
+          />
+        </FormRow>
+      </ListGroup>
 
       <Section
         label="Ejercicios"

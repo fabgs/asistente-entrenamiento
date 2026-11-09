@@ -1,6 +1,6 @@
 import type { Db } from '@/db/db';
 import { isBodyweight, type Slot } from '@/db/repositories/routines';
-import { getActiveSession, listSets, sessionSlots, type Session, type SetLog } from '@/db/repositories/sessions';
+import { getActiveSession, isWarmingUp, listSets, sessionSlots, type Session, type SetLog } from '@/db/repositories/sessions';
 import { formatLoad } from '@/domain/format';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
 import { startOngoing, stopOngoing } from '../../modules/rest-timer';
@@ -24,13 +24,18 @@ export function describeNext(next: NextStep, slots: Slot[], finishedLabel = 'Rut
 }
 
 /**
- * The line of the workout notification: the set being done or coming after the rest, or how many
- * sets are done while looking at the list.
+ * The line of the workout notification: the warm-up, the set being done or coming after the rest, or
+ * how many sets are done while looking at the list.
  */
 export function inProgressText(session: Session, slots: Slot[], sets: SetLog[]): string {
   const planned = slots.map((s) => ({ slotId: s.id, sets: s.sets }));
   const skipped = session.skippedSlotIds;
   const done = completedLabel(session, slots);
+  if (isWarmingUp(session)) {
+    const nextId = session.currentSlotId ?? nextPendingSlot(planned, sets, skipped, null);
+    const next = slots.find((s) => s.id === nextId);
+    return next ? `Calentamiento · Siguiente: ${next.exerciseName} · ${loadOf(next)}` : 'Calentamiento';
+  }
   if (session.restEndsAt) return describeNext(nextStep(planned, sets, skipped, session.currentSlotId ?? -1), slots, done);
   const current = slots.find((s) => s.id === session.currentSlotId);
   if (current) {

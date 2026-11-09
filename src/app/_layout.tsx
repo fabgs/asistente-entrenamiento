@@ -112,6 +112,7 @@ export default function RootLayout() {
           <Stack.Screen name="alimento/[id]" options={{ title: 'Alimento' }} />
           <Stack.Screen name="pesos" options={{ title: 'Pesajes' }} />
           <Stack.Screen name="musculos" options={{ title: 'Músculos' }} />
+          <Stack.Screen name="records" options={{ title: 'Récords' }} />
           <Stack.Screen name="objetivos" options={{ title: 'Objetivos del día' }} />
           <Stack.Screen name="ajustes" options={{ title: 'Ajustes' }} />
           <Stack.Screen name="cifrado" options={{ title: 'Cifrar las copias' }} />

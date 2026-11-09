@@ -17,7 +17,11 @@ export interface Routine {
   name: string;
   position: number;
   weekdays: IsoWeekday[];
+  /** Starting it opens a stopwatch before the first exercise (PLAN.md §6.4). */
+  warmup: boolean;
 }
+
+type RoutineRow = Omit<Routine, 'weekdays' | 'warmup'> & { warmup: number };
 
 export interface Slot {
   id: number;
@@ -134,28 +138,26 @@ export function slotRule(slot: Slot): SlotRule {
 
 export const isBodyweight = (slot: Slot) => slot.exerciseType === 'bodyweight';
 
-async function attachWeekdays(db: Db, rows: Omit<Routine, 'weekdays'>[]): Promise<Routine[]> {
+async function attachWeekdays(db: Db, rows: RoutineRow[]): Promise<Routine[]> {
   const days = await db.getAllAsync<{ routine_id: number; weekday: IsoWeekday }>(
     'SELECT routine_id, weekday FROM routine_weekday ORDER BY weekday',
   );
   return rows.map((r) => ({
     ...r,
+    warmup: bool(r.warmup),
     weekdays: days.filter((d) => d.routine_id === r.id).map((d) => d.weekday),
   }));
 }
 
 export async function listRoutines(db: Db): Promise<Routine[]> {
-  const rows = await db.getAllAsync<Omit<Routine, 'weekdays'>>(
-    'SELECT id, name, position FROM routine WHERE archived = 0 ORDER BY position, id',
+  const rows = await db.getAllAsync<RoutineRow>(
+    'SELECT id, name, position, warmup FROM routine WHERE archived = 0 ORDER BY position, id',
   );
   return attachWeekdays(db, rows);
 }
 
 export async function getRoutine(db: Db, id: number): Promise<Routine | null> {
-  const row = await db.getFirstAsync<Omit<Routine, 'weekdays'>>(
-    'SELECT id, name, position FROM routine WHERE id = ?',
-    id,
-  );
+  const row = await db.getFirstAsync<RoutineRow>('SELECT id, name, position, warmup FROM routine WHERE id = ?', id);
   return row ? (await attachWeekdays(db, [row]))[0] : null;
 }
 
@@ -197,6 +199,11 @@ export async function createRoutine(db: Db, name: string): Promise<number> {
 
 export async function renameRoutine(db: Db, routineId: number, name: string): Promise<void> {
   await db.runAsync('UPDATE routine SET name = ? WHERE id = ?', name, routineId);
+}
+
+/** The warm-up of a routine, on or off: it counts from the next time it is started. */
+export async function setRoutineWarmup(db: Db, routineId: number, on: boolean): Promise<void> {
+  await db.runAsync('UPDATE routine SET warmup = ? WHERE id = ?', int(on), routineId);
 }
 
 export async function setRoutineWeekdays(db: Db, routineId: number, weekdays: IsoWeekday[]): Promise<void> {

@@ -148,3 +148,36 @@ describe('sets per muscle', () => {
     expect((await loadMuscleWeek(db, '2026-11-02')).lastWeek).toBeGreaterThan(0);
   });
 });
+
+describe('«Últimos días»', () => {
+  it('knows the last day each muscle worked, as primary or only as secondary', async () => {
+    const db = await createTestDb();
+    await importSeed(db, SEED, NOW);
+    const routineId = (await db.runAsync("INSERT INTO routine (name, position) VALUES ('Torso', 0)")).lastInsertRowId;
+    const remo = await idOf(db, 'Remo con barra (90º)'); // lats, upper back; secondary lower back, rear delts, biceps
+    await db.runAsync(
+      `INSERT INTO routine_slot (routine_id, exercise_id, position, weight_kg, sets, target_kind, rep_min, rep_max)
+       VALUES (?, ?, 0, 35, 3, 'range', 10, 12)`,
+      routineId,
+      remo,
+    );
+    const [slot] = await listSlots(db, routineId);
+    const settings = toProgressionSettings(await getSettings(db));
+
+    const saturday = new Date(2026, 10, 7, 9, 0);
+    const id = await startSession(db, routineId, saturday);
+    await logWarmupSet(db, id, slot, 20, 10, saturday.getTime() + 1);
+    await logSet(db, id, slot, 12, saturday.getTime() + 2);
+    await finishSession(db, id, settings, saturday.getTime() + 3);
+    // An unfinished workout today does not count.
+    await logSet(db, await startSession(db, routineId, new Date(2026, 10, 9, 7, 0)), slot, 12);
+
+    const week = await loadMuscleWeek(db, '2026-11-09');
+    expect(week.lastWorked.lats).toEqual({ date: '2026-11-07', secondaryOnly: false });
+    expect(week.lastWorked.biceps).toEqual({ date: '2026-11-07', secondaryOnly: true });
+    expect(week.lastWorked.quads).toBeUndefined();
+    expect(week.lastWorkout).toBe('2026-11-07');
+    // A day before it, nothing yet.
+    expect((await loadMuscleWeek(db, '2026-11-06')).lastWorked).toEqual({});
+  });
+});

@@ -10,7 +10,7 @@ import {
   RowIcon,
   Screen,
   Section,
-  TRACKING_ICON,
+  cardioIcon,
 } from '@/components/ui';
 import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
 import { listRoutines, setRoutineOnWeekday, type Routine } from '@/db/repositories/routines';
@@ -56,7 +56,7 @@ export default function CardioScreen() {
         .map((a) => (
           <ListRow
             key={a.id}
-            left={<RowIcon name={TRACKING_ICON[a.tracking]} />}
+            left={<RowIcon name={cardioIcon(a.name, a.tracking)} />}
             title={activityTitle(a)}
             subtitle={activityDetails(a)}
             onPress={() => router.push(activityHref(a.id))}

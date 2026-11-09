@@ -1,8 +1,10 @@
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
-import { FlatList, Image, StyleSheet, useWindowDimensions, View } from 'react-native';
+import { StyleSheet, useWindowDimensions, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { showActions, showDialog } from '@/components/Dialog';
+import { PhotoPager } from '@/components/PhotoPager';
 import { AppText, EmptyState, HeaderActions, IconButton, Loading } from '@/components/ui';
 import { getPhoto, listPhotos, type PhotoOwner } from '@/db/repositories/photos';
 import { formatLongDate, formatTimeOfDay } from '@/domain/format';
@@ -10,7 +12,7 @@ import { useDb, useLoader } from '@/hooks/data';
 import { isOnPhone, photoUri, removePhoto } from '@/services/photos';
 import { colors, spacing } from '@/theme';
 
-/** The photos of a session, one per page, starting at the one tapped. */
+/** The photos of a session, one per page, starting at the one tapped; pinch or double tap zooms. */
 export default function PhotoScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const db = useDb();
@@ -73,23 +75,15 @@ export default function PhotoScreen() {
           ),
         }}
       />
-      <View style={[styles.screen, { paddingBottom: insets.bottom }]}>
-        {/* A new list after removing a photo, opened where it was: the old one kept its offset. */}
-        <FlatList
+      {/* The gestures of the pager need a root of their own: the app has none at its top. */}
+      <GestureHandlerRootView style={[styles.screen, { paddingBottom: insets.bottom }]}>
+        {/* A new pager after removing a photo, opened where it was. */}
+        <PhotoPager
           key={photos.map((p) => p.id).join(',')}
-          data={photos}
-          keyExtractor={(p) => String(p.id)}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          initialScrollIndex={shown}
-          getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
-          onMomentumScrollEnd={(e) => setIndex(Math.round(e.nativeEvent.contentOffset.x / width))}
-          renderItem={({ item }) => (
-            <View style={{ width, flex: 1 }}>
-              <Image source={{ uri: photoUri(item.file) }} style={styles.image} resizeMode="contain" accessibilityIgnoresInvertColors />
-            </View>
-          )}
+          photos={photos.map((p) => ({ id: p.id, uri: photoUri(p.file), width: p.width, height: p.height }))}
+          initialIndex={shown}
+          width={width}
+          onIndexChange={setIndex}
         />
         {current.takenAt !== null || current.place ? (
           <View style={styles.caption}>
@@ -101,13 +95,12 @@ export default function PhotoScreen() {
             {current.place ? <AppText variant="caption">En el mapa de la ruta</AppText> : null}
           </View>
         ) : null}
-      </View>
+      </GestureHandlerRootView>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  image: { flex: 1, width: '100%' },
   caption: { alignItems: 'center', gap: 2, paddingHorizontal: spacing.lg, paddingVertical: spacing.md },
 });

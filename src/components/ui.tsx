@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { CardioTracking } from '@/domain/cardioPlan';
+import { cardioSport, type CardioSport } from '@/domain/cardioSport';
 import { formatCountdown, formatDateWithYear, formatNumber, parseDecimal } from '@/domain/format';
 import { movementPattern, muscleLabel, type ExerciseMuscles, type MovementPattern } from '@/domain/muscles';
 import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
@@ -713,13 +714,32 @@ export const WeekdayPicker = (props: { value: IsoWeekday[]; onChange: (days: Iso
 
 export type IconName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
-/** The icon of each way of recording cardio (Hoy, the weekly cardio, the history). */
+/** The icon of each way of recording cardio, for an activity whose name tells no sport. */
 export const TRACKING_ICON: Record<CardioTracking, IconName> = {
   gps: 'walk',
   timer: 'timer-outline',
   check: 'check-circle-outline',
   sprint: 'run-fast',
 };
+
+const SPORT_ICON: Record<CardioSport, IconName> = {
+  bike: 'bike',
+  swim: 'swim',
+  row: 'rowing',
+  run: 'run',
+  hike: 'hiking',
+  walk: 'walk',
+};
+
+/**
+ * The icon of a cardio activity (Hoy, the weekly cardio, the history): sprints keep theirs; otherwise
+ * the sport of its name («Bici estática» is done with the timer, but it is a bike) or how it is recorded.
+ */
+export function cardioIcon(name: string, tracking: CardioTracking): IconName {
+  if (tracking === 'sprint') return TRACKING_ICON.sprint;
+  const sport = cardioSport(name);
+  return sport ? SPORT_ICON[sport] : TRACKING_ICON[tracking];
+}
 
 /** The icon of an exercise, by the movement pattern of its first primary muscle (catalog, history). */
 export const PATTERN_ICON: Record<MovementPattern, IconName> = {

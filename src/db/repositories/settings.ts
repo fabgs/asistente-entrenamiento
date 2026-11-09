@@ -6,6 +6,8 @@ import { isWalkMetric, type DistanceUnit, type WalkMetric } from '@/domain/walkS
 import { bool, int, type Db } from '../db';
 
 export type LivePanel = 'map' | 'chart' | 'splits';
+/** What the body map of Perfil paints: the sets of this week, or the days since each muscle worked. */
+export type MuscleMapMode = 'week' | 'days';
 const LIVE_PANELS: LivePanel[] = ['map', 'chart', 'splits'];
 const TRACK_METRICS: TrackMetric[] = ['pace', 'speed', 'altitude'];
 
@@ -31,6 +33,7 @@ export interface Settings {
   cardioChart: TrackMetric;
   /** Panel last chosen under the figures of a walk being recorded. */
   cardioLivePanel: LivePanel;
+  muscleMapMode: MuscleMapMode;
 }
 
 interface SettingsRow {
@@ -52,6 +55,7 @@ interface SettingsRow {
   distance_unit: string;
   cardio_chart: string;
   cardio_live_panel: string;
+  muscle_map_mode: string;
 }
 
 export async function getSettings(db: Db): Promise<Settings> {
@@ -82,6 +86,7 @@ export async function getSettings(db: Db): Promise<Settings> {
     distanceUnit: row.distance_unit === 'm' ? 'm' : 'km',
     cardioChart: TRACK_METRICS.find((m) => m === row.cardio_chart) ?? 'pace',
     cardioLivePanel: LIVE_PANELS.find((p) => p === row.cardio_live_panel) ?? 'map',
+    muscleMapMode: row.muscle_map_mode === 'days' ? 'days' : 'week',
   };
 }
 
@@ -105,6 +110,7 @@ export async function updateSettings(db: Db, patch: Partial<Settings>): Promise<
     distanceUnit: 'distance_unit',
     cardioChart: 'cardio_chart',
     cardioLivePanel: 'cardio_live_panel',
+    muscleMapMode: 'muscle_map_mode',
   };
   for (const [key, value] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     const sqlValue = typeof value === 'boolean' ? int(value) : value;

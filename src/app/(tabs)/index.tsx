@@ -18,7 +18,7 @@ import {
   Screen,
   Section,
   Tag,
-  TRACKING_ICON,
+  cardioIcon,
   useBusy,
 } from '@/components/ui';
 import { cardioLogOn, listCardio, setCardioDone, type CardioActivity, type CardioDone } from '@/db/repositories/cardio';
@@ -38,7 +38,7 @@ import { getProfile, getSettings, latestWeight, toProgressionSettings } from '@/
 import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { sharesLockCountdown, trackingDetails } from '@/domain/cardioPlan';
 import { cardioPool, doneOnOtherDays } from '@/domain/cardioPool';
-import { formatDuration, formatLongDate, workoutTitle } from '@/domain/format';
+import { formatDuration, formatLongDate, formatShortDate, workoutTitle } from '@/domain/format';
 import { allDoneMessage, isoWeekdayOf, localDateString, weekdaysLabel } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { maybeAutoBackup } from '@/services/backup';
@@ -210,7 +210,7 @@ export default function TodayScreen() {
 
   const closeStale = () => {
     const active = data.active!;
-    showDialog('Entreno sin terminar', `${workoutTitle(active)} del ${active.date}`, [
+    showDialog('Entreno sin terminar', `${workoutTitle(active)} del ${formatShortDate(active.date)}`, [
       { text: 'Cancelar', style: 'cancel' },
       {
         text: 'Descartar',
@@ -308,7 +308,7 @@ export default function TodayScreen() {
         <ListGroup>
           <ListRow
             onPress={() => router.push(`/cardio-sesion/${data.activeCardio!.id}`)}
-            left={<Icon name={TRACKING_ICON[data.activeCardio.tracking]} size={22} color={colors.accent} />}
+            left={<Icon name={cardioIcon(data.activeCardio.name, data.activeCardio.tracking)} size={22} color={colors.accent} />}
             title={data.activeCardio.name}
             subtitle={
               data.activeCardio.sprint
@@ -430,7 +430,7 @@ export default function TodayScreen() {
               <ListRow
                 key={a.id}
                 onPress={() => pickCardio(a)}
-                left={<Icon name={TRACKING_ICON[a.tracking]} size={22} color={colors.muted} />}
+                left={<Icon name={cardioIcon(a.name, a.tracking)} size={22} color={colors.muted} />}
                 title={a.name}
                 subtitle={
                   // The days on a line of their own: cut at the end of a long line, they were lost.
@@ -483,7 +483,7 @@ function CardioRow({
         ) : (
           <View style={styles.cardioLeft}>
             <CheckMark round done={false} onPress={onToggle} />
-            <Icon name={TRACKING_ICON[activity.tracking]} size={22} color={colors.muted} />
+            <Icon name={cardioIcon(activity.name, activity.tracking)} size={22} color={colors.muted} />
           </View>
         )
       }

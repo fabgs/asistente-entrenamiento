@@ -20,10 +20,11 @@ import {
 } from '@/components/ui';
 import { getExercise } from '@/db/repositories/exercises';
 import { getExerciseMuscles } from '@/db/repositories/muscles';
-import { exerciseSessions, exerciseUnit, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
+import { exerciseRest, exerciseSessions, exerciseUnit, exerciseWeightChanges, type ExerciseWeightChange } from '@/db/repositories/progress';
 import { formatKg, formatNumber, formatSetGroups, formatSetValues, formatShortDate, NBSP } from '@/domain/format';
 import { capitalize, computeRecords, distinctRecords, formatDayMonth, oneRepMaxRecord, sessionOneRepMax, summarize } from '@/domain/progress';
 import { localDateString } from '@/domain/schedule';
+import { formatRest } from '@/domain/workoutTimes';
 import { useLoader } from '@/hooks/data';
 import { colors, spacing } from '@/theme';
 
@@ -56,6 +57,7 @@ export default function ExerciseProgressScreen() {
     sessions: await exerciseSessions(db, exerciseId),
     changes: await exerciseWeightChanges(db, exerciseId),
     unit: await exerciseUnit(db, exerciseId),
+    rest: await exerciseRest(db, exerciseId),
   }));
 
   const setMetric = (next: ChartMetric) => {
@@ -72,7 +74,7 @@ export default function ExerciseProgressScreen() {
     );
   }
 
-  const { exercise, muscles, sessions, changes, unit } = data;
+  const { exercise, muscles, sessions, changes, unit, rest } = data;
   // A hold counts seconds and a walk with weight steps: «Tiempo» and «7 min», not «420 reps».
   const amountLabel = unit === 'seconds' ? 'Tiempo' : unit === 'steps' ? 'Pasos' : 'Reps';
   const formatAmount = unit === 'reps' ? formatReps : (value: number) => formatSetValues([value], unit);
@@ -178,6 +180,21 @@ export default function ExerciseProgressScreen() {
               />
             ) : null}
           </StatRow>
+          {/* Measured since 1.4.7: with two timed workouts, the rest is a figure and not one day. */}
+          {rest.medianMs !== null && rest.sessions >= 2 ? (
+            <StatRow>
+              <Stat
+                label="Descanso entre series"
+                value={formatRest(rest.medianMs)}
+                caption={[
+                  `Mediana de las últimas ${rest.sessions} sesiones`,
+                  rest.planSeconds !== null ? `plan ${formatRest(rest.planSeconds * 1000)}` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              />
+            </StatRow>
+          ) : null}
         </Section>
       ) : null}
 

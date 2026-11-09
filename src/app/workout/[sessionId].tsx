@@ -35,13 +35,18 @@ import { getRoutine, isBodyweight, type Slot } from '@/db/repositories/routines'
 import {
   deleteSet,
   discardSession,
+  endRest as leaveRest,
+  endWarmup,
   finishSession,
   getSession,
+  isWarmingUp,
   lastReps,
+  lastWarmupOf,
   lastWarmups,
   listSets,
   logSet,
   logWarmupSet,
+  openSlot,
   restoreSet,
   sessionSlots,
   updateSessionState,
@@ -60,6 +65,7 @@ import {
 } from '@/db/repositories/weightChanges';
 import {
   capitalizeFirst,
+  formatClock,
   formatCountdown,
   formatKg,
   formatLoad,
@@ -137,17 +143,19 @@ export default function WorkoutScreen() {
       settings: await getSettings(db),
       overlayAllowed: canDrawOverlays(),
       openChanges: await listOpenChanges(db),
+      lastWarmupMs: session.routineId !== null && isWarmingUp(session) ? await lastWarmupOf(db, session.routineId) : null,
     };
   });
 
-  // Back from a set or from the rest shows the exercise list instead of leaving the workout.
+  // Back from a set, the rest or the warm-up shows the exercise list instead of leaving the workout.
   const resting = !!data?.session.restEndsAt;
-  const inSet = !resting && data?.session.currentSlotId != null;
+  const warming = data ? isWarmingUp(data.session) : false;
+  const inSet = !resting && !warming && data?.session.currentSlotId != null;
   // A loose workout with nothing done yet is dropped on the way out: there is nothing to keep.
   const [leaving, setLeaving] = useState(false);
   const emptyLoose = data?.session.routineId === null && data.sets.length === 0;
-  usePreventRemove(!leaving && data?.session.status === 'in_progress' && ((resting && !browsing) || inSet), () => {
-    if (resting) setBrowsing(true);
+  usePreventRemove(!leaving && data?.session.status === 'in_progress' && (((resting || warming) && !browsing) || inSet), () => {
+    if (resting || warming) setBrowsing(true);
     else if (emptyLoose) {
       clearWorkoutInProgress();
       discardSession(db, id).then(() => setLeaving(true));
@@ -236,6 +244,11 @@ export default function WorkoutScreen() {
     setBrowsing(false);
     const unskipped = skipped.filter((s) => s !== slotId);
     const slot = slots.find((s) => s.id === slotId)!;
+    if (warming) {
+      // As with the rest: the chosen exercise comes next, and «Empezar» ends the warm-up.
+      await update({ currentSlotId: slotId, skippedSlotIds: unskipped });
+      return;
+    }
     if (session.restEndsAt && !restIsOver(session.restEndsAt) && setsDone(slotId, sets) < slot.sets) {
       // Still resting: the chosen exercise becomes the next one, the rest keeps counting.
       const next = nextStep(planned, sets, unskipped, slotId);
@@ -244,7 +257,8 @@ export default function WorkoutScreen() {
       return;
     }
     if (session.restEndsAt) await cancelRestEnd(id);
-    await update({ currentSlotId: slotId, skippedSlotIds: unskipped, restEndsAt: null, restNotificationId: null });
+    await openSlot(db, id, slotId, unskipped);
+    await reload();
   };
 
   const completeSet = async (slot: Slot, reps: number) => {
@@ -275,13 +289,11 @@ export default function WorkoutScreen() {
     await update({ restEndsAt: endsAt });
   };
 
+  // Leaving the rest starts the next set: its time and the real rest are measured from here.
   const endRest = async (goToSlot: number | null | 'same') => {
     await cancelRestEnd(id);
-    await update({
-      restEndsAt: null,
-      restNotificationId: null,
-      ...(goToSlot === 'same' ? {} : { currentSlotId: goToSlot }),
-    });
+    await leaveRest(db, id, goToSlot);
+    await reload();
   };
 
   const restNext = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
@@ -311,6 +323,36 @@ export default function WorkoutScreen() {
   };
 
   const title = session.routineName ?? 'Ejercicio suelto';
+  const menuButton = () => (
+    <HeaderActions>
+      <IconButton
+        icon="dots-vertical"
+        label="Más acciones"
+        onPress={() => showActions([{ text: 'Descartar entreno', icon: 'trash-can-outline', destructive: true, onPress: discard }])}
+      />
+    </HeaderActions>
+  );
+  // The first exercise, or the one chosen in the list while warming up.
+  const warmupNext = warming ? (current ?? slots.find((s) => s.id === nextPendingSlot(planned, sets, skipped, null)) ?? null) : null;
+
+  if (warming && !browsing) {
+    return (
+      <>
+        <Stack.Screen options={{ title, headerRight: menuButton }} />
+        <WarmupView
+          startedAt={session.warmupStartedAt ?? session.startedAt}
+          lastMs={data.lastWarmupMs}
+          nextSlot={warmupNext}
+          nextMuscles={warmupNext ? data.muscles.get(warmupNext.exerciseId) : undefined}
+          nextSlotDone={warmupNext ? setsDone(warmupNext.id, sets) : 0}
+          onStart={async () => {
+            await endWarmup(db, id, warmupNext?.id ?? null);
+            await reload();
+          }}
+        />
+      </>
+    );
+  }
 
   if (session.restEndsAt && !browsing) {
     const restSlot = slots.find((s) => s.id === session.currentSlotId);
@@ -343,7 +385,7 @@ export default function WorkoutScreen() {
     );
   }
 
-  if (current && !session.restEndsAt) {
+  if (current && !session.restEndsAt && !warming) {
     const slotSets = sets.filter((s) => s.slotId === current.id && !s.isWarmup);
     const warmups = sets.filter((s) => s.slotId === current.id && s.isWarmup);
     const skip = async () => {
@@ -386,22 +428,7 @@ export default function WorkoutScreen() {
 
   return (
     <>
-      <Stack.Screen
-        options={{
-          title,
-          headerRight: () => (
-            <HeaderActions>
-              <IconButton
-                icon="dots-vertical"
-                label="Más acciones"
-                onPress={() =>
-                  showActions([{ text: 'Descartar entreno', icon: 'trash-can-outline', destructive: true, onPress: discard }])
-                }
-              />
-            </HeaderActions>
-          ),
-        }}
-      />
+      <Stack.Screen options={{ title, headerRight: menuButton }} />
       <ExerciseList
         session={session}
         slots={slots}
@@ -414,6 +441,15 @@ export default function WorkoutScreen() {
                 endsAt: session.restEndsAt,
                 totalSeconds: restSecondsOf(slots.find((s) => s.id === session.currentSlotId), settings.restSecondsDefault),
                 nextLabel: describeNext(restNext, slots, done),
+                onOpen: () => setBrowsing(false),
+              }
+            : null
+        }
+        warmup={
+          warming
+            ? {
+                startedAt: session.warmupStartedAt ?? session.startedAt,
+                nextName: warmupNext?.exerciseName ?? null,
                 onOpen: () => setBrowsing(false),
               }
             : null
@@ -431,6 +467,7 @@ function ExerciseList({
   sets,
   openChanges,
   rest,
+  warmup,
   completedTitle,
   onChoose,
   onFinish,
@@ -442,6 +479,7 @@ function ExerciseList({
   /** «Rutina completada», «Ejercicio completado» or «Ejercicios completados». */
   completedTitle: string;
   rest: { endsAt: number; totalSeconds: number; nextLabel: string; onOpen: () => void } | null;
+  warmup: { startedAt: number; nextName: string | null; onOpen: () => void } | null;
   onChoose: (slotId: number) => void;
   onFinish: () => void;
 }) {
@@ -455,8 +493,10 @@ function ExerciseList({
   const nextSlot = slots.find((s) => s.id === nextId);
 
   const footer = (
-    <BottomBar actionKey={rest ? 'rest' : allDone ? 'done' : nextSlot ? `next-${nextSlot.id}` : 'finish'}>
-      {rest ? (
+    <BottomBar actionKey={warmup ? 'warmup' : rest ? 'rest' : allDone ? 'done' : nextSlot ? `next-${nextSlot.id}` : 'finish'}>
+      {warmup ? (
+        <WarmupBar {...warmup} />
+      ) : rest ? (
         <RestBar {...rest} />
       ) : allDone ? (
         <Button size="xl" icon="flag-checkered" title="Terminar y ver resumen" onPress={onFinish} style={{ flex: 1 }} />
@@ -514,7 +554,7 @@ function ExerciseList({
                   <AppText variant="rowTitle" style={[{ flexShrink: 1 }, quiet && { color: colors.muted }]} numberOfLines={2}>
                     {slot.exerciseName}
                   </AppText>
-                  {slot.id === nextId && !rest ? <Tag label="Siguiente" tone="success" /> : null}
+                  {slot.id === nextId && !rest && !warmup ? <Tag label="Siguiente" tone="success" /> : null}
                   {skippedSlot ? <Tag label="Saltado" /> : null}
                 </View>
               }
@@ -592,6 +632,124 @@ function RestBar({ endsAt, totalSeconds, nextLabel, onOpen }: { endsAt: number; 
       </AppText>
       <Icon name="chevron-right" size={20} color={colors.muted} />
     </Pressable>
+  );
+}
+
+/** The warm-up still counting while the list is open; tapping it goes back to it. */
+function WarmupBar({ startedAt, nextName, onOpen }: { startedAt: number; nextName: string | null; onOpen: () => void }) {
+  const elapsed = formatClock(useNow(500) - startedAt);
+  return (
+    <Pressable
+      onPress={onOpen}
+      style={styles.restBar}
+      accessibilityRole="button"
+      accessibilityLabel={`Calentamiento, ${elapsed}`}
+      accessibilityHint="Vuelve al calentamiento">
+      <Icon name="timer-outline" size={28} color={colors.accent} />
+      <View style={{ flex: 1 }}>
+        <AppText variant="label">Calentamiento</AppText>
+        {nextName ? (
+          <AppText variant="bodySm" numberOfLines={1}>
+            Siguiente: {nextName}
+          </AppText>
+        ) : null}
+      </View>
+      <AppText variant="metric" tabular style={{ color: colors.accent }}>
+        {elapsed}
+      </AppText>
+      <Icon name="chevron-right" size={20} color={colors.muted} />
+    </Pressable>
+  );
+}
+
+/**
+ * The stopwatch before the first exercise (PLAN.md §6.4): it counts up with no end, in blue (in
+ * course, it does not count as training), where the rest has its ring, so that nothing moves when the
+ * rest comes after. «Empezar» ends it and opens the first set.
+ */
+function WarmupView({
+  startedAt,
+  lastMs,
+  nextSlot,
+  nextMuscles,
+  nextSlotDone,
+  onStart,
+}: {
+  startedAt: number;
+  /** The last warm-up of this routine. */
+  lastMs: number | null;
+  nextSlot: Slot | null;
+  nextMuscles: ExerciseMuscles | undefined;
+  nextSlotDone: number;
+  onStart: () => Promise<void>;
+}) {
+  const elapsed = useNow(500) - startedAt;
+  const [starting, setStarting] = useState(false);
+  const ringSize = 264;
+  const start = async () => {
+    setStarting(true);
+    try {
+      await onStart();
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const footer = (
+    <BottomBar actionKey="warmup">
+      <Button
+        size="xl"
+        icon="play"
+        title={nextSlot ? `Empezar · ${nextSlot.exerciseName}` : 'Ver ejercicios'}
+        onPress={start}
+        disabled={starting}
+        style={{ flex: 1 }}
+      />
+    </BottomBar>
+  );
+
+  return (
+    <Screen tight footer={footer}>
+      <View style={styles.restTop}>
+        <AppText variant="bodySm" weight="600" style={{ color: colors.muted }}>
+          Calentamiento
+        </AppText>
+        <View style={{ width: ringSize, height: ringSize, alignItems: 'center', justifyContent: 'center' }}>
+          <AppText
+            variant="countdown"
+            tabular
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.6}
+            style={{ color: colors.accent, maxWidth: ringSize - 24 }}
+            accessibilityLabel={`Calentamiento, ${formatClock(elapsed)}`}>
+            {formatClock(elapsed)}
+          </AppText>
+          {lastMs !== null ? <AppText variant="secondary">La última vez: {formatMinutes(lastMs)}</AppText> : null}
+        </View>
+      </View>
+
+      {nextSlot ? (
+        <ListGroup inset={ROW_ICON_INSET}>
+          <ListRow
+            left={<ExerciseIcon muscles={nextMuscles} />}
+            title={
+              <View style={{ gap: 2 }}>
+                <AppText variant="label">Siguiente</AppText>
+                <AppText variant="rowTitle" numberOfLines={2}>
+                  {nextSlot.exerciseName}
+                </AppText>
+              </View>
+            }
+            subtitle={`${nextSlotDone === 0 ? 'Primera serie' : `Serie ${nextSlotDone + 1} de ${nextSlot.sets}`} · ${formatLoad(
+              nextSlot.weightKg,
+              isBodyweight(nextSlot),
+              nextSlot.exercisePair,
+            )}`}
+          />
+        </ListGroup>
+      ) : null}
+    </Screen>
   );
 }
 

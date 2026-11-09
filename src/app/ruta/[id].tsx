@@ -95,6 +95,7 @@ export default function RouteExplorerScreen() {
       <InteractiveMap
         key={attempt}
         segments={walk.segments}
+        guide={data.followed?.segments}
         cursor={cursor}
         kms={kms}
         mode={offline ? '2d' : mode}

@@ -27,7 +27,7 @@ const TERRAIN = 'https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}
 type Coords = [number, number][][];
 const toCoords = (segments: LatLon[][]): Coords => segments.map((s) => s.map((p) => [p.lon, p.lat]));
 
-function buildHtml(initial: { route: Coords; mode: MapMode; layer: MapLayer; padding: object }): string {
+function buildHtml(initial: { route: Coords; guide: Coords; mode: MapMode; layer: MapLayer; padding: object }): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <link rel="stylesheet" href="${MAPLIBRE}/maplibre-gl.css" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous">
@@ -48,7 +48,7 @@ window.onerror=function(m){post({type:'error',message:String(m)})};
 (function(){
 if(!window.maplibregl)return;
 var init=${JSON.stringify(initial)};
-var state={route:init.route,mode:init.mode,padding:init.padding,follow:false,kms:[]};
+var state={route:init.route,guide:init.guide,mode:init.mode,padding:init.padding,follow:false,kms:[]};
 var empty={type:'FeatureCollection',features:[]};
 var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75,fadeDuration:0,
  style:{version:8,
@@ -57,6 +57,7 @@ var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75
    pnoa:{type:'raster',tiles:['${PNOA}'],tileSize:128,maxzoom:19,attribution:'PNOA © IGN'},
    terrain:{type:'raster-dem',tiles:['${TERRAIN}'],encoding:'terrarium',tileSize:256,maxzoom:15,attribution:'Relieve © Mapzen'},
    shade:{type:'raster-dem',tiles:['${TERRAIN}'],encoding:'terrarium',tileSize:256,maxzoom:15},
+   guide:{type:'geojson',data:empty},
    route:{type:'geojson',data:empty},
    ends:{type:'geojson',data:empty},
    cursor:{type:'geojson',data:empty}},
@@ -65,14 +66,17 @@ var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75
    {id:'osm',type:'raster',source:'osm',paint:{'raster-brightness-max':0.62,'raster-saturation':-0.25}},
    {id:'pnoa',type:'raster',source:'pnoa',layout:{visibility:'none'},paint:{'raster-brightness-max':0.9}},
    {id:'shade',type:'hillshade',source:'shade',layout:{visibility:'none'},paint:{'hillshade-exaggeration':0.35,'hillshade-shadow-color':'#000000'}},
+   {id:'guide-casing',type:'line',source:'guide',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'${colors.overlay}','line-width':14}},
+   {id:'guide',type:'line',source:'guide',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'${colors.guide}','line-width':10}},
    {id:'route-casing',type:'line',source:'route',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'rgba(14,17,22,0.7)','line-width':10}},
    {id:'route',type:'line',source:'route',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'${colors.primary}','line-width':6}},
    {id:'ends',type:'circle',source:'ends',paint:{'circle-radius':['match',['get','kind'],'start',6,7],'circle-color':['match',['get','kind'],'start','${colors.bg}','${colors.primary}'],'circle-stroke-color':['match',['get','kind'],'start','${colors.primary}','${colors.bg}'],'circle-stroke-width':['match',['get','kind'],'start',3,2]}},
    {id:'cursor-shadow',type:'circle',source:'cursor',paint:{'circle-radius':11,'circle-color':'#000000','circle-opacity':0.35,'circle-blur':0.6}},
    {id:'cursor',type:'circle',source:'cursor',paint:{'circle-radius':7,'circle-color':'${colors.text}','circle-stroke-color':'${colors.bg}','circle-stroke-width':3}}]}});
 map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-left');
-function bounds(){var b=new maplibregl.LngLatBounds();state.route.forEach(function(s){s.forEach(function(c){b.extend(c)})});return b}
-function count(){return state.route.reduce(function(n,s){return n+s.length},0)}
+function bounds(){var b=new maplibregl.LngLatBounds();state.route.concat(state.guide).forEach(function(s){s.forEach(function(c){b.extend(c)})});return b}
+function count(){return state.route.concat(state.guide).reduce(function(n,s){return n+s.length},0)}
+function setGuide(guide){state.guide=guide;map.getSource('guide').setData({type:'Feature',geometry:{type:'MultiLineString',coordinates:guide}})}
 function last(){var s=state.route[state.route.length-1];return s&&s[s.length-1]}
 function recenter(animate){if(!count())return;map.fitBounds(bounds(),{padding:state.padding,maxZoom:17,bearing:map.getBearing(),pitch:map.getPitch(),duration:animate?600:0})}
 function setRoute(route,fit){
@@ -101,7 +105,7 @@ function setMode(mode,animate){
  map.easeTo({pitch:three?60:0,bearing:three?(map.getBearing()||-25):0,duration:animate?900:0})}
 map.on('load',function(){
  map.setSky({'sky-color':'${colors.bg}','horizon-color':'${colors.cardAlt}','fog-color':'${colors.bg}','sky-horizon-blend':0.6,'horizon-fog-blend':0.6,'fog-ground-blend':0.7});
- setLayer(init.layer);setRoute(init.route,true);
+ setLayer(init.layer);setGuide(init.guide);setRoute(init.route,true);
  if(init.mode==='3d')setMode('3d',true);
  post({type:'ready'})});
 map.on('moveend',function(){post({type:'camera',bearing:map.getBearing(),pitch:map.getPitch()})});
@@ -109,7 +113,7 @@ map.on('dragstart',function(){if(state.follow)post({type:'moved'})});
 map.on('click',function(e){
  var box=[[e.point.x-24,e.point.y-24],[e.point.x+24,e.point.y+24]];
  if(map.queryRenderedFeatures(box,{layers:['route','route-casing']}).length)post({type:'tap',lon:e.lngLat.lng,lat:e.lngLat.lat})});
-window.app={setRoute:setRoute,setCursor:setCursor,setMode:setMode,setLayer:setLayer,recenter:recenter,setKms:setKms,
+window.app={setRoute:setRoute,setGuide:setGuide,setCursor:setCursor,setMode:setMode,setLayer:setLayer,recenter:recenter,setKms:setKms,
  north:function(){map.easeTo({bearing:0,pitch:state.mode==='3d'?60:0,duration:500})},
  follow:function(on){state.follow=on;if(on&&last())map.easeTo({center:last(),zoom:Math.max(map.getZoom(),16),duration:500})}};
 })();
@@ -118,6 +122,7 @@ window.app={setRoute:setRoute,setCursor:setCursor,setMode:setMode,setLayer:setLa
 
 export function InteractiveMap({
   segments,
+  guide = [],
   cursor,
   kms = [],
   mode,
@@ -133,6 +138,8 @@ export function InteractiveMap({
   onUserMove,
 }: {
   segments: LatLon[][];
+  /** A route being followed (1.4.9), in grey under the walk; «ver todo» fits both. */
+  guide?: LatLon[][];
   cursor: LatLon | null;
   /** Marks at each km: only in the full map. */
   kms?: (LatLon & { km: number })[];
@@ -159,6 +166,7 @@ export function InteractiveMap({
   const [html] = useState(() =>
     buildHtml({
       route: toCoords(segments),
+      guide: toCoords(guide),
       mode,
       layer,
       padding: { top: 48 + topInset, right: 48, bottom: 48 + bottomInset, left: 48 },
@@ -173,6 +181,11 @@ export function InteractiveMap({
     if (ready) run(`app.setRoute(${JSON.stringify(toCoords(segments))},false)`);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new array arrives on every reload
   }, [ready, routeKey]);
+  const guideKey = `${guide.map((s) => s.length).join(',')}:${guide[0]?.[0]?.lat}`;
+  useEffect(() => {
+    if (ready) run(`app.setGuide(${JSON.stringify(toCoords(guide))})`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new array arrives on every reload
+  }, [ready, guideKey]);
   const kmKey = kms.map((k) => k.km).join(',');
   useEffect(() => {
     if (ready) run(`app.setKms(${JSON.stringify(kms)})`);

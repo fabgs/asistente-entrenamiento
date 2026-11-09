@@ -153,8 +153,8 @@ export default function HistoryScreen() {
         )}
         ItemSeparatorComponent={RowSeparator}
         ListHeaderComponent={
-          // Mis rutas lives with the walks, from the first one (PLAN.md §6.8).
-          view === 'cardio' && data.cardio.some((c) => c.kind === 'gps') ? <RoutesRow count={data.routes} /> : undefined
+          // Mis rutas lives with the walks, from the first one or the first route (PLAN.md §6.8).
+          view === 'cardio' && (data.routes > 0 || data.cardio.some((c) => c.kind === 'gps')) ? <RoutesRow count={data.routes} /> : undefined
         }
         ListEmptyComponent={
           <View style={styles.emptyBox}>

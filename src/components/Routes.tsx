@@ -1,12 +1,15 @@
 import { router } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
-import type { RouteListItem, WalkRoute } from '@/db/repositories/routes';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import type { RouteListItem, SavedRoute, WalkRoute } from '@/db/repositories/routes';
 import { formatClock } from '@/domain/format';
 import { formatRecordDate } from '@/domain/records';
+import { followText, type FollowView } from '@/domain/routeFollow';
 import { routeFacts, timesLine } from '@/domain/routes';
 import { colors, radius, spacing } from '@/theme';
+import { FormRow } from './FormRow';
 import { RouteRowThumbnail } from './RouteMap';
-import { AppText, Button, Figure, Icon, ListGroup, ListRow, ROW_ICON_INSET, RowIcon, useBusy } from './ui';
+import { Sheet } from './Sheet';
+import { AppText, Button, Figure, Icon, ListGroup, ListRow, ROW_ICON_INSET, RowIcon, SwitchRow, useBusy, type IconName } from './ui';
 
 export const openRoute = (routeId: number) => router.push({ pathname: '/mis-rutas/[id]', params: { id: String(routeId) } });
 
@@ -27,7 +30,9 @@ export function RouteRow({ item, today, onPress }: { item: RouteListItem; today:
             {routeFacts(route.distanceM, route.climbM, true)}
           </AppText>
           <AppText variant="secondary" numberOfLines={2}>
-            {timesLine(count, lastDate ? formatRecordDate(lastDate, today) : null)}
+            {count === 0 && route.source === 'gpx'
+              ? 'Importada de un GPX'
+              : timesLine(count, lastDate ? formatRecordDate(lastDate, today) : null)}
           </AppText>
         </>
       }
@@ -84,7 +89,86 @@ export function WalkRouteBlock({ info, onYes, onNo }: { info: NonNullable<WalkRo
   );
 }
 
+const PILL: Record<FollowView['kind'], { icon: IconName; color: string }> = {
+  waiting: { icon: 'map-marker-path', color: colors.muted },
+  approach: { icon: 'map-marker-distance', color: colors.muted },
+  on: { icon: 'map-marker-path', color: colors.primary },
+  off: { icon: 'map-marker-alert-outline', color: colors.warning },
+  done: { icon: 'map-marker-check-outline', color: colors.primary },
+};
+
+/**
+ * Under the figures of a walk that follows a route (1.4.9): «2,3 de 5,1 km · quedan 2,8», how far
+ * the route is, or «Fuera de la ruta · a 60 m» in amber. Built like the GPS pill of the title; grey in a pause.
+ */
+export function RouteFollowPill({ view, name, paused }: { view: FollowView; name: string; paused: boolean }) {
+  const { icon, color } = PILL[view.kind];
+  const off = view.kind === 'off';
+  const text = followText(view, name);
+  return (
+    <View style={[styles.pill, off && !paused && { backgroundColor: colors.warningTint }]} accessible accessibilityLabel={text} accessibilityLiveRegion="polite">
+      <Icon name={icon} size={14} color={paused ? colors.muted : color} />
+      <AppText variant="bodySm" weight="600" tabular numberOfLines={1} maxFontSizeMultiplier={1.15} style={{ color: paused ? colors.muted : colors.text }}>
+        {text}
+      </AppText>
+    </View>
+  );
+}
+
+/**
+ * «Seguir una ruta»: the saved routes (a tap starts following one), the switch of the alert and, when
+ * starting a walk, «Caminar libre» at the bottom (`onFree`); from the walk's menu there is none.
+ */
+export function FollowRouteSheet({
+  visible,
+  routes,
+  today,
+  alertOn,
+  onAlert,
+  onPick,
+  onFree,
+  onClose,
+}: {
+  visible: boolean;
+  routes: RouteListItem[];
+  today: string;
+  alertOn: boolean;
+  onAlert: (on: boolean) => void;
+  onPick: (route: SavedRoute) => void;
+  onFree?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet visible={visible} title="Seguir una ruta" onClose={onClose}>
+      <ScrollView style={{ flexGrow: 0, flexShrink: 1 }}>
+        <ListGroup inset={ROW_ICON_INSET} style={{ backgroundColor: colors.cardAlt }}>
+          {routes.map((item) => (
+            <RouteRow key={item.route.id} item={item} today={today} onPress={() => onPick(item.route)} />
+          ))}
+        </ListGroup>
+      </ScrollView>
+      <ListGroup style={{ backgroundColor: colors.cardAlt }}>
+        <FormRow>
+          <SwitchRow label="Avisar si me salgo" subtitle="También con la pantalla bloqueada" value={alertOn} onValueChange={onAlert} />
+        </FormRow>
+      </ListGroup>
+      {onFree ? <Button size="lg" icon="play" title="Caminar libre" onPress={onFree} /> : null}
+    </Sheet>
+  );
+}
+
 const styles = StyleSheet.create({
+  pill: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    height: 28,
+    maxWidth: '100%',
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.cardAlt,
+  },
   box: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   buttons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs },

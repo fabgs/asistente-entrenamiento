@@ -3,6 +3,7 @@ import { formatCardioResult } from '@/domain/format';
 import {
   activeMs,
   buildSamples,
+  decodeRoute,
   decodeSamples,
   encodeRoute,
   encodeSamples,
@@ -10,6 +11,16 @@ import {
   type TrackPoint,
   type TrackSample,
 } from '@/domain/gps';
+import {
+  buildFollowLine,
+  followStep,
+  followView,
+  parseFollowState,
+  type FollowEvent,
+  type FollowLine,
+  type FollowState,
+  type FollowView,
+} from '@/domain/routeFollow';
 import { localDateString } from '@/domain/schedule';
 import {
   DEFAULT_SPRINT_PLAN,
@@ -53,6 +64,10 @@ export interface CardioSession {
   laps: Lap[];
   /** `laps` as stored, for the optimistic writes of `setSprintLaps`. */
   lapsJson: string | null;
+  /** The saved route chosen to follow (1.4.9), kept after the walk for its grey line. */
+  followRouteId: number | null;
+  /** Where on that route the GPS task last placed the walker; null once finished. */
+  followState: FollowState | null;
 }
 
 interface SessionRow {
@@ -73,6 +88,8 @@ interface SessionRow {
   route: string | null;
   samples: string | null;
   laps: string | null;
+  follow_route_id: number | null;
+  follow_state: string | null;
 }
 
 const toSession = (r: SessionRow): CardioSession => ({
@@ -95,14 +112,23 @@ const toSession = (r: SessionRow): CardioSession => ({
   sprint: r.tracking === 'sprint' ? parseSprintPlan(r.plan) : null,
   laps: decodeLaps(r.laps),
   lapsJson: r.laps,
+  followRouteId: r.follow_route_id,
+  followState: parseFollowState(r.follow_state),
 });
 
-export async function startCardioSession(db: Db, activity: CardioActivity, now = Date.now()): Promise<number> {
+/** `followRouteId`: a walk that follows a saved route from the start (1.4.9). */
+export async function startCardioSession(
+  db: Db,
+  activity: CardioActivity,
+  now = Date.now(),
+  followRouteId: number | null = null,
+): Promise<number> {
   if (activity.tracking === 'check') throw new Error('This activity is only checked off');
   const sprints = activity.tracking === 'sprint';
   const plan = sprints ? (activity.sprint ?? DEFAULT_SPRINT_PLAN) : activity.tracking === 'timer' ? activity.plan : null;
   const result = await db.runAsync(
-    `INSERT INTO cardio_session (activity_id, name, date, tracking, started_at, plan, laps) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO cardio_session (activity_id, name, date, tracking, started_at, plan, laps, follow_route_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     activity.id,
     activity.name,
     localDateString(new Date(now)),
@@ -110,8 +136,22 @@ export async function startCardioSession(db: Db, activity: CardioActivity, now =
     now,
     plan ? JSON.stringify(plan) : null,
     sprints ? '[]' : null,
+    activity.tracking === 'gps' ? followRouteId : null,
   );
   return result.lastInsertRowId;
+}
+
+/**
+ * Starts (or stops, with null) following a route on a walk being recorded, with the detector's state
+ * to put back (undoing «Dejar de seguir»); a new route starts from scratch.
+ */
+export async function setFollowRoute(db: Db, sessionId: number, routeId: number | null, state: FollowState | null = null): Promise<void> {
+  await db.runAsync(
+    `UPDATE cardio_session SET follow_route_id = ?, follow_state = ? WHERE id = ? AND status = 'in_progress' AND tracking = 'gps'`,
+    routeId,
+    routeId !== null && state ? JSON.stringify(state) : null,
+    sessionId,
+  );
 }
 
 export async function getCardioSession(db: Db, id: number): Promise<CardioSession | null> {
@@ -137,19 +177,66 @@ export interface NewPoint {
   receivedAt?: number | null;
 }
 
+/** What a batch of fixes did to a route being followed, for the GPS task to alert. */
+export interface FollowResult {
+  sessionId: number;
+  routeName: string;
+  event: FollowEvent | null;
+  view: FollowView;
+}
+
+// The task runs every 3 s: the followed route is decoded once, until it changes (ids come back after a restore).
+let followLine: { key: string; line: FollowLine } | null = null;
+
+function lineFor(routeId: number, createdAt: number, path: string): FollowLine {
+  const key = `${routeId}:${createdAt}`;
+  if (followLine?.key !== key) followLine = { key, line: buildFollowLine(decodeRoute(path)) };
+  return followLine.line;
+}
+
 /**
- * Stores fixes from the background GPS task in the running (not paused) GPS or sprints session.
- * Returns how many were stored: none when nothing is being recorded.
+ * Stores fixes from the background GPS task in the running (not paused) GPS or sprints session and,
+ * on a walk that follows a route, moves its detector on (PLAN.md §6.8): its state is saved in the
+ * session, and the result says what to alert. A failure of the detector never loses the points.
  */
-export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number> {
-  const session = await db.getFirstAsync<{ id: number; segment: number; started_at: number }>(
-    `SELECT id, segment, started_at FROM cardio_session
-     WHERE status = 'in_progress' AND tracking IN ('gps', 'sprint') AND paused_at IS NULL
-     ORDER BY started_at DESC LIMIT 1`,
+export async function storeTrackPoints(
+  db: Db,
+  points: NewPoint[],
+  now = Date.now(),
+): Promise<{ stored: number; follow: FollowResult | null }> {
+  const session = await db.getFirstAsync<{
+    id: number;
+    segment: number;
+    started_at: number;
+    follow_route_id: number | null;
+    follow_state: string | null;
+    path: string | null;
+    route_name: string | null;
+    route_created: number | null;
+    route_alert: number | null;
+  }>(
+    `SELECT s.id, s.segment, s.started_at, s.follow_route_id, s.follow_state,
+            r.path, r.name AS route_name, r.created_at AS route_created,
+            (SELECT route_alert FROM settings WHERE id = 1) AS route_alert
+     FROM cardio_session s LEFT JOIN route r ON r.id = s.follow_route_id
+     WHERE s.status = 'in_progress' AND s.tracking IN ('gps', 'sprint') AND s.paused_at IS NULL
+     ORDER BY s.started_at DESC LIMIT 1`,
   );
-  if (!session) return 0;
+  if (!session) return { stored: 0, follow: null };
   // Android may deliver a cached fix from before the start.
   const fresh = points.filter((p) => p.t >= session.started_at - 5_000);
+  let follow: FollowResult | null = null;
+  let followJson: string | null = null;
+  if (session.follow_route_id !== null && session.path && session.route_created !== null && fresh.length > 0) {
+    try {
+      const line = lineFor(session.follow_route_id, session.route_created, session.path);
+      const { state, event } = followStep(line, parseFollowState(session.follow_state), fresh, now, session.route_alert !== 0);
+      followJson = JSON.stringify(state);
+      follow = { sessionId: session.id, routeName: session.route_name ?? '', event, view: followView(state, line) };
+    } catch (e) {
+      console.warn('Could not follow the route', e);
+    }
+  }
   for (const p of fresh) {
     await db.runAsync(
       `INSERT INTO cardio_point (session_id, segment, t, lat, lon, accuracy, speed, altitude, received_at)
@@ -165,7 +252,21 @@ export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number
       p.receivedAt ?? null,
     );
   }
-  return fresh.length;
+  if (followJson !== null) {
+    // Only if it still follows that route: «Dejar de seguir» may have come in the meantime.
+    await db.runAsync(
+      'UPDATE cardio_session SET follow_state = ? WHERE id = ? AND follow_route_id = ?',
+      followJson,
+      session.id,
+      session.follow_route_id,
+    );
+  }
+  return { stored: fresh.length, follow };
+}
+
+/** Stores fixes (see `storeTrackPoints`): how many, none when nothing is being recorded. */
+export async function addTrackPoints(db: Db, points: NewPoint[]): Promise<number> {
+  return (await storeTrackPoints(db, points)).stored;
 }
 
 export async function listTrackPoints(db: Db, sessionId: number): Promise<TrackPoint[]> {
@@ -217,7 +318,7 @@ export async function finishCardioSession(db: Db, id: number, now = Date.now()):
   await db.withTransactionAsync(async () => {
     await db.runAsync(
       `UPDATE cardio_session
-       SET status = 'finished', finished_at = ?, paused_at = NULL, distance_m = ?, route = ?, samples = ?
+       SET status = 'finished', finished_at = ?, paused_at = NULL, distance_m = ?, route = ?, samples = ?, follow_state = NULL
        WHERE id = ?`,
       finishedAt,
       distance,

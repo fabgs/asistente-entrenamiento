@@ -2,14 +2,14 @@
   "expo": {
     "name": "Entreno",
     "slug": "entreno",
-    "version": "1.4.8",
+    "version": "1.4.9",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "entreno",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.fabgs.entreno",
-      "versionCode": 20,
+      "versionCode": 21,
       "adaptiveIcon": {
         "backgroundColor": "#0E1116",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

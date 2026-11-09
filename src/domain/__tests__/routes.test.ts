@@ -10,6 +10,7 @@ import {
   routeFacts,
   routeLengthM,
   routeMatch,
+  recentFirst,
   routeQuestion,
   routeRecords,
   timesLine,
@@ -269,6 +270,12 @@ describe('the walks of a route', () => {
     expect(routeRecords([variant], true)).toEqual({ best: null, last: null, chart: [] });
   });
 
+  it('offers first the route walked or saved most recently', () => {
+    const item = (name: string, lastAt: number | null, createdAt: number) => ({ name, lastAt, route: { createdAt } });
+    const sorted = recentFirst([item('vieja', 100, 50), item('gpx de hoy', null, 900), item('andada ayer', 800, 10), item('nunca', null, 20)]);
+    expect(sorted.map((i) => i.name)).toEqual(['gpx de hoy', 'andada ayer', 'vieja', 'nunca']);
+  });
+
   it('writes the facts, the name, the question and the times walked', () => {
     expect(routeFacts(5140, 47.6)).toBe('5,14 km · desnivel +48 m');
     expect(routeFacts(5140, 47.6, true)).toBe('5,14 km · +48 m');
@@ -283,8 +290,8 @@ describe('the walks of a route', () => {
       title: '¿Es una variante de «Ver hormigas»?',
       detail: 'Coincide el 72 % del recorrido · 5,60 km frente a 5,14 km',
     });
-    expect(timesLine(4, '9 nov')).toBe('4 veces · la última el 9 nov');
-    expect(timesLine(1, '9 nov')).toBe('1 vez · el 9 nov');
+    expect(timesLine(4, '9 nov')).toBe('4 veces · la última el 9 nov');
+    expect(timesLine(1, '9 nov')).toBe('1 vez · el 9 nov');
     expect(timesLine(0, null)).toBe('Sin caminatas');
   });
 });

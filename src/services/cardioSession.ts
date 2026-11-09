@@ -7,14 +7,18 @@ import {
   getCardioSession,
   pauseCardioSession,
   resumeCardioSession,
+  setFollowRoute,
   startCardioSession,
   type CardioSession,
 } from '@/db/repositories/cardioSessions';
+import { updateSettings } from '@/db/repositories/settings';
+import type { FollowState } from '@/domain/routeFollow';
 import { linkToRepeatedRoute } from '@/db/repositories/routes';
 import { activeMs } from '@/domain/gps';
 import { cancelCardioTimer, scheduleCardioTimer } from './cardioTimer';
 import { SPRINT_GPS, startGpsTracking, stopGpsTracking, WALK_GPS, type GpsStart } from './gpsTracker';
 import { deletingPhotosOf } from './photos';
+import { dismissRouteAlert } from './routeAlert';
 import { finishSprints, stopSprintTracking, syncSprint } from './sprintSession';
 
 /** When the plan's clock would have started without the pauses so far. */
@@ -44,9 +48,10 @@ async function stopTracking(session: CardioSession): Promise<void> {
 export async function startCardio(
   db: Db,
   activity: CardioActivity,
+  followRouteId: number | null = null,
   now = Date.now(),
 ): Promise<{ sessionId: number; gpsError?: Exclude<GpsStart, 'ok'> } | { error: Exclude<GpsStart, 'ok'> }> {
-  const sessionId = await startCardioSession(db, activity, now);
+  const sessionId = await startCardioSession(db, activity, now, followRouteId);
   const session = (await getCardioSession(db, sessionId))!;
   const result = await startTracking(session, now).catch((): GpsStart => 'off');
   if (result === 'ok') return { sessionId };
@@ -58,6 +63,19 @@ export async function startCardio(
 export async function pauseCardio(db: Db, session: CardioSession, now = Date.now()): Promise<void> {
   await stopTracking(session);
   await pauseCardioSession(db, session.id, now);
+  await dismissRouteAlert(session.id);
+}
+
+/** Follows a route on the walk being recorded, stops following it (null), or puts it back with its state. */
+export async function followRoute(db: Db, session: CardioSession, routeId: number | null, state: FollowState | null = null): Promise<void> {
+  await setFollowRoute(db, session.id, routeId, state);
+  await dismissRouteAlert(session.id);
+}
+
+/** The alert on leaving a followed route, for every walk (the switch of the sheet and of the menu). */
+export async function setRouteAlert(db: Db, on: boolean, session: CardioSession | null): Promise<void> {
+  await updateSettings(db, { routeAlert: on });
+  if (!on && session) await dismissRouteAlert(session.id);
 }
 
 export async function resumeCardio(db: Db, session: CardioSession, now = Date.now()): Promise<GpsStart> {
@@ -85,6 +103,7 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
   }
   await stopTracking(session);
   await finishCardioSession(db, session.id, now);
+  await dismissRouteAlert(session.id);
   if (session.tracking === 'gps') {
     // A walk that repeats a saved route is linked to it by itself; a failure here must not lose the walk.
     await linkToRepeatedRoute(db, session.id).catch((e) => console.warn('Could not match the walk with a route', e));
@@ -93,6 +112,7 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
 
 export async function discardCardio(db: Db, session: CardioSession): Promise<void> {
   await stopTracking(session);
+  await dismissRouteAlert(session.id);
   await deletingPhotosOf(db, { kind: 'cardio', id: session.id }, () => discardCardioSession(db, session.id));
 }
 

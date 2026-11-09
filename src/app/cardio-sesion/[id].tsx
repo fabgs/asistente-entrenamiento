@@ -7,7 +7,7 @@ import { showActions, showDialog, showPrompt, showSnackbar } from '@/components/
 import { MetricBoard } from '@/components/MetricBoard';
 import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { RouteMap } from '@/components/RouteMap';
-import { openRoute, WalkRouteBlock } from '@/components/Routes';
+import { FollowRouteSheet, openRoute, RouteFollowPill, WalkRouteBlock } from '@/components/Routes';
 import { SprintDetails } from '@/components/Sprint';
 import { askFinishSprints, SprintLive } from '@/components/SprintLive';
 import { TrackChart } from '@/components/TrackChart';
@@ -37,7 +37,16 @@ import {
 import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen, type Hint } from '@/db/repositories/hints';
 import type { Photo, PhotoOwner } from '@/db/repositories/photos';
-import { linkWalk, saveWalkAsRoute, setRouteDeclined, unlinkWalk, type WalkRoute } from '@/db/repositories/routes';
+import {
+  linkWalk,
+  routeList,
+  saveWalkAsRoute,
+  setRouteDeclined,
+  unlinkWalk,
+  type RouteListItem,
+  type SavedRoute,
+  type WalkRoute,
+} from '@/db/repositories/routes';
 import { updateSettings, type LivePanel, type Settings } from '@/db/repositories/settings';
 import {
   describePlan,
@@ -52,8 +61,9 @@ import {
 import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
 import { activeMs, decodeRoute, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
 import { photoPlace, placeFromFix, walkTrackOf } from '@/domain/photos';
-import { defaultRouteName } from '@/domain/routes';
-import { parseLocalDate } from '@/domain/schedule';
+import { buildFollowLine, followView, type FollowState } from '@/domain/routeFollow';
+import { defaultRouteName, recentFirst, routeEnds } from '@/domain/routes';
+import { localDateString, parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
 import { sprintGps } from '@/domain/sprint';
 import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
@@ -64,10 +74,13 @@ import {
   discardCardio,
   ensureCardioRunning,
   finishCardio,
+  followRoute,
   GPS_ERROR_MESSAGE,
   pauseCardio,
   resumeCardio,
+  setRouteAlert,
 } from '@/services/cardioSession';
+import { shareWalkGpx } from '@/services/gpx';
 import { pickPhotos, takePhoto, type AddPhotosResult } from '@/services/photos';
 import { colors, radius, spacing } from '@/theme';
 
@@ -103,6 +116,8 @@ export default function CardioSessionScreen() {
   const db = useDb();
   const { data, reload } = useCardioSession(sessionId);
   const [justFinished, setJustFinished] = useState(false);
+  // «Seguir una ruta…» from the menu of a walk being recorded.
+  const [followSheet, setFollowSheet] = useState<RouteListItem[] | null>(null);
   // Discarding leaves once the live screen has let go of the back button.
   const [leaving, setLeaving] = useState(false);
   useEffect(() => {
@@ -229,6 +244,52 @@ export default function CardioSessionScreen() {
       },
     });
   };
+  // Following a route while walking (1.4.9).
+  const followed = data.followed;
+  const openFollowSheet = async () => setFollowSheet(recentFirst(await routeList(db)));
+  const stopFollowing = async (route: SavedRoute) => {
+    const state = session.followState;
+    await followRoute(db, session, null);
+    reload();
+    showSnackbar(`Ya no sigues «${route.name}»`, {
+      label: 'Deshacer',
+      onPress: async () => {
+        await followRoute(db, session, route.id, state);
+        reload();
+      },
+    });
+  };
+  const switchAlert = async (on: boolean) => {
+    await setRouteAlert(db, on, session);
+    reload();
+  };
+  const followItems =
+    isWalk && inProgress
+      ? followed
+        ? [
+            { text: 'Dejar de seguir la ruta', icon: 'map-marker-remove-outline' as const, onPress: () => stopFollowing(followed) },
+            settings.routeAlert
+              ? {
+                  text: 'No avisar si me salgo',
+                  icon: 'bell-off-outline' as const,
+                  onPress: () => switchAlert(false).then(() => showSnackbar('Aviso desactivado')),
+                }
+              : {
+                  text: 'Avisar si me salgo',
+                  icon: 'bell-ring-outline' as const,
+                  onPress: () => switchAlert(true).then(() => showSnackbar('Aviso activado')),
+                },
+          ]
+        : data.routes > 0
+          ? [{ text: 'Seguir una ruta…', icon: 'map-marker-path' as const, onPress: openFollowSheet }]
+          : []
+      : [];
+  const canExport = isWalk && !inProgress && decodeRoute(session.route).flat().length >= 2;
+  const exportGpx = () =>
+    shareWalkGpx(session).catch((e) => {
+      console.warn('Could not export the GPX', e);
+      showSnackbar('No se pudo exportar el GPX');
+    });
   const menu = () => {
     const at = Date.now();
     // «Terminar ahora» once there is something to keep: a sprint done or one running.
@@ -237,8 +298,10 @@ export default function CardioSessionScreen() {
       ...(somethingToKeep
         ? [{ text: 'Terminar ahora', icon: 'flag-checkered' as const, onPress: () => askFinishSprints(session, at, () => finish()) }]
         : []),
+      ...followItems,
       ...(canSaveRoute ? [{ text: 'Guardar como ruta', icon: 'map-marker-path' as const, onPress: saveRoute }] : []),
       ...(routeLink ? [{ text: 'Quitar de la ruta', icon: 'link-variant-off' as const, onPress: () => leaveRoute(routeLink) }] : []),
+      ...(canExport ? [{ text: 'Exportar GPX', icon: 'file-export-outline' as const, onPress: exportGpx }] : []),
       { text: inProgress ? `Descartar ${what}` : `Borrar ${what}`, icon: 'trash-can-outline', destructive: true, onPress: discard },
     ]);
   };
@@ -327,6 +390,8 @@ export default function CardioSessionScreen() {
           route={
             data.route ? <WalkRouteBlock key={data.route.kind} info={data.route} onYes={answerRoute.yes} onNo={answerRoute.no} /> : null
           }
+          followed={followed}
+          followedLinked={!!followed && data.route?.kind === 'linked' && data.route.routeId === followed.id}
           onAddPhoto={addPhoto}
           onRename={async () => {
             const title = await showPrompt('Título', {
@@ -416,9 +481,43 @@ export default function CardioSessionScreen() {
           ),
         }}
       />
-      <GpsView session={session} points={points} photos={photoPlaces} prefs={prefs} footer={footer} />
+      <GpsView
+        session={session}
+        points={points}
+        photos={photoPlaces}
+        prefs={prefs}
+        footer={footer}
+        follow={followed ? { route: followed, state: session.followState } : null}
+      />
+      <FollowRouteSheet
+        visible={followSheet !== null}
+        routes={followSheet ?? []}
+        today={localDateString(new Date(session.startedAt))}
+        alertOn={settings.routeAlert}
+        onAlert={switchAlert}
+        onPick={async (route) => {
+          setFollowSheet(null);
+          await followRoute(db, session, route.id);
+          reload();
+        }}
+        onClose={() => setFollowSheet(null)}
+      />
     </>
   );
+}
+
+/** The followed route as the GPS task last placed the walker on it, and where it starts and ends the way it is followed. */
+function useFollow(follow: { route: SavedRoute; state: FollowState | null } | null) {
+  const key = follow ? `${follow.route.id}:${follow.route.createdAt}` : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new route object arrives on every reload
+  const line = useMemo(() => (follow ? buildFollowLine(follow.route.segments) : null), [key]);
+  if (!follow || !line) return null;
+  const ends = routeEnds(follow.route.segments);
+  const backwards = (follow.state?.dir || follow.state?.initial) === -1;
+  return {
+    view: followView(follow.state, line),
+    ends: ends ? (backwards ? { start: ends.end, end: ends.start } : ends) : null,
+  };
 }
 
 /** What the GPS can measure, as the title of the live sprints. */
@@ -491,13 +590,17 @@ function GpsView({
   photos,
   prefs,
   footer,
+  follow,
 }: {
   session: CardioSession;
   points: TrackPoint[];
   photos: LatLon[];
   prefs: WalkPrefs;
   footer: ReactNode;
+  /** The route being followed (1.4.9), with the detector's state. */
+  follow: { route: SavedRoute; state: FollowState | null } | null;
 }) {
+  const following = useFollow(follow);
   const { settings } = prefs;
   const now = useNow(1000);
   const [panel, setPanel] = useState<LivePanel>(settings.cardioLivePanel);
@@ -535,6 +638,7 @@ function GpsView({
         unit={settings.distanceUnit}
         onHero={prefs.onHero}
         onToggleUnit={prefs.onToggleUnit}
+        below={following && follow ? <RouteFollowPill view={following.view} name={follow.route.name} paused={paused} /> : undefined}
       />
       <Segmented
         options={LIVE_PANELS}
@@ -556,6 +660,8 @@ function GpsView({
             segments={track.segments}
             height={panelHeight}
             photos={photos}
+            guide={follow?.route.segments}
+            guideEnds={following?.ends}
             onPress={() => openMap(session.id)}
             corner={<FloatingButton icon="arrow-expand" label="Ampliar el mapa" onPress={() => openMap(session.id)} />}
           />
@@ -626,12 +732,17 @@ function WalkDetails({
   walk,
   prefs,
   photos,
+  guide,
+  guideCaption,
   children,
 }: {
   sessionId: number;
   walk: WalkSnapshot;
   prefs: WalkPrefs;
   photos: LatLon[];
+  /** The route it followed, in grey under it, and what says so when it did not turn out to be that route. */
+  guide?: LatLon[][];
+  guideCaption?: string | null;
   /** Between the map and chart and the splits: the photos. */
   children?: ReactNode;
 }) {
@@ -647,6 +758,7 @@ function WalkDetails({
             segments={walk.segments}
             height={240}
             photos={photos}
+            guide={guide}
             cursor={cursorD === null ? null : positionAtDistance(walk.segments, cursorD)}
             onPress={() => openMap(sessionId)}
             corner={
@@ -657,6 +769,7 @@ function WalkDetails({
             }
           />
         ) : null}
+        {guideCaption ? <AppText variant="caption">{guideCaption}</AppText> : null}
         {walk.samples.length > 2 ? (
           <Card flush style={styles.chartCard}>
             <TrackChart
@@ -840,6 +953,8 @@ function FinishedView({
   prefs,
   photos,
   route,
+  followed,
+  followedLinked,
   onAddPhoto,
   onRename,
   footer,
@@ -849,6 +964,9 @@ function FinishedView({
   photos: Photo[];
   /** The walk's saved route or the question about one: between its figures and its map. */
   route: ReactNode;
+  /** The route it followed (1.4.9), and whether the walk is linked to it. */
+  followed: SavedRoute | null;
+  followedLinked: boolean;
   onAddPhoto: () => void;
   onRename: () => void;
   footer?: ReactNode;
@@ -878,7 +996,13 @@ function FinishedView({
             onToggleUnit={prefs.onToggleUnit}
           />
           {route}
-          <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} photos={placesOf(photos)}>
+          <WalkDetails
+            sessionId={session.id}
+            walk={walk}
+            prefs={prefs}
+            photos={placesOf(photos)}
+            guide={followed?.segments}
+            guideCaption={followed && !followedLinked ? `En gris, «${followed.name}», la ruta que seguías.` : null}>
             {photoSection}
           </WalkDetails>
         </>

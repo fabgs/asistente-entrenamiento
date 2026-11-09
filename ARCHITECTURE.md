@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.8** (`versionCode` 20, [app.json](app.json)) |
-| Esquema de la BD | **12** (`PRAGMA user_version`, 12 migraciones) |
-| Revisado | 2026-11-09, versión 1.4.8 (Mis rutas: guardar una caminata como ruta, enlazar las que la repiten y comparar sus tiempos) |
+| Versión de la app | **1.4.9** (`versionCode` 21, [app.json](app.json)) |
+| Esquema de la BD | **13** (`PRAGMA user_version`, 13 migraciones) |
+| Revisado | 2026-11-09, versión 1.4.9 (seguir una ruta con aviso al salirse, también con la pantalla bloqueada; importar y exportar GPX) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -137,10 +137,10 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek` (también el último día de cada músculo, `lastWorkedDates`), `plannedWeekSets` |
 | [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio`, `cardioLogOn`, `setCardioDone`, `addCardio`, `updateCardio`, `archiveCardio`, `unarchiveCardio` |
-| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession`, `addTrackPoints`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
+| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
-| [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*` | `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount` |
+| [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount` |
 | [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `listRoutePhotos` (las de todas las caminatas de una ruta), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
 | [records.ts](src/db/repositories/records.ts) | lecturas | `loadRecords` (totales, por año, mejor serie de cada ejercicio, tiempos y caminatas), `workoutCounts` (la fila del Perfil) |
 | [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`) |
@@ -163,6 +163,8 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [workoutTimes.ts](src/domain/workoutTimes.ts) | Tiempos del entreno: serie, descanso real (`restsOf`), atípicos, medianas frente al plan (`restStats`, `sessionTimes`, `exerciseTimes`, `exerciseRestAcross`), duración de una rutina (`workoutDuration`) |
 | [records.ts](src/domain/records.ts) | Récords: mejor serie de un ejercicio en su unidad (`exerciseBest`, `recordReading`), entrenos por semana de un año, caminatas por actividad (`walkRecords`) |
 | [cardioSport.ts](src/domain/cardioSport.ts) | El deporte de una actividad de cardio por su nombre, para su icono (`cardioSport`) |
+| [routeFollow.ts](src/domain/routeFollow.ts) | Seguir una ruta (1.4.9): la ruta en metros (`buildFollowLine`), el detector dentro/fuera con histéresis, el progreso con su ventana y el sentido (`followStep`), y lo que dice la píldora y la notificación (`followView`, `followText`, `followNotice`) |
+| [gpx.ts](src/domain/gpx.ts) | GPX sin dependencias: leer (`parseGpx`, `checkGpxRoute`) y escribir (`toGpx`, `walkElevation`, `gpxFileName`) |
 | [routes.ts](src/domain/routes.ts) | Mis rutas: ¿repite una caminata una ruta? (`routeMatch`: salida y llegada, distancia, celdas de 25 m, sentido; `bestRouteMatch`), por qué una vez no compite por el mejor (`exclusionOf`), comparación con las anteriores y sus textos (`visitLines`, `routeRecords`, `routeQuestion`) |
 | [zoom.ts](src/domain/zoom.ts) | Geometría del zoom de las fotos (worklets): encaje, límites, pellizco sobre los dedos, página tras deslizar |
 | [progress.ts](src/domain/progress.ts) | Volumen, récords, 1RM estimado (Epley, hasta 12 reps), escalas de ejes, agrupar por meses |
@@ -190,10 +192,12 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [restTimer.ts](src/services/restTimer.ts) | Alarma `rest-<sesión>` + cuenta atrás nativa del descanso | Entreno, Hoy |
 | [workoutInProgress.ts](src/services/workoutInProgress.ts) | Notificación fija «Entreno en curso» y sus textos | Entreno, Hoy, `_layout` |
 | [dailyReminder.ts](src/services/dailyReminder.ts) | Los 7 avisos semanales | `_layout`, Ajustes, `editing.ts`, backup |
-| [cardioSession.ts](src/services/cardioSession.ts) | Iniciar, pausar, reanudar, terminar (y enlazar la caminata a la ruta que repite) y descartar cardio | Hoy, sesión de cardio, `_layout` |
+| [cardioSession.ts](src/services/cardioSession.ts) | Iniciar (siguiendo una ruta o no), pausar, reanudar, terminar (y enlazar la caminata a la ruta que repite o seguía) y descartar cardio; seguir o dejar de seguir una ruta (`followRoute`) y el aviso (`setRouteAlert`) | Hoy, sesión de cardio, ruta, `_layout` |
+| [routeAlert.ts](src/services/routeAlert.ts) | Notificación inmediata al salirse de la ruta seguida, el recordatorio y la vuelta (`notifyFollow`), y quitarla (`dismissRouteAlert`) | `gpsTracker`, cardioSession, ruta |
+| [gpx.ts](src/services/gpx.ts) | Elegir un GPX y comprobarlo (`pickGpx`); exportar una caminata o una ruta (`shareWalkGpx`, `shareRouteGpx`) | Mis rutas, ruta, sesión de cardio |
 | [cardioTimer.ts](src/services/cardioTimer.ts) | Alarmas de cambio de fase | cardioSession, sprintSession |
 | [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido y cuenta atrás | `SprintLive`, cardioSession |
-| [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` y arrancar/parar el GPS | cardioSession, sprintSession, `walk.ts`, `_layout` |
+| [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` (guarda los puntos lote a lote y avisa si te sales de la ruta seguida) y arrancar/parar el GPS | cardioSession, sprintSession, `walk.ts`, `_layout` |
 | [secureDatabase.ts](src/services/secureDatabase.ts) | Clave SQLCipher, cifrar una BD antigua, conexión de la tarea GPS | `_layout`, gpsTracker |
 | [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub, modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
 | [backupCipher.ts](src/services/backupCipher.ts) | Kit nativo (PBKDF2 del módulo + AES-GCM de `expo-crypto`) y la clave guardada | backup |
@@ -215,7 +219,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [SlotRow.tsx](src/components/SlotRow.tsx) | Un ejercicio de una rutina como fila: icono, nombre, la carga como cifra a la derecha («35 kg», «15 kg / lastre») y la prescripción debajo. Rutinas, Hoy, editor de rutina y «Ejercicio suelto» |
 | [Ring.tsx](src/components/Ring.tsx) | Anillo del descanso (Reanimated) |
 | [LineChart.tsx](src/components/LineChart.tsx) · [TrackChart.tsx](src/components/TrackChart.tsx) · [MetricBoard.tsx](src/components/MetricBoard.tsx) | Gráfica de progreso/peso; gráfica de la ruta; panel de cifras de la caminata |
-| [Routes.tsx](src/components/Routes.tsx) | Mis rutas: la fila de una ruta (`RouteRow`) y, en el detalle de una caminata, la fila de su ruta o la tarjeta «¿Es una variante de…?» (`WalkRouteBlock`) |
+| [Routes.tsx](src/components/Routes.tsx) | Mis rutas: la fila de una ruta (`RouteRow`, con «Importada de un GPX»), en el detalle de una caminata la fila de su ruta o la tarjeta «¿Es una variante de…?» (`WalkRouteBlock`), la hoja «Seguir una ruta» (`FollowRouteSheet`) y la píldora bajo las cifras (`RouteFollowPill`) |
 | [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura, y la de las filas centrada en la columna de los iconos, `RouteRowThumbnail`); MapLibre en un WebView |
 | [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo con la ruta en el mismo sitio en los tres primeros (en Mapa, zoom entre niveles con `fitViewExact`); la marca y «© OpenStreetMap» en la última línea |
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
@@ -251,8 +255,8 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [progreso/[id].tsx](src/app/progreso/[id].tsx) | `/progreso/:exerciseId` | Nombre del ejercicio | Gráfica, récords, sesiones y cambios de peso |
 | [cardio-sesion/[id].tsx](src/app/cardio-sesion/[id].tsx) | `/cardio-sesion/:cardioSessionId` | En directo: nombre o píldora del GPS; terminada: vacío | Caminata, Fases o Sprints en directo, o su detalle |
 | [ruta/[id].tsx](src/app/ruta/[id].tsx) | `/ruta/:cardioSessionId` · `?modo=3d` | Sin cabecera | Mapa a pantalla completa con gráfica |
-| [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | Las caminatas guardadas como ruta, la última hecha arriba |
-| [mis-rutas/[id].tsx](src/app/mis-rutas/[id].tsx) | `/mis-rutas/:routeId` | Vacío (el nombre va en la página) | Una ruta: mapa con las fotos, mejor y última, gráfica de los tiempos y cada vez |
+| [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | Las caminatas guardadas como ruta, la última hecha arriba; «Importar GPX» |
+| [mis-rutas/[id].tsx](src/app/mis-rutas/[id].tsx) | `/mis-rutas/:routeId` | Vacío (el nombre va en la página) | Una ruta: mapa con las fotos, mejor y última, gráfica de los tiempos y cada vez; «Seguir esta ruta» |
 | [compartir/[tipo]/[id].tsx](src/app/compartir/[tipo]/[id].tsx) | `/compartir/cardio/:id` · `/compartir/entreno/:id` | Compartir | Imagen para compartir (historia o cuadrado) |
 | [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página, con zoom |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
@@ -284,7 +288,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - «Monta tu semana» (sin rutinas ni cardio): «Crear una rutina» → `/rutinas`; «Añadir cardio» → `/cardio`.
   - Tarjeta «Entreno en curso» (si hay un entreno activo que no es una rutina de hoy pendiente, o tiene más de 12 h): «Continuar entreno» → `/workout/:id` (antes `openNextSet`); «Terminar o descartar…» (más de 12 h) → diálogo «Entreno sin terminar»: «Terminar» → `/workout/resumen/:id`, «Descartar» se queda.
   - Fila del cardio en curso (etiqueta «En curso») → `/cardio-sesion/:id`.
-  - Para hoy · cardio: círculo ✓ marca o desmarca (sin navegar); «Iniciar» / «Ver» (GPS, Fases, Sprints) → `/cardio-sesion/:id`.
+  - Para hoy · cardio: círculo ✓ marca o desmarca (sin navegar); «Iniciar» / «Ver» (GPS, Fases, Sprints) → `/cardio-sesion/:id`; una caminata con rutas guardadas abre antes la hoja «Seguir una ruta» (una ruta o «Caminar libre» → `/cardio-sesion/:id`).
   - Para hoy · `RoutineCard`: «Empezar rutina» / «Continuar entreno» → `/workout/:id`; el chevron despliega ejercicios y sugerencias («Aplicar las N», sin navegar).
   - «Completa tu perfil» → `/perfil`.
   - Hecho: fila de entreno → `/workout/resumen/:id`; fila de cardio con sesión → `/cardio-sesion/:id` (su ✓ lo desmarca).
@@ -342,7 +346,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - Terminada (caminata, Fases, sprints): una foto de la tira → `/foto/:id`.
   - Sprints terminados: compartir → `/compartir/cardio/:id`.
   - Recién terminada: «Compartir» (caminata, sprints) y «Listo» ⤒.
-  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒); en sprints también «Terminar ahora»; en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada).
+  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒); en sprints también «Terminar ahora»; en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
 - **Capas**: «¿Terminar y guardar?»; «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
 
 #### Mapa · `/ruta/:id`
@@ -350,13 +354,13 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Lleva a**: «Volver» (botón flotante; no hay cabecera) ↩. Dentro: 2D/3D, Mapa/Satélite, ver la ruta entera, norte, hoja con la gráfica, «Recentrar», «Reintentar» sin conexión.
 
 #### Mis rutas · `/mis-rutas`
-- **Llega desde**: Historial · Cardio (fila «Mis rutas»).
-- **Lleva a**: una ruta → `/mis-rutas/:routeId`.
+- **Llega desde**: Historial · Cardio (fila «Mis rutas», desde la primera caminata con GPS o la primera ruta).
+- **Lleva a**: una ruta → `/mis-rutas/:routeId`; «Importar GPX» → selector de ficheros → nombre → `/mis-rutas/:routeId`.
 - **Capas**: ninguna. Sin rutas, «Sin rutas todavía» y cómo se guarda una (`routeList`: la última hecha arriba; las que no tienen caminatas al final).
 
 #### Ruta · `/mis-rutas/:id`
-- **Llega desde**: Mis rutas; la fila de la ruta y el «Ver» de «Ruta guardada» en el detalle de una caminata.
-- **Lleva a**: cada vez → `/cardio-sesion/:id`; ⋮ «Borrar ruta» ↩.
+- **Llega desde**: Mis rutas (también tras importar un GPX); la fila de la ruta y el «Ver» de «Ruta guardada» en el detalle de una caminata.
+- **Lleva a**: cada vez → `/cardio-sesion/:id`; «Seguir esta ruta» → `/cardio-sesion/:id` (la caminata en curso o una nueva; con varias, `showActions`); ⋮ «Exportar GPX» (menú de compartir) y «Borrar ruta» ↩.
 - **Capas**: título editable («Nombre de la ruta»); ⋮ «Borrar ruta» → «¿Borrar la ruta «…»?» (sus caminatas siguen). El mapa no se toca (sus fotos son de varias caminatas; el mapa a pantalla completa es de una).
 
 #### Compartir · `/compartir/:tipo/:id`
@@ -613,6 +617,10 @@ flowchart TD
   RT -->|"una vez"| CS
   CS -->|"fila de su ruta · Ver"| RT
   RT -->|"Borrar ruta ↩"| MR
+  RT -->|"Seguir esta ruta"| CS
+  HOY -->|"hoja Seguir una ruta"| CS
+  MR -->|"Importar GPX"| RT
+  NR(["Notificación route-id"]) -.->|"navigate"| CS
   AJ -->|"Añadir caminata / sprints de prueba"| CS
   CS -->|"mapa · ampliar"| MAP
   CS -->|"3D ?modo=3d"| MAP
@@ -713,6 +721,7 @@ flowchart TD
 | Fin del descanso | `rest-<sesión>` | `/workout/:sessionId` (si ya terminó, redirige al resumen) | `data.url` → `router.navigate` en [_layout.tsx](src/app/_layout.tsx) |
 | Cambio de fase / fin de Fases | `cardio-<sesión>-<n>`, `cardio-<sesión>-end` | `/cardio-sesion/:id` | ídem |
 | Recordatorio diario | `daily-1` … `daily-7` | `/` | ídem |
+| Fuera de la ruta / de vuelta (1.4.9) | `route-<sesión>` | `/cardio-sesion/:id` | ídem |
 | «Entreno en curso», cuenta atrás, burbuja (módulo nativo) | notificación 7341 | La app donde estaba (intent de lanzamiento, sin ruta) | `PendingIntent` del servicio |
 | «Grabando la ruta» / «Sprints» (expo-location) | servicio en primer plano | La app donde estaba | expo-location |
 | Alarma de respaldo del pitido | `AlarmClockInfo` | La app (intent de lanzamiento) | `SprintBeep.showIntent` |
@@ -762,6 +771,7 @@ erDiagram
   cardio_session ||--o{ cardio_point : "puntos GPS"
   cardio_session |o--o{ photo : "fotos"
   route |o--o{ cardio_session : "veces (NULL = sin ruta)"
+  route |o--o{ cardio_session : "seguida (follow_route_id)"
   workout_session |o--o{ photo : "fotos"
   food ||--o{ diet_item : "alimento"
 
@@ -943,6 +953,8 @@ erDiagram
     INTEGER route_id FK "ON DELETE SET NULL"
     TEXT route_relation "same reverse variant"
     INTEGER route_declined
+    INTEGER follow_route_id FK "ON DELETE SET NULL"
+    TEXT follow_state "JSON"
   }
   route {
     INTEGER id PK
@@ -1012,7 +1024,7 @@ erDiagram
 | `weight_change` | Sugerencias y cambios de peso | Abiertas = `pending` + `dismissed`. Como mucho una abierta por slot. |
 | `cardio_activity` | Cardio de la semana, por día | `plan`: JSON de Fases (`liss`/`miss`/`hiit`) o de sprints (`{kind:'sprint', sprints, restSec}`). |
 | `cardio_log` | Cardio hecho un día | `UNIQUE(date, activity_id)`; desmarcar pone `done = 0`. Con `session_id` si se grabó. |
-| `cardio_session` | Una sesión grabada | `route` (polilínea) y `samples` (`[[s, d, a], …]`) al terminar; `laps` es todo el estado de los sprints; `lap_fixes`, sus puntos GPS para recalcular. Una caminata repetida apunta a su ruta (`route_id`, `route_relation`); `route_declined = 1` tras «No» o «Quitar de la ruta» (no se vuelve a preguntar ni a enlazar sola). |
+| `cardio_session` | Una sesión grabada | `route` (polilínea) y `samples` (`[[s, d, a], …]`) al terminar; `laps` es todo el estado de los sprints; `lap_fixes`, sus puntos GPS para recalcular. Una caminata repetida apunta a su ruta (`route_id`, `route_relation`); `route_declined = 1` tras «No» o «Quitar de la ruta» (no se vuelve a preguntar ni a enlazar sola). La ruta que se sigue va en `follow_route_id` (se conserva al terminar, para su gris) y el estado de su detector en `follow_state` (lo escribe la tarea del GPS; null al terminar). |
 | `route` | Una caminata guardada como ruta (Mis rutas, 1.4.8) | Su propia copia de la línea (`path`, con sus tramos), la distancia y el desnivel: borrar la caminata de la que salió no la cambia. No guarda de qué caminata salió ni el mejor tiempo: se calcula con sus caminatas al leer. |
 | `cardio_point` | Puntos GPS de la sesión en curso | Se borran al terminar. No van en la copia. |
 | `photo` | Fotos de una sesión de cardio o de un entreno (exactamente uno, con `CHECK`) | `file` es el nombre de su copia reducida en `Documents/photos/`; la fila va en la copia, la imagen no. `taken_at` y `lat`/`lon` (su sitio en la ruta) cuando se saben. Borrar la sesión borra las filas (también en el repositorio, sin depender de `foreign_keys`) y la pantalla borra los ficheros (`deletingPhotosOf`). |
@@ -1038,6 +1050,7 @@ erDiagram
 | 10 | 1.4.3 | Tabla `photo` y sus dos índices |
 | 11 | 1.4.7 | `routine.warmup`; `workout_session.warmup_started_at`, `warmup_ended_at` y `set_started_at`; `set_log.started_at` y `rest_seconds`; `settings.muscle_map_mode` |
 | 12 | 1.4.8 | Tabla `route`; `cardio_session.route_id` (`ON DELETE SET NULL`), `route_relation` y `route_declined`; índice `cardio_session(route_id)` |
+| 13 | 1.4.9 | `cardio_session.follow_route_id` (`ON DELETE SET NULL`) y `follow_state`; `settings.route_alert` |
 
 ### 4.5 Cifrado de la base (SQLCipher)
 
@@ -1183,6 +1196,7 @@ sequenceDiagram
 6. ⋮ «Descartar caminata» / «Borrar caminata» → `discardCardio` → `deletingPhotosOf` + `discardCardioSession` (puntos, registro del día, fotos y sesión; después los ficheros de las fotos).
 7. Cámara de la cabecera (en directo) → `placeFromFix` con el último punto (≤ 30 s y ±50 m) → `takePhoto`: la foto se queda en ese punto del mapa (§5.14).
 8. **Mis rutas** (1.4.8): al abrir una caminata terminada, `useCardioSession` lee `walkRoute`: la fila de su ruta («3.ª vez · 2:10 más rápido que tu mejor», `visitLines`) o, sin ruta y sin «No», la ruta que parece repetir (`routeMatch` contra todas, `bestRouteMatch`) para la tarjeta de la pregunta; no escribe nada. «Sí» → `linkWalk`; «No» → `setRouteDeclined` (Snackbar «Deshacer»). ⋮ «Guardar como ruta» → nombre → `saveWalkAsRoute` (en una transacción: copia `route`, distancia y desnivel de `walkSnapshot`, enlaza la caminata y las demás sin ruta que la repiten igual o al revés) → Snackbar con «Ver». ⋮ «Quitar de la ruta» → `unlinkWalk` (deja `route_declined = 1`; «Deshacer» → `linkWalk`).
+9. **Seguir una ruta** (1.4.9): Hoy «Iniciar» con rutas → hoja `FollowRouteSheet` → `startCardio(db, actividad, rutaId)` (`follow_route_id` en el INSERT). En cada lote, la tarea llama a `storeTrackPoints`: lee la sesión con su ruta seguida y `route_alert` en una consulta, mueve el detector (`followStep`, la línea decodificada se guarda en el módulo por ruta), guarda los puntos y el estado y, tras escribir, `notifyFollow` publica `route-<sesión>` si hay evento (fuera, recordatorio o vuelta). Los lotes se encadenan en una promesa; un fallo del detector no pierde puntos. La pantalla pinta la píldora con `followView` del estado guardado. Pausar, terminar, descartar o dejar de seguir quitan la notificación. Al terminar, `linkToRepeatedRoute` enlaza primero con la ruta seguida (también una variante).
 
 **Si se mata la app**: el servicio de expo-location sigue y Android arranca un contexto JS solo para la tarea, que sigue guardando puntos. Al abrir la pantalla, `ensureCardioRunning` vuelve a arrancar el GPS si se paró (p. ej. tras reiniciar el móvil). Hoy muestra la fila «En curso».
 
@@ -1315,7 +1329,7 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 
 | Mecanismo | Código | Para qué | ¿Sobrevive a matar la app? |
 |---|---|---|---|
-| Tarea `entreno-gps` (`expo-task-manager`) + servicio de `expo-location` | [gpsTracker.ts](src/services/gpsTracker.ts) | Puntos de caminatas (3 s) y sprints (1 s) | Sí: el servicio sigue y la tarea corre en un contexto JS sin pantalla |
+| Tarea `entreno-gps` (`expo-task-manager`) + servicio de `expo-location` | [gpsTracker.ts](src/services/gpsTracker.ts) | Puntos de caminatas (3 s) y sprints (1 s); el detector de la ruta seguida y su aviso inmediato (1.4.9) | Sí: el servicio sigue y la tarea corre en un contexto JS sin pantalla |
 | Alarma `rest-<sesión>` (`DATE`, `alarmClock`) | [restTimer.ts](src/services/restTimer.ts) | Fin del descanso | Sí (`AlarmManager`) |
 | Alarmas `cardio-<sesión>-<n>` / `-end` | [cardioTimer.ts](src/services/cardioTimer.ts) | Cambios de fase | Sí |
 | Avisos `daily-1` … `daily-7` (`WEEKLY`) | [dailyReminder.ts](src/services/dailyReminder.ts) | Recordatorio diario | Sí (programados por el sistema) |
@@ -1330,6 +1344,8 @@ Los canales de Android son inmutables: cambiar sonido o importancia exige un id 
 |---|---|---|---|---|
 | `rest-timer-v1` | `ensureChannels` (JS) | MAX, uso de alarma, vibración, público | `rest_end.wav` | Fin del descanso y alarmas de Fases |
 | `daily-reminder-v1` | `ensureChannels` (JS) | HIGH, público | Por defecto | Recordatorio diario |
+| `route-off-v1` | `ensureChannels` (JS) | HIGH, vibración [0, 600, 300, 600], público | Por defecto | «Te has salido de la ruta» y su recordatorio (1.4.9) |
+| `route-back-v1` | `ensureChannels` (JS) | DEFAULT, vibración [0, 150], público | Ninguno | «De vuelta en la ruta» (sustituye a la anterior: mismo identificador) |
 | `rest-countdown-v1` | `RestTimerService` | DEFAULT, sin vibración | Ninguno | Cuenta atrás (descanso, Fases, sprints) |
 | `activity-ongoing-v1` | `RestTimerService` | DEFAULT, sin vibración | Ninguno | «Entreno en curso» |
 | (de expo-location) | `startLocationUpdatesAsync` | — | — | «Grabando la ruta» / «Sprints» |

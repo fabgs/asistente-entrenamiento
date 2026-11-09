@@ -1,6 +1,6 @@
 {
   "name": "entreno",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "main": "expo-router/entry",
   "private": true,
   "scripts": {

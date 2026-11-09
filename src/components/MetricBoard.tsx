@@ -27,6 +27,7 @@ export function MetricBoard({
   onToggleUnit,
   paused = false,
   hint = false,
+  below,
 }: {
   mode: BoardMode;
   hero: WalkMetric;
@@ -38,6 +39,8 @@ export function MetricBoard({
   paused?: boolean;
   /** Until the first change, a caption says the cells can be tapped. */
   hint?: boolean;
+  /** Under the cells, where the hint goes (the route being followed); the hint waits meanwhile. */
+  below?: ReactNode;
 }) {
   const live = mode === 'live';
   const { hero, cells } = gridMetrics(preferred, mode);
@@ -108,7 +111,7 @@ export function MetricBoard({
           </Fragment>
         ))}
       </View>
-      {hint ? <AppText variant="caption">Toca un dato para verlo en grande</AppText> : null}
+      {below ?? (hint ? <AppText variant="caption">Toca un dato para verlo en grande</AppText> : null)}
     </View>
   );
 }

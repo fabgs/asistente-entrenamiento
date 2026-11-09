@@ -350,6 +350,13 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE cardio_session ADD COLUMN route_declined INTEGER NOT NULL DEFAULT 0;
   CREATE INDEX idx_cardio_session_route ON cardio_session(route_id);
   `,
+  // Following a route (1.4.9): the one chosen to follow (not always the one it turns out to repeat,
+  // `route_id`), the state of the GPS task's detector, and whether to alert on leaving it.
+  `
+  ALTER TABLE cardio_session ADD COLUMN follow_route_id INTEGER REFERENCES route(id) ON DELETE SET NULL;
+  ALTER TABLE cardio_session ADD COLUMN follow_state TEXT;
+  ALTER TABLE settings ADD COLUMN route_alert INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

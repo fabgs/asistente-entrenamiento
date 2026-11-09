@@ -14,6 +14,9 @@ import {
 export const REST_CHANNEL_ID = 'rest-timer-v1';
 export const DAILY_CHANNEL_ID = 'daily-reminder-v1';
 export const REST_SOUND = 'rest_end.wav';
+/** Leaving a route being followed, and coming back to it (1.4.9). */
+export const ROUTE_OFF_CHANNEL_ID = 'route-off-v1';
+export const ROUTE_BACK_CHANNEL_ID = 'route-back-v1';
 /** The sprint beep went through this channel until the app played it itself (PLAN.md §6.8). */
 const OLD_SPRINT_CHANNEL_ID = 'sprint-go-v1';
 
@@ -49,6 +52,24 @@ export async function ensureChannels(): Promise<void> {
     name: 'Recordatorio diario',
     description: 'Lo que toca entrenar hoy',
     importance: Notifications.AndroidImportance.HIGH,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  // The default sound (no `sound`): in a backpack the vibration alone goes unnoticed.
+  await Notifications.setNotificationChannelAsync(ROUTE_OFF_CHANNEL_ID, {
+    name: 'Fuera de la ruta',
+    description: 'Si te sales de la ruta que sigues',
+    importance: Notifications.AndroidImportance.HIGH,
+    enableVibrate: true,
+    vibrationPattern: [0, 600, 300, 600],
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+  });
+  await Notifications.setNotificationChannelAsync(ROUTE_BACK_CHANNEL_ID, {
+    name: 'De vuelta en la ruta',
+    description: 'Vibración corta al volver a la ruta',
+    importance: Notifications.AndroidImportance.DEFAULT,
+    sound: null,
+    enableVibrate: true,
+    vibrationPattern: [0, 150],
     lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
   });
 }

@@ -345,8 +345,16 @@ export function routeQuestion(name: string, match: RouteMatch, walkM: number, ro
   return { title: match.kind === 'reverse' ? `¿Es tu ruta «${name}», al revés?` : `¿Es tu ruta «${name}»?`, detail: null };
 }
 
+/** For «Seguir una ruta»: the one walked or saved most recently first (a GPX just imported, on top). */
+export function recentFirst<T extends { lastAt: number | null; route: { createdAt: number } }>(items: T[]): T[] {
+  const when = (item: T) => Math.max(item.lastAt ?? 0, item.route.createdAt);
+  return [...items].sort((a, b) => when(b) - when(a));
+}
+
 /** «4 veces · la última el 9 nov», «1 vez · el 9 nov» or «Sin caminatas». */
 export function timesLine(count: number, lastDate: string | null): string {
   if (count === 0 || !lastDate) return 'Sin caminatas';
-  return count === 1 ? `1 vez · el ${lastDate}` : `${countOf(count, 'vez', 'veces')} · la última el ${lastDate}`;
+  // «9 nov» never split over two lines.
+  const date = lastDate.replaceAll(' ', NBSP);
+  return count === 1 ? `1 vez · el ${date}` : `${countOf(count, 'vez', 'veces')} · la última el ${date}`;
 }

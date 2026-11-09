@@ -28,6 +28,8 @@ export const colors = {
   primaryTintOnMap: 'rgba(74, 222, 128, 0.20)',
   /** Controls floating over a map or a chart. */
   overlay: 'rgba(14, 17, 22, 0.80)',
+  /** A route being followed, under the walk's green line (not `muted`: it is lost on the veiled tiles). */
+  guide: 'rgba(242, 244, 247, 0.55)',
   overlayBorder: 'rgba(255, 255, 255, 0.10)',
   pressed: 'rgba(255, 255, 255, 0.08)',
   ripple: 'rgba(255, 255, 255, 0.12)',

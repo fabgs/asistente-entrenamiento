@@ -37,6 +37,8 @@ export function RouteMap({
   photos = [],
   exactFit = false,
   overTiles,
+  guide = [],
+  guideEnds = null,
 }: {
   segments: LatLon[][];
   height?: number;
@@ -64,13 +66,19 @@ export function RouteMap({
   exactFit?: boolean;
   /** Drawn over the tiles and under the route (the share image's fade). */
   overTiles?: ReactNode;
+  /** A route being followed (1.4.9), in grey under the walk; the view fits both. */
+  guide?: LatLon[][];
+  /** Where the followed route starts (a ring) and ends (a dot), the way it is followed: while walking. */
+  guideEnds?: { start: LatLon; end: LatLon } | null;
 }) {
   const [width, setWidth] = useState(0);
   const points = segments.flat();
+  const guidePoints = guide.flat();
+  const fitPoints = [...points, ...guidePoints];
 
   return (
     <View style={[styles.box, !rounded && styles.square, { height }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {points.length === 0 ? (
+      {fitPoints.length === 0 ? (
         <View style={styles.empty}>
           <AppText variant="muted">Esperando la señal del GPS…</AppText>
         </View>
@@ -84,6 +92,9 @@ export function RouteMap({
           <MapContent
             segments={segments}
             points={points}
+            fitPoints={fitPoints}
+            guide={guide}
+            guideEnds={guideEnds}
             width={width}
             height={height}
             cursor={cursor}
@@ -100,7 +111,7 @@ export function RouteMap({
           />
         </Pressable>
       ) : null}
-      {corner && points.length > 0 ? <View style={styles.corner}>{corner}</View> : null}
+      {corner && fitPoints.length > 0 ? <View style={styles.corner}>{corner}</View> : null}
     </View>
   );
 }
@@ -108,6 +119,9 @@ export function RouteMap({
 function MapContent({
   segments,
   points,
+  fitPoints,
+  guide,
+  guideEnds,
   width,
   height,
   cursor,
@@ -124,6 +138,9 @@ function MapContent({
 }: {
   segments: LatLon[][];
   points: LatLon[];
+  fitPoints: LatLon[];
+  guide: LatLon[][];
+  guideEnds: { start: LatLon; end: LatLon } | null;
   width: number;
   height: number;
   cursor: LatLon | null;
@@ -139,16 +156,20 @@ function MapContent({
   overTiles?: ReactNode;
 }) {
   const { top = 0, bottom = 0, left = 0, right = 0 } = fitInset;
-  const fitted = (exactFit ? fitViewExact : fitView)(points, width - left - right, height - top - bottom, fitPadding);
+  const fitted = (exactFit ? fitViewExact : fitView)(fitPoints, width - left - right, height - top - bottom, fitPadding);
   // The fitted view is of the free space; the map starts `left` and `top` before it.
   const view = { ...fitted, originX: fitted.originX - left / fitted.scale, originY: fitted.originY - top / fitted.scale };
   const tiles = tilesFor(view, width, height, detail);
   const [settled, setSettled] = useState(0);
   const at = (p: LatLon) => toScreen(view, p);
-  const start = at(points[0]);
-  const end = at(points[points.length - 1]);
+  const start = points.length > 0 ? at(points[0]) : null;
+  const end = points.length > 0 ? at(points[points.length - 1]) : null;
   const mark = cursor ? at(cursor) : null;
-  const lines = segments.map((segment) => segment.map(at).map((p) => `${p.x},${p.y}`).join(' '));
+  const toLine = (segment: LatLon[]) => segment.map(at).map((p) => `${p.x},${p.y}`).join(' ');
+  const lines = segments.map(toLine);
+  const guideLines = guide.map(toLine);
+  const guideStart = guideEnds ? at(guideEnds.start) : null;
+  const guideEnd = guideEnds ? at(guideEnds.end) : null;
   const allSettled = tiles.length > 0 && settled >= tiles.length;
   useEffect(() => {
     if (allSettled) onTilesLoaded?.();
@@ -168,6 +189,35 @@ function MapContent({
       <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: veil }]} />
       {overTiles}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
+        {/* The followed route: a grey band, wider than the walk, so the green goes inside it. */}
+        {guideLines.map((points, i) => (
+          <Polyline
+            key={`go${i}`}
+            points={points}
+            fill="none"
+            stroke={colors.overlay}
+            strokeWidth={lineWidth + 8}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        ))}
+        {guideLines.map((points, i) => (
+          <Polyline
+            key={`g${i}`}
+            points={points}
+            fill="none"
+            stroke={colors.guide}
+            strokeWidth={lineWidth + 4}
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        ))}
+        {guideStart && guideEnd ? (
+          <>
+            <Circle cx={guideStart.x} cy={guideStart.y} r={8} fill="none" stroke={colors.guide} strokeWidth={3} />
+            <Circle cx={guideEnd.x} cy={guideEnd.y} r={6} fill={colors.guide} stroke={colors.overlay} strokeWidth={2} />
+          </>
+        ) : null}
         {/* The dark outline keeps the green line readable over light tiles. */}
         {lines.map((points, i) => (
           <Polyline
@@ -192,8 +242,12 @@ function MapContent({
             strokeLinecap="round"
           />
         ))}
-        <Circle cx={start.x} cy={start.y} r={6} fill={colors.bg} stroke={colors.primary} strokeWidth={3} />
-        <Circle cx={end.x} cy={end.y} r={7} fill={colors.primary} stroke={colors.bg} strokeWidth={2} />
+        {start && end ? (
+          <>
+            <Circle cx={start.x} cy={start.y} r={6} fill={colors.bg} stroke={colors.primary} strokeWidth={3} />
+            <Circle cx={end.x} cy={end.y} r={7} fill={colors.primary} stroke={colors.bg} strokeWidth={2} />
+          </>
+        ) : null}
         {/* Same mark as the chart's cursor. */}
         {mark ? (
           <>

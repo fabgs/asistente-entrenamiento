@@ -42,7 +42,10 @@ import { formatDuration, formatLongDate, formatShortDate, workoutTitle } from '@
 import { allDoneMessage, isoWeekdayOf, localDateString, weekdaysLabel } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { maybeAutoBackup } from '@/services/backup';
-import { discardCardio, GPS_ERROR_MESSAGE, startCardio } from '@/services/cardioSession';
+import { discardCardio, GPS_ERROR_MESSAGE, setRouteAlert, startCardio } from '@/services/cardioSession';
+import { FollowRouteSheet } from '@/components/Routes';
+import { routeCount, routeList, type RouteListItem } from '@/db/repositories/routes';
+import { recentFirst } from '@/domain/routes';
 import { cancelRestEnd } from '@/services/restTimer';
 import { clearWorkoutInProgress } from '@/services/workoutInProgress';
 import { colors, spacing } from '@/theme';
@@ -57,6 +60,8 @@ export default function TodayScreen() {
   const db = useDb();
   const navigation = useNavigation();
   const [sheet, setSheet] = useState<'routine' | 'cardio' | null>(null);
+  // A walk about to start, with the saved routes it may follow (1.4.9).
+  const [follow, setFollow] = useState<{ activity: CardioActivity; routes: RouteListItem[] } | null>(null);
   const [, run] = useBusy();
   const { data, reload } = useLoader(async (db) => {
     const now = new Date();
@@ -66,6 +71,7 @@ export default function TodayScreen() {
     const slotsByRoutine = new Map<number, Slot[]>();
     for (const r of routines) slotsByRoutine.set(r.id, await listSlots(db, r.id));
     const allCardio = await listCardio(db);
+    const settings = await getSettings(db);
     return {
       now,
       date,
@@ -84,7 +90,9 @@ export default function TodayScreen() {
       profile: await getProfile(db),
       weightKg: await latestWeight(db),
       hasRoutines: routines.length > 0,
-      devMode: (await getSettings(db)).devMode,
+      devMode: settings.devMode,
+      routeAlert: settings.routeAlert,
+      routeCount: await routeCount(db),
     };
   });
 
@@ -154,7 +162,16 @@ export default function TodayScreen() {
     reload();
   };
 
-  const startTracked = async (activity: CardioActivity) => {
+  /** A walk with saved routes asks first which one to follow, or none («Caminar libre»). */
+  const beginCardio = async (activity: CardioActivity) => {
+    if (!data.activeCardio && activity.tracking === 'gps' && data.routeCount > 0) {
+      setFollow({ activity, routes: recentFirst(await routeList(db)) });
+      return;
+    }
+    await startTracked(activity);
+  };
+
+  const startTracked = async (activity: CardioActivity, followRouteId: number | null = null) => {
     if (data.activeCardio) {
       router.push(`/cardio-sesion/${data.activeCardio.id}`);
       return;
@@ -171,7 +188,7 @@ export default function TodayScreen() {
       );
       return;
     }
-    const result = await startCardio(db, activity);
+    const result = await startCardio(db, activity, followRouteId);
     if ('error' in result) {
       showDialog('No se puede grabar la ruta', GPS_ERROR_MESSAGE[result.error]);
       return;
@@ -204,7 +221,7 @@ export default function TodayScreen() {
         await setCardioDone(db, data.date, activity, true);
         reload();
       } else {
-        await startTracked(activity);
+        await beginCardio(activity);
       }
     })();
 
@@ -339,7 +356,7 @@ export default function TodayScreen() {
                   done={null}
                   running={data.activeCardio?.activityId === c.id}
                   onToggle={() => toggleCardio(c)}
-                  onStart={() => startTracked(c)}
+                  onStart={() => beginCardio(c)}
                 />
               ))}
             </ListGroup>
@@ -376,7 +393,7 @@ export default function TodayScreen() {
                 done={data.cardioDone.get(c.id) ?? null}
                 running={false}
                 onToggle={() => toggleCardio(c)}
-                onStart={() => startTracked(c)}
+                onStart={() => beginCardio(c)}
               />
             ))}
           </ListGroup>
@@ -422,6 +439,32 @@ export default function TodayScreen() {
           })}
         </ListGroup>
       </Sheet>
+
+      <FollowRouteSheet
+        visible={follow !== null}
+        routes={follow?.routes ?? []}
+        today={data.date}
+        alertOn={data.routeAlert}
+        onAlert={async (on) => {
+          await setRouteAlert(db, on, null);
+          reload();
+        }}
+        onPick={(route) =>
+          run(async () => {
+            const activity = follow!.activity;
+            setFollow(null);
+            await startTracked(activity, route.id);
+          })()
+        }
+        onFree={() =>
+          run(async () => {
+            const activity = follow!.activity;
+            setFollow(null);
+            await startTracked(activity);
+          })()
+        }
+        onClose={() => setFollow(null)}
+      />
 
       <Sheet visible={sheet === 'cardio'} title="Hacer otro cardio" onClose={() => setSheet(null)}>
         <ScrollView style={{ flexGrow: 0 }}>

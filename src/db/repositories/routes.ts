@@ -1,9 +1,11 @@
-import { activeMs, decodeRoute, decodeSamples, encodeRoute, type LatLon } from '@/domain/gps';
+import { activeMs, decodeRoute, decodeSamples, elevationChange, encodeRoute, type LatLon } from '@/domain/gps';
+import type { GpxTrack } from '@/domain/gpx';
 import {
   bestRouteMatch,
   exclusionOf,
   routeCloses,
   routeMatch,
+  routeLengthM,
   routeQuestion,
   routeRecords,
   visitLines,
@@ -58,9 +60,11 @@ interface WalkRow {
   route_id: number | null;
   route_relation: RouteRelation | null;
   route_declined: number;
+  follow_route_id: number | null;
 }
 
-const WALK_COLUMNS = 'id, date, started_at, finished_at, paused_ms, distance_m, route, route_id, route_relation, route_declined';
+const WALK_COLUMNS =
+  'id, date, started_at, finished_at, paused_ms, distance_m, route, route_id, route_relation, route_declined, follow_route_id';
 const FINISHED_WALK = `status = 'finished' AND tracking = 'gps' AND route IS NOT NULL`;
 
 const walkTime = (w: WalkRow) =>
@@ -173,11 +177,20 @@ async function repeatedRoute(db: Db, walk: WalkRow): Promise<{ route: SavedRoute
 
 /**
  * At the end of a walk: linked by itself to the route it repeats the same way or back. A variant
- * waits for the question on its screen. Returns the route it was linked to.
+ * waits for the question on its screen, unless it was the route being followed: then it was said
+ * which one it was (1.4.9). Returns the route it was linked to.
  */
 export async function linkToRepeatedRoute(db: Db, sessionId: number): Promise<number | null> {
   const walk = await getWalk(db, sessionId);
   if (!walk || walk.route_id !== null || walk.route_declined) return null;
+  const followed = walk.follow_route_id !== null ? await getRoute(db, walk.follow_route_id) : null;
+  if (followed) {
+    const match = routeMatch(decodeRoute(walk.route), followed.segments);
+    if (match.kind !== 'none') {
+      await linkWalk(db, sessionId, followed.id, match.kind);
+      return followed.id;
+    }
+  }
   const found = await repeatedRoute(db, walk);
   if (!found || found.match.kind === 'variant' || found.match.kind === 'none') return null;
   await linkWalk(db, sessionId, found.route.id, found.match.kind);
@@ -213,29 +226,69 @@ export async function saveWalkAsRoute(db: Db, sessionId: number, name: string, n
     null,
     0,
   );
+  return insertRoute(
+    db,
+    { name, source: 'walk', segments, distanceM: walk.numbers.distanceM, climbM: walk.numbers.climbM },
+    now,
+    sessionId,
+  );
+}
+
+/**
+ * Saves a route and links it to every walk without a route that repeats it the same way or back
+ * (and to `fromWalk`, the walk it was saved from). Returns the route and how many walks it has.
+ */
+async function insertRoute(
+  db: Db,
+  route: { name: string; source: 'walk' | 'gpx'; segments: LatLon[][]; distanceM: number; climbM: number | null },
+  now: number,
+  fromWalk: number | null = null,
+): Promise<{ routeId: number; count: number }> {
   let routeId = 0;
   await db.withTransactionAsync(async () => {
     const result = await db.runAsync(
-      `INSERT INTO route (name, source, path, distance_m, climb_m, created_at) VALUES (?, 'walk', ?, ?, ?, ?)`,
-      name.trim(),
-      encodeRoute(segments),
-      walk.numbers.distanceM,
-      walk.numbers.climbM,
+      `INSERT INTO route (name, source, path, distance_m, climb_m, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      route.name.trim(),
+      route.source,
+      encodeRoute(route.segments),
+      route.distanceM,
+      route.climbM,
       now,
     );
     routeId = result.lastInsertRowId;
-    await linkWalk(db, sessionId, routeId, 'same');
+    if (fromWalk !== null) await linkWalk(db, fromWalk, routeId, 'same');
     const others = await db.getAllAsync<WalkRow>(
-      `SELECT ${WALK_COLUMNS} FROM cardio_session WHERE ${FINISHED_WALK} AND route_id IS NULL AND id <> ?`,
-      sessionId,
+      `SELECT ${WALK_COLUMNS} FROM cardio_session WHERE ${FINISHED_WALK} AND route_id IS NULL AND id IS NOT ?`,
+      fromWalk,
     );
     for (const other of others) {
-      const match = routeMatch(decodeRoute(other.route), segments);
+      const match = routeMatch(decodeRoute(other.route), route.segments);
       if (match.kind === 'same' || match.kind === 'reverse') await linkWalk(db, other.id, routeId, match.kind);
     }
   });
   const count = await db.getFirstAsync<{ n: number }>('SELECT COUNT(*) AS n FROM cardio_session WHERE route_id = ?', routeId);
-  return { routeId, count: count?.n ?? 1 };
+  return { routeId, count: count?.n ?? 0 };
+}
+
+/**
+ * A route from a GPX (Wikiloc and the like): its distance and, when at least half of its points
+ * have it, its climb (with the same 3 m of hysteresis as a walk). Links the walks that repeat it.
+ */
+export async function importGpxRoute(db: Db, track: GpxTrack, name: string, now = Date.now()): Promise<{ routeId: number; count: number }> {
+  const points = track.segments.flat();
+  const withEle = points.filter((p) => p.ele !== null);
+  const climbM = withEle.length * 2 >= points.length ? elevationChange(withEle.map((p) => ({ a: p.ele! }))).gain : null;
+  const segments = track.segments.map((s) => s.map(({ lat, lon }) => ({ lat, lon })));
+  return insertRoute(db, { name, source: 'gpx', segments, distanceM: routeLengthM(segments), climbM }, now);
+}
+
+/** The route a walk followed (or follows), for its grey line, if it still exists. */
+export async function followedRoute(db: Db, sessionId: number): Promise<SavedRoute | null> {
+  const row = await db.getFirstAsync<RouteRow>(
+    'SELECT route.* FROM route JOIN cardio_session ON cardio_session.follow_route_id = route.id WHERE cardio_session.id = ?',
+    sessionId,
+  );
+  return row ? toRoute(row) : null;
 }
 
 /** An empty name leaves it as it was. */
@@ -248,6 +301,8 @@ export async function renameRoute(db: Db, id: number, name: string): Promise<voi
 export async function deleteRoute(db: Db, id: number): Promise<void> {
   await db.withTransactionAsync(async () => {
     await db.runAsync('UPDATE cardio_session SET route_id = NULL, route_relation = NULL WHERE route_id = ?', id);
+    // A walk following it carries on as a free walk.
+    await db.runAsync('UPDATE cardio_session SET follow_route_id = NULL, follow_state = NULL WHERE follow_route_id = ?', id);
     await db.runAsync('DELETE FROM route WHERE id = ?', id);
   });
 }

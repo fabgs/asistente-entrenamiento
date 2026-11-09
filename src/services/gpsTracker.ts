@@ -1,22 +1,27 @@
 import * as Location from 'expo-location';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
-import { addTrackPoints } from '@/db/repositories/cardioSessions';
+import { storeTrackPoints } from '@/db/repositories/cardioSessions';
+import { notifyFollow } from './routeAlert';
 import { openDatabaseInBackground } from './secureDatabase';
 import { colors } from '@/theme';
 
 const GPS_TASK = 'entreno-gps';
 let database: Promise<SQLiteDatabase> | null = null;
 
+// One batch at a time: the detector of a followed route reads the state the previous batch wrote.
+let queue: Promise<void> = Promise.resolve();
+
 // Must run when the module loads (PLAN.md §6.8): if the app was closed, Android starts a fresh JS
-// context just to deliver the fixes, and the task has to exist by then. It only stores points.
+// context just to deliver the fixes, and the task has to exist by then. It stores the points and,
+// on a walk that follows a route, alerts on leaving it and coming back (1.4.9).
 TaskManager.defineTask<{ locations: Location.LocationObject[] }>(GPS_TASK, async ({ data, error }) => {
   if (error || !data?.locations?.length) return;
   const receivedAt = Date.now();
-  try {
+  const batch = async () => {
     database ??= openDatabaseInBackground();
     const db = await database;
-    await addTrackPoints(
+    const { follow } = await storeTrackPoints(
       db,
       data.locations.map((l) => ({
         t: l.timestamp,
@@ -27,10 +32,12 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(GPS_TASK, async
         altitude: l.coords.altitude,
         receivedAt,
       })),
+      receivedAt,
     );
-  } catch (e) {
-    console.warn('Could not store GPS points', e);
-  }
+    if (follow) await notifyFollow(follow).catch((e) => console.warn('Could not alert about the route', e));
+  };
+  queue = queue.then(batch).catch((e) => console.warn('Could not store GPS points', e));
+  await queue;
 });
 
 export type GpsStart = 'ok' | 'denied' | 'approximate' | 'off';

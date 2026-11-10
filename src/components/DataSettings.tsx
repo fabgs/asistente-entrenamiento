@@ -23,7 +23,7 @@ import {
   restoreFrom,
   shareBackupFile,
 } from '@/services/backup';
-import { colors, spacing } from '@/theme';
+import { colors, spacing, switchThumb } from '@/theme';
 import { showDialog, showPrompt, showSnackbar } from './Dialog';
 import { AppText, Button, Card, Icon, ListGroup, ListRow, RowIcon, Section, Tag, TextField } from './ui';
 
@@ -70,7 +70,7 @@ export function SettingSwitch({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        thumbColor={value ? colors.text : colors.muted}
+        thumbColor={value ? switchThumb.on : switchThumb.off}
         trackColor={{ false: colors.border, true: colors.primary }}
       />
     </Pressable>

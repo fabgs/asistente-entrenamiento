@@ -1,9 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { getCardioSession, lastTrackPoint, listSprintFixes, listTrackPoints } from '@/db/repositories/cardioSessions';
 import { hintsSeen } from '@/db/repositories/hints';
 import { listPhotos } from '@/db/repositories/photos';
-import { followedRoute, routeCount, walkRoute } from '@/db/repositories/routes';
+import { followedRoute, routeCount, walkRoute, type SavedRoute } from '@/db/repositories/routes';
 import { getSettings } from '@/db/repositories/settings';
+import { buildFollowLine, followView, routeAhead, type FollowState } from '@/domain/routeFollow';
+import { routeEnds } from '@/domain/routes';
 import { LAP_FIXES_MARGIN_MS, measureSprint, type SprintMeasure } from '@/domain/sprint';
 import { isGpsRecording } from '@/services/gpsTracker';
 import { isOnPhone } from '@/services/photos';
@@ -74,4 +76,29 @@ export function useCardioSession(sessionId: number) {
   }, [every, reload]);
 
   return { data, reload };
+}
+
+/**
+ * The followed route as the GPS task last placed the walker on it: what the line under the figures
+ * says, what is left of it to draw (the part walked goes away, 1.4.10) and where it ends.
+ */
+export function useFollowedRoute(follow: { route: SavedRoute; state: FollowState | null } | null) {
+  const key = follow ? `${follow.route.id}:${follow.route.createdAt}` : '';
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new route object arrives on every reload
+  const line = useMemo(() => (follow ? buildFollowLine(follow.route.segments) : null), [key]);
+  if (!follow || !line) return null;
+  const ends = routeEnds(follow.route.segments);
+  const { state } = follow;
+  const backwards = (state?.dir || state?.initial) === -1;
+  const ahead = routeAhead(follow.route.segments, line, state);
+  // The start is a ring only while all of the route is ahead; at its end, nothing is left to mark.
+  const whole = ahead === follow.route.segments;
+  return {
+    view: followView(state, line),
+    ahead,
+    ends:
+      ends && state?.status !== 'done'
+        ? { start: whole ? (backwards ? ends.end : ends.start) : null, end: backwards ? ends.start : ends.end }
+        : null,
+  };
 }

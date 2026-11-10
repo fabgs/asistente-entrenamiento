@@ -1,71 +1,33 @@
-import { DarkTheme } from 'expo-router';
-import type { TextStyle } from 'react-native';
+import { DarkTheme, DefaultTheme } from 'expo-router';
+import { StyleSheet, type TextStyle, type ViewStyle } from 'react-native';
+import { buildColors, MAP_BRIGHTNESS, type Palette } from '@/domain/palette';
+import { readThemePreference } from '@/services/themePreference';
 
-export const colors = {
-  bg: '#0E1116',
-  card: '#171B22',
-  cardAlt: '#1F2530',
-  border: '#2A313C',
-  text: '#F2F4F7',
-  muted: '#9AA4B2',
-  disabledText: '#5B6472',
-  /** Only for: the one primary action of a view, a selection (as a tint), done/up, and the route. */
-  primary: '#4ADE80',
-  onPrimary: '#0B1A10',
-  /** "In progress" and "does not count" (warm-up sets, low-intensity cardio). Never as link text. */
-  accent: '#60A5FA',
-  /** "You decide" or attention: pending suggestion, weight down, missing permission, pause, test mode. */
-  warning: '#FBBF24',
-  /** Destructive actions and critical states, always with an icon. */
-  danger: '#F87171',
-  up: '#4ADE80',
-  down: '#FBBF24',
-  primaryTint: 'rgba(74, 222, 128, 0.14)',
-  accentTint: 'rgba(96, 165, 250, 0.14)',
-  warningTint: 'rgba(251, 191, 36, 0.14)',
-  dangerTint: 'rgba(248, 113, 113, 0.14)',
-  /** The selected segment over a map, which needs a little more to stand out. */
-  primaryTintOnMap: 'rgba(74, 222, 128, 0.20)',
-  /** Controls floating over a map or a chart. */
-  overlay: 'rgba(14, 17, 22, 0.80)',
-  /** A route being followed, under the walk's green line (not `muted`: it is lost on the veiled tiles). */
-  guide: 'rgba(242, 244, 247, 0.55)',
-  overlayBorder: 'rgba(255, 255, 255, 0.10)',
-  pressed: 'rgba(255, 255, 255, 0.08)',
-  ripple: 'rgba(255, 255, 255, 0.12)',
-  /** Behind sheets and dialogs. */
-  scrim: 'rgba(5, 7, 10, 0.72)',
-  /** Behind a one-time hint drawn over a chart. */
-  hintBox: 'rgba(23, 27, 34, 0.90)',
-  /** Darkens light map tiles to sit in the dark theme (same as MapLibre's raster-brightness-max 0.62). */
-  mapVeil: 'rgba(14, 17, 22, 0.38)',
-  /** Only if cards cannot be told from the background in the sun. */
-  cardBorder: '#2A313C',
-  /** Cardio intensity: LISS, MISS and HIIT phases. */
-  intensityLow: '#60A5FA',
-  intensityMedium: '#FBBF24',
-  intensityHigh: '#F87171',
-  /** Series colour for charts: validated for lightness band and contrast on `card` (dataviz). */
-  chart: '#16A34A',
-  /** Muscles: a violet no state uses. Text and tint of a primary muscle; a secondary one is quieter. */
-  muscleText: '#C4B5FD',
-  muscleTint: 'rgba(139, 92, 246, 0.22)',
-  muscleTintSoft: 'rgba(139, 92, 246, 0.10)',
-  /**
-   * Body map, from nothing (heat0) to the most (heat4): an ordinal ramp validated in the dark theme on
-   * `card` (dataviz: one hue, lightness steps ≥ 2,4:1 apart).
-   */
-  heat0: '#2A313C',
-  heat1: '#6D28D9',
-  heat2: '#8B5CF6',
-  heat3: '#A78BFA',
-  heat4: '#C4B5FD',
-  /** The share image: white text and lines with a soft shadow (sticker), and its separators. */
-  onImage: '#FFFFFF',
-  imageShadow: 'rgba(0, 0, 0, 0.45)',
-  imageRule: 'rgba(255, 255, 255, 0.08)',
-  imageRuleOnPhoto: 'rgba(255, 255, 255, 0.35)',
-} as const;
+/**
+ * The mode and the accent chosen in Ajustes → Apariencia (PLAN.md §8), read once as the bundle
+ * loads. Changing them restarts the app (`applyTheme`), so every style sheet is built with the new
+ * colours and none can keep an old one.
+ */
+export const theme = readThemePreference();
+export const isDark = theme.mode === 'dark';
+
+/** Every colour of the app, with what each one means (`src/domain/palette.ts`, PLAN.md §12). */
+export const colors: Palette = buildColors(theme);
+
+/**
+ * The share image does not follow the mode: its looks (Mapa, Foto, Oscuro, Sin fondo) are always
+ * dark, with the accent chosen.
+ */
+export const imageColors: Palette = buildColors({ mode: 'dark', accent: theme.accent });
+
+/** MapLibre's `raster-brightness-max` for the map tiles: darkened in the dark mode. */
+export const mapBrightness = MAP_BRIGHTNESS[theme.mode];
+
+/** The thumb of a switch: light in both modes (the text colour would be black on the accent in the light one). */
+export const switchThumb = { on: isDark ? colors.text : colors.onPrimary, off: isDark ? colors.muted : colors.card };
+
+/** Around a card or a group of rows: only the light mode draws it (PLAN.md §12). */
+export const cardOutline: ViewStyle = isDark ? {} : { borderWidth: StyleSheet.hairlineWidth, borderColor: colors.cardBorder };
 
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
 export const radius = { xs: 6, sm: 8, md: 12, lg: 16, xl: 20, pill: 999 } as const;
@@ -142,10 +104,12 @@ export const maxFontScale: Partial<Record<TypeName, number>> = {
 /** Variants drawn in the secondary colour by default. */
 export const quietTypes: TypeName[] = ['secondary', 'label', 'caption', 'overline', 'axis'];
 
+const baseNavigationTheme = isDark ? DarkTheme : DefaultTheme;
+
 export const navigationTheme = {
-  ...DarkTheme,
+  ...baseNavigationTheme,
   colors: {
-    ...DarkTheme.colors,
+    ...baseNavigationTheme.colors,
     primary: colors.primary,
     background: colors.bg,
     card: colors.bg,

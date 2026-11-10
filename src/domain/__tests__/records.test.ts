@@ -2,7 +2,11 @@ import type { TrackSample } from '../gps';
 import {
   exerciseBest,
   formatRecordDate,
+  longestWalkText,
+  recordOf,
   recordReading,
+  recordText,
+  sessionHasRecord,
   usualUnit,
   walkRecords,
   workoutsPerWeek,
@@ -160,5 +164,128 @@ describe('recordReading', () => {
   it('dates carry the year only when it is not this one', () => {
     expect(formatRecordDate('2026-03-12', TODAY)).toBe('12 mar');
     expect(formatRecordDate('2025-03-12', TODAY)).toBe('12 mar 2025');
+  });
+});
+
+describe('a new record', () => {
+  // Three workouts with a load: 40 × 8 is the best set.
+  const history = [
+    set(1, '2026-10-20', 35, 12),
+    set(1, '2026-10-20', 35, 11),
+    set(2, '2026-10-27', 37.5, 10),
+    set(3, '2026-11-03', 40, 8),
+    set(3, '2026-11-03', 40, 7),
+  ];
+  const plain = { bodyweight: false, pair: false };
+  const today = (weightKg: number | null, reps: number, over: Partial<RecordSet> = {}) => set(9, '2026-11-10', weightKg, reps, over);
+
+  it('is a heavier set than ever', () => {
+    const record = recordOf(history, { weightKg: 42.5, reps: 5 }, 'reps', 9);
+    expect(record).toEqual({ kind: 'weight', kg: 42.5, beforeKg: 40 });
+    expect(recordText(record!, 'reps', plain)).toBe('Nuevo récord · 42,5 kg · antes 40 kg');
+  });
+
+  it('is more reps with the heaviest weight, and nothing with a lighter one', () => {
+    const record = recordOf(history, { weightKg: 40, reps: 9 }, 'reps', 9);
+    expect(record).toEqual({ kind: 'amountAtWeight', kg: 40, amount: 9, before: 8 });
+    expect(recordText(record!, 'reps', plain)).toBe('Nuevo récord · 9 reps con 40 kg · antes 8');
+    expect(recordOf(history, { weightKg: 35, reps: 20 }, 'reps', 9)).toBeNull();
+  });
+
+  it('is not to equal the best', () => {
+    expect(recordOf(history, { weightKg: 40, reps: 8 }, 'reps', 9)).toBeNull();
+    expect(recordOf(history, { weightKg: 40, reps: 7 }, 'reps', 9)).toBeNull();
+  });
+
+  it('counts the sets done before it today: the same again says nothing, a better one does', () => {
+    const first = [...history, today(42.5, 5)];
+    expect(recordOf(first, { weightKg: 42.5, reps: 5 }, 'reps', 9)).toBeNull();
+    expect(recordOf(first, { weightKg: 42.5, reps: 6 }, 'reps', 9)).toEqual({ kind: 'amountAtWeight', kg: 42.5, amount: 6, before: 5 });
+  });
+
+  it('needs three earlier workouts, without counting today', () => {
+    const two = history.filter((s) => s.sessionId !== 1);
+    expect(recordOf(two, { weightKg: 45, reps: 5 }, 'reps', 9)).toBeNull();
+    expect(recordOf([...two, today(40, 8)], { weightKg: 45, reps: 5 }, 'reps', 9)).toBeNull();
+    expect(recordOf(history, { weightKg: 45, reps: 5 }, 'reps', 9)).not.toBeNull();
+  });
+
+  it('is not the first day with a load of an exercise noted without one', () => {
+    const noted = [1, 2, 3, 4].map((id) => set(id, `2025-0${id}-10`, null, 10, { imported: true }));
+    expect(recordOf(noted, { weightKg: 5, reps: 8 }, 'reps', 9)).toBeNull();
+    // Nor the next two days with it; from the fourth it is.
+    const loaded = [...noted, set(5, '2026-10-01', 5, 8), set(6, '2026-10-08', 5, 8)];
+    expect(recordOf(loaded, { weightKg: 7.5, reps: 6 }, 'reps', 9)).toBeNull();
+    expect(recordOf([...loaded, set(7, '2026-10-15', 5, 8)], { weightKg: 7.5, reps: 6 }, 'reps', 9)).toMatchObject({ kind: 'weight' });
+  });
+
+  it('without any load ever, is more reps, seconds or steps than ever', () => {
+    const reps = [1, 2, 3].map((id) => set(id, `2026-10-0${id}`, null, 10 + id));
+    const record = recordOf(reps, { weightKg: null, reps: 14 }, 'reps', 9);
+    expect(record).toEqual({ kind: 'amount', amount: 14, before: 13 });
+    expect(recordText(record!, 'reps', { bodyweight: true, pair: false })).toBe('Nuevo récord · 14 reps · antes 13');
+    expect(recordOf(reps, { weightKg: null, reps: 13 }, 'reps', 9)).toBeNull();
+
+    const holds = [1, 2, 3].map((id) => set(id, `2026-10-0${id}`, null, 50 + id * 5, { unit: 'seconds' }));
+    const hold = recordOf(holds, { weightKg: null, reps: 130 }, 'seconds', 9)!;
+    expect(recordText(hold, 'seconds', { bodyweight: true, pair: false })).toBe('Nuevo récord · 2:10 min · antes 65 s');
+    const steps = [1, 2, 3].map((id) => set(id, `2026-10-0${id}`, null, 30 + id * 2, { unit: 'steps' }));
+    expect(recordText(recordOf(steps, { weightKg: null, reps: 40 }, 'steps', 9)!, 'steps', plain)).toBe('Nuevo récord · 40 pasos · antes 36');
+  });
+
+  it('compares only sets in the unit of the exercise in the routine', () => {
+    const mixed = [...history, set(4, '2026-11-05', 40, 90, { unit: 'seconds' })];
+    expect(recordOf(mixed, { weightKg: 40, reps: 9 }, 'reps', 9)).toMatchObject({ kind: 'amountAtWeight', before: 8 });
+    expect(recordOf(mixed, { weightKg: 40, reps: 95 }, 'seconds', 9)).toBeNull();
+    expect(recordOf(history, { weightKg: 50, reps: 0 }, 'reps', 9)).toBeNull();
+  });
+
+  it('writes the load as everywhere else', () => {
+    const record = { kind: 'weight' as const, kg: 15, beforeKg: 12.5 };
+    expect(recordText(record, 'reps', { bodyweight: true, pair: false })).toBe('Nuevo récord · lastre 15 kg · antes 12,5 kg');
+    expect(recordText({ kind: 'weight', kg: 20, beforeKg: 17.5 }, 'reps', { bodyweight: false, pair: true })).toBe(
+      'Nuevo récord · 2 × 20 kg · antes 2 × 17,5 kg',
+    );
+    expect(recordText({ kind: 'amountAtWeight', kg: 15, amount: 7, before: 6 }, 'reps', { bodyweight: true, pair: false })).toBe(
+      'Nuevo récord · 7 reps con lastre 15 kg · antes 6',
+    );
+  });
+
+  it('tags the workout that holds a record, and a correction takes the tag away', () => {
+    const session = { exerciseId: 1, sessionId: 9, date: '2026-11-10', startedAt: Date.parse('2026-11-10') };
+    const sets = [
+      { weightKg: 40, reps: 8 },
+      { weightKg: 40, reps: 9 },
+      { weightKg: 40, reps: 7 },
+    ];
+    expect(sessionHasRecord(history, sets, 'reps', session)).toBe(true);
+    expect(sessionHasRecord(history, [sets[0], { weightKg: 40, reps: 8 }, sets[2]], 'reps', session)).toBe(false);
+    expect(sessionHasRecord(history.slice(2), sets, 'reps', session)).toBe(false);
+  });
+});
+
+describe('the longest walk', () => {
+  const walk = (id: number, km: number, key = 'caminar'): WalkRow => ({
+    id,
+    key,
+    name: 'Caminar',
+    date: `2026-11-${String(id).padStart(2, '0')}`,
+    startedAt: Date.UTC(2026, 10, id, 8),
+    distanceM: km * 1000,
+    samples: [],
+  });
+  const usual = [1, 2, 3, 4, 5].map((id) => walk(id, id === 3 ? 6.9 : 5.1));
+
+  it('is more than 5 % over the longest of five before it', () => {
+    expect(longestWalkText(walk(6, 7.42), usual)).toBe('Nuevo récord de distancia · 7,42 km · antes 6,90 km');
+    expect(longestWalkText(walk(6, 7.2), usual)).toBeNull();
+    expect(longestWalkText(walk(6, 5.3), usual)).toBeNull();
+  });
+
+  it('needs five earlier walks of the same activity, and ignores the later ones', () => {
+    expect(longestWalkText(walk(6, 9), usual.slice(1))).toBeNull();
+    expect(longestWalkText(walk(6, 9), [...usual.slice(1), walk(7, 4, 'correr')])).toBeNull();
+    expect(longestWalkText(walk(6, 9), [...usual, walk(7, 12)])).toBe('Nuevo récord de distancia · 9,00 km · antes 6,90 km');
+    expect(longestWalkText(walk(6, 9), [...usual, walk(6, 9)])).not.toBeNull();
   });
 });

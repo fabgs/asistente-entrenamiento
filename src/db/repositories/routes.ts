@@ -7,6 +7,7 @@ import {
   routeMatch,
   routeLengthM,
   routeQuestion,
+  routeRecordText,
   routeRecords,
   visitLines,
   type RouteMatch,
@@ -305,6 +306,20 @@ export async function deleteRoute(db: Db, id: number): Promise<void> {
     await db.runAsync('UPDATE cardio_session SET follow_route_id = NULL, follow_state = NULL WHERE follow_route_id = ?', id);
     await db.runAsync('DELETE FROM route WHERE id = ?', id);
   });
+}
+
+/**
+ * Of a walk just finished (1.4.10): whether it repeats a saved route the same way or back, and then
+ * «Nuevo récord en esta ruta · 52:10 · antes 54:20» if it beat its best.
+ */
+export async function routeRecordOf(db: Db, sessionId: number): Promise<{ repeats: boolean; text: string | null }> {
+  const walk = await getWalk(db, sessionId);
+  if (!walk || walk.route_id === null || walk.route_relation === 'variant') return { repeats: false, text: null };
+  const route = await getRoute(db, walk.route_id);
+  if (!route) return { repeats: false, text: null };
+  const times = await routeTimes(db, route);
+  const time = times.find((t) => t.sessionId === sessionId);
+  return { repeats: true, text: time ? routeRecordText(time, times, routeCloses(route.segments)) : null };
 }
 
 /** What the screen of a walk shows about routes: the one it is linked to, or a question about one. */

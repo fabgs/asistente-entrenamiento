@@ -213,18 +213,21 @@ export function HeatLegend({
   from = '0',
   to = '10 o más series',
   levels = [0, 1, 2, 3, 4],
+  ramp = HEAT,
 }: {
   label?: string;
   from?: string;
   to?: string;
   levels?: number[];
+  /** The colours of the levels: those of the body map, or those of the paths in the heat map. */
+  ramp?: readonly string[];
 }) {
   return (
     <View style={styles.legend} accessible accessibilityLabel={label}>
       <AppText variant="caption">{from}</AppText>
       <View style={styles.swatches}>
         {levels.map((level) => (
-          <View key={level} style={[styles.swatch, { backgroundColor: HEAT[level] }]} />
+          <View key={level} style={[styles.swatch, { backgroundColor: ramp[level] }]} />
         ))}
       </View>
       <AppText variant="caption">{to}</AppText>

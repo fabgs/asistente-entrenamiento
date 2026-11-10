@@ -55,6 +55,8 @@ import {
   type Session,
   type SetLog,
 } from '@/db/repositories/sessions';
+import { recordSetsOf } from '@/db/repositories/records';
+import { recordOf, recordText } from '@/domain/records';
 import { getSettings, toProgressionSettings, updateSettings } from '@/db/repositories/settings';
 import {
   applyChange,
@@ -112,6 +114,8 @@ export default function WorkoutScreen() {
   const db = useDb();
   // Looking at the exercise list while the rest keeps counting.
   const [browsing, setBrowsing] = useState(false);
+  // The set that was a record when it was done (1.4.10): its row in the rest says so.
+  const [recordSetId, setRecordSetId] = useState<number | null>(null);
 
   const { data, reload } = useLoader(async (db) => {
     const session = await getSession(db, id);
@@ -262,8 +266,13 @@ export default function WorkoutScreen() {
   };
 
   const completeSet = async (slot: Slot, reps: number) => {
-    await logSet(db, id, slot, reps);
+    // What there was before this set: beating the best set of the exercise is said, once and quietly.
+    const earlier = await recordSetsOf(db, slot.exerciseId, id).catch(() => []);
+    const setId = await logSet(db, id, slot, reps);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    const record = recordOf(earlier, { weightKg: slot.weightKg, reps }, slot.unit, id);
+    setRecordSetId(record ? setId : null);
+    if (record) showSnackbar(recordText(record, slot.unit, { bodyweight: isBodyweight(slot), pair: slot.exercisePair }));
     const next = nextStep(planned, [...sets, { slotId: slot.id }], skipped, slot.id);
     setBrowsing(false);
     if (next.kind === 'finished') {
@@ -306,11 +315,14 @@ export default function WorkoutScreen() {
 
   // Corrections never touch the rest: its countdown and alarm go on.
   const correctSet = async (set: SetLog, reps: number, weightKg?: number | null) => {
+    // A correction never announces a record: it only takes the tag away (the summary works it out again).
+    setRecordSetId(null);
     await updateSetReps(db, set.id, reps);
     if (weightKg !== undefined) await updateSetWeight(db, set.id, weightKg);
     reload();
   };
   const removeSet = async (set: SetLog) => {
+    setRecordSetId(null);
     await deleteSet(db, set.id);
     reload();
     showSnackbar(set.isWarmup ? 'Aproximación borrada' : 'Serie borrada', {
@@ -370,6 +382,7 @@ export default function WorkoutScreen() {
           nextSlotDone={nextSlot ? setsDone(nextSlot.id, sets) : 0}
           lastSet={lastSet}
           lastSlot={lastSet ? slots.find((s) => s.id === lastSet.slotId) : undefined}
+          lastIsRecord={lastSet !== null && lastSet.id === recordSetId}
           onCorrect={correctSet}
           onDelete={removeSet}
           onAdjust={adjustRest}
@@ -1253,6 +1266,7 @@ function RestView({
   nextSlotDone,
   lastSet,
   lastSlot,
+  lastIsRecord,
   onCorrect,
   onDelete,
   onAdjust,
@@ -1271,6 +1285,8 @@ function RestView({
   nextSlotDone: number;
   lastSet: SetLog | null;
   lastSlot: Slot | undefined;
+  /** That set beat the best of its exercise (1.4.10). */
+  lastIsRecord: boolean;
   onCorrect: (set: SetLog, reps: number) => void;
   onDelete: (set: SetLog) => void;
   onAdjust: (deltaSeconds: number) => void;
@@ -1361,7 +1377,12 @@ function RestView({
             left={<RowIcon name="check" color={colors.primary} tint={colors.primaryTint} />}
             title={`Serie ${lastSet.setIndex} hecha`}
             subtitle={`${formatLoad(lastSet.weightKg, isBodyweight(lastSlot), lastSlot.exercisePair)} × ${lastSet.reps}`}
-            right={<Icon name="pencil-outline" size={20} color={colors.muted} />}
+            right={
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+                {lastIsRecord ? <Tag label="Récord" tone="success" /> : null}
+                <Icon name="pencil-outline" size={20} color={colors.muted} />
+              </View>
+            }
           />
         ) : null}
         {nextSlot ? (

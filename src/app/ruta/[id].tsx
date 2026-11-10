@@ -10,7 +10,7 @@ import { updateSettings } from '@/db/repositories/settings';
 import { activeMs, distanceAlong, positionAtDistance } from '@/domain/gps';
 import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useNow } from '@/hooks/data';
-import { useCardioSession } from '@/hooks/walk';
+import { useCardioSession, useFollowedRoute } from '@/hooks/walk';
 import { colors, radius, spacing } from '@/theme';
 
 /** Height of the chart in the open sheet. */
@@ -61,6 +61,9 @@ export default function RouteExplorerScreen() {
     }).filter((k) => k !== null);
   }, [walk]);
 
+  // While walking, what is left of the followed route; a finished walk shows only itself.
+  const guide = useFollowedRoute(live && data?.followed ? { route: data.followed, state: data.session.followState } : null);
+
   if (data === undefined) return <Loading />;
   if (data === null || !walk) return null;
 
@@ -95,7 +98,7 @@ export default function RouteExplorerScreen() {
       <InteractiveMap
         key={attempt}
         segments={walk.segments}
-        guide={data.followed?.segments}
+        guide={guide?.ahead}
         cursor={cursor}
         kms={kms}
         mode={offline ? '2d' : mode}

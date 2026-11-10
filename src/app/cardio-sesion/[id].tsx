@@ -47,6 +47,7 @@ import {
   type SavedRoute,
   type WalkRoute,
 } from '@/db/repositories/routes';
+import { walkRecordText } from '@/db/repositories/records';
 import { updateSettings, type LivePanel, type Settings } from '@/db/repositories/settings';
 import {
   describePlan,
@@ -61,14 +62,14 @@ import {
 import { formatClock, formatCountdown, formatLongDate, formatMetres, formatNumber, formatTimeRange, NBSP } from '@/domain/format';
 import { activeMs, decodeRoute, kmSplits, MAX_ACCURACY_M, positionAtDistance, type LatLon, type Split, type TrackPoint } from '@/domain/gps';
 import { photoPlace, placeFromFix, walkTrackOf } from '@/domain/photos';
-import { buildFollowLine, followView, type FollowState } from '@/domain/routeFollow';
-import { defaultRouteName, recentFirst, routeEnds } from '@/domain/routes';
+import type { FollowState } from '@/domain/routeFollow';
+import { defaultRouteName, recentFirst } from '@/domain/routes';
 import { localDateString, parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
 import { sprintGps } from '@/domain/sprint';
 import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
 import { useDb, useNow } from '@/hooks/data';
-import { useCardioSession, type SprintLive as SprintLiveData } from '@/hooks/walk';
+import { useCardioSession, useFollowedRoute, type SprintLive as SprintLiveData } from '@/hooks/walk';
 import { maybeAutoBackup } from '@/services/backup';
 import {
   discardCardio,
@@ -183,6 +184,11 @@ export default function CardioSessionScreen() {
     await finishCardio(db, session, at);
     setJustFinished(true);
     await reload();
+    // The best time of its route or the longest walk: said once, as it is saved (1.4.10).
+    if (isWalk) {
+      const record = await walkRecordText(db, session.id).catch(() => null);
+      if (record) showSnackbar(record);
+    }
     maybeAutoBackup(db);
   };
 
@@ -390,8 +396,6 @@ export default function CardioSessionScreen() {
           route={
             data.route ? <WalkRouteBlock key={data.route.kind} info={data.route} onYes={answerRoute.yes} onNo={answerRoute.no} /> : null
           }
-          followed={followed}
-          followedLinked={!!followed && data.route?.kind === 'linked' && data.route.routeId === followed.id}
           onAddPhoto={addPhoto}
           onRename={async () => {
             const title = await showPrompt('Título', {
@@ -506,20 +510,6 @@ export default function CardioSessionScreen() {
   );
 }
 
-/** The followed route as the GPS task last placed the walker on it, and where it starts and ends the way it is followed. */
-function useFollow(follow: { route: SavedRoute; state: FollowState | null } | null) {
-  const key = follow ? `${follow.route.id}:${follow.route.createdAt}` : '';
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- a new route object arrives on every reload
-  const line = useMemo(() => (follow ? buildFollowLine(follow.route.segments) : null), [key]);
-  if (!follow || !line) return null;
-  const ends = routeEnds(follow.route.segments);
-  const backwards = (follow.state?.dir || follow.state?.initial) === -1;
-  return {
-    view: followView(follow.state, line),
-    ends: ends ? (backwards ? { start: ends.end, end: ends.start } : ends) : null,
-  };
-}
-
 /** What the GPS can measure, as the title of the live sprints. */
 function SprintGpsPill({ live }: { live: SprintLiveData }) {
   const now = useNow(1000);
@@ -600,7 +590,7 @@ function GpsView({
   /** The route being followed (1.4.9), with the detector's state. */
   follow: { route: SavedRoute; state: FollowState | null } | null;
 }) {
-  const following = useFollow(follow);
+  const following = useFollowedRoute(follow);
   const { settings } = prefs;
   const now = useNow(1000);
   const [panel, setPanel] = useState<LivePanel>(settings.cardioLivePanel);
@@ -660,8 +650,9 @@ function GpsView({
             segments={track.segments}
             height={panelHeight}
             photos={photos}
-            guide={follow?.route.segments}
+            guide={following?.ahead}
             guideEnds={following?.ends}
+            fit={follow?.route.segments}
             onPress={() => openMap(session.id)}
             corner={<FloatingButton icon="arrow-expand" label="Ampliar el mapa" onPress={() => openMap(session.id)} />}
           />
@@ -732,17 +723,12 @@ function WalkDetails({
   walk,
   prefs,
   photos,
-  guide,
-  guideCaption,
   children,
 }: {
   sessionId: number;
   walk: WalkSnapshot;
   prefs: WalkPrefs;
   photos: LatLon[];
-  /** The route it followed, in grey under it, and what says so when it did not turn out to be that route. */
-  guide?: LatLon[][];
-  guideCaption?: string | null;
   /** Between the map and chart and the splits: the photos. */
   children?: ReactNode;
 }) {
@@ -758,7 +744,6 @@ function WalkDetails({
             segments={walk.segments}
             height={240}
             photos={photos}
-            guide={guide}
             cursor={cursorD === null ? null : positionAtDistance(walk.segments, cursorD)}
             onPress={() => openMap(sessionId)}
             corner={
@@ -769,7 +754,6 @@ function WalkDetails({
             }
           />
         ) : null}
-        {guideCaption ? <AppText variant="caption">{guideCaption}</AppText> : null}
         {walk.samples.length > 2 ? (
           <Card flush style={styles.chartCard}>
             <TrackChart
@@ -953,8 +937,6 @@ function FinishedView({
   prefs,
   photos,
   route,
-  followed,
-  followedLinked,
   onAddPhoto,
   onRename,
   footer,
@@ -964,9 +946,6 @@ function FinishedView({
   photos: Photo[];
   /** The walk's saved route or the question about one: between its figures and its map. */
   route: ReactNode;
-  /** The route it followed (1.4.9), and whether the walk is linked to it. */
-  followed: SavedRoute | null;
-  followedLinked: boolean;
   onAddPhoto: () => void;
   onRename: () => void;
   footer?: ReactNode;
@@ -996,13 +975,7 @@ function FinishedView({
             onToggleUnit={prefs.onToggleUnit}
           />
           {route}
-          <WalkDetails
-            sessionId={session.id}
-            walk={walk}
-            prefs={prefs}
-            photos={placesOf(photos)}
-            guide={followed?.segments}
-            guideCaption={followed && !followedLinked ? `En gris, «${followed.name}», la ruta que seguías.` : null}>
+          <WalkDetails sessionId={session.id} walk={walk} prefs={prefs} photos={placesOf(photos)}>
             {photoSection}
           </WalkDetails>
         </>

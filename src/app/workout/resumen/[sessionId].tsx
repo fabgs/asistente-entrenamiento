@@ -46,6 +46,7 @@ import {
   updateSetWeight,
   type SetLog,
 } from '@/db/repositories/sessions';
+import { sessionRecordExercises } from '@/db/repositories/records';
 import { getProfile, getSettings, toProgressionSettings } from '@/db/repositories/settings';
 import { applyChange, listChangesForSession, type WeightChange } from '@/db/repositories/weightChanges';
 import {
@@ -122,6 +123,8 @@ export default function SummaryScreen() {
       setsPerMuscle: setsPerMuscle(await workSetsOfSession(db, id), muscles),
       sex: (await getProfile(db)).sex,
       photos: (await listPhotos(db, { kind: 'workout', id })).filter(isOnPhone),
+      // The exercises whose best set was beaten in this workout (1.4.10).
+      records: await sessionRecordExercises(db, id),
     };
   });
 
@@ -296,6 +299,7 @@ export default function SummaryScreen() {
                     <AppText variant="secondary">Sin series</AppText>
                   )}
                   {correcting ? null : <ExerciseTimesLine slotId={slot.id} sets={sets} />}
+                  {!correcting && finished && data.records.includes(slot.exerciseId) ? <Tag label="Récord" tone="success" /> : null}
                 </View>
                 <Icon name="chevron-right" size={20} color={colors.muted} />
               </Pressable>

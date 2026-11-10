@@ -4,13 +4,14 @@ import Svg, { Circle, Polyline } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
 import { fitView, fitViewExact, osmTileUrl, outline, TILE_USER_AGENT, tilesFor, toScreen } from '@/domain/mapView';
 import { thinSegments } from '@/domain/progress';
-import { attributionType, colors, radius } from '@/theme';
+import type { Palette } from '@/domain/palette';
+import { attributionType, colors, isDark, radius } from '@/theme';
 import { AppText, Icon } from './ui';
 
 const tileSource = (z: number, x: number, y: number) => ({ uri: osmTileUrl(z, x, y), headers: { 'User-Agent': TILE_USER_AGENT } });
 
-/** Darkens the light tiles to sit in the dark theme (the 3D map uses raster-brightness-max 0.62). */
-const VEIL = 0.38;
+/** Darkens the light tiles to sit in the dark mode (the 3D map uses raster-brightness-max 0.62); the light mode shows them as they are. */
+const VEIL = isDark ? 0.38 : 0;
 const PHOTO_MARK = 24;
 
 type FitInset = { top?: number; bottom?: number; left?: number; right?: number };
@@ -39,6 +40,8 @@ export function RouteMap({
   overTiles,
   guide = [],
   guideEnds = null,
+  fit = [],
+  palette = colors,
 }: {
   segments: LatLon[][];
   height?: number;
@@ -66,15 +69,19 @@ export function RouteMap({
   exactFit?: boolean;
   /** Drawn over the tiles and under the route (the share image's fade). */
   overTiles?: ReactNode;
-  /** A route being followed (1.4.9), in grey under the walk; the view fits both. */
+  /** What is left of a route being followed (1.4.9), in grey under the walk. */
   guide?: LatLon[][];
-  /** Where the followed route starts (a ring) and ends (a dot), the way it is followed: while walking. */
-  guideEnds?: { start: LatLon; end: LatLon } | null;
+  /** Where the followed route starts (a ring, until the walker is on their way) and ends (a dot). */
+  guideEnds?: { start: LatLon | null; end: LatLon } | null;
+  /** Kept in view besides the walk and the guide: the whole followed route, so the map does not
+   * zoom in as the part walked goes away. */
+  fit?: LatLon[][];
+  /** The colours it is drawn with: the share image is always dark, whatever the mode of the app. */
+  palette?: Palette;
 }) {
   const [width, setWidth] = useState(0);
   const points = segments.flat();
-  const guidePoints = guide.flat();
-  const fitPoints = [...points, ...guidePoints];
+  const fitPoints = [...points, ...guide.flat(), ...fit.flat()];
 
   return (
     <View style={[styles.box, !rounded && styles.square, { height }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
@@ -108,6 +115,7 @@ export function RouteMap({
             photos={photos}
             exactFit={exactFit}
             overTiles={overTiles}
+            colors={palette}
           />
         </Pressable>
       ) : null}
@@ -135,12 +143,13 @@ function MapContent({
   photos,
   exactFit,
   overTiles,
+  colors,
 }: {
   segments: LatLon[][];
   points: LatLon[];
   fitPoints: LatLon[];
   guide: LatLon[][];
-  guideEnds: { start: LatLon; end: LatLon } | null;
+  guideEnds: { start: LatLon | null; end: LatLon } | null;
   width: number;
   height: number;
   cursor: LatLon | null;
@@ -154,6 +163,7 @@ function MapContent({
   photos: LatLon[];
   exactFit: boolean;
   overTiles?: ReactNode;
+  colors: Palette;
 }) {
   const { top = 0, bottom = 0, left = 0, right = 0 } = fitInset;
   const fitted = (exactFit ? fitViewExact : fitView)(fitPoints, width - left - right, height - top - bottom, fitPadding);
@@ -168,7 +178,7 @@ function MapContent({
   const toLine = (segment: LatLon[]) => segment.map(at).map((p) => `${p.x},${p.y}`).join(' ');
   const lines = segments.map(toLine);
   const guideLines = guide.map(toLine);
-  const guideStart = guideEnds ? at(guideEnds.start) : null;
+  const guideStart = guideEnds?.start ? at(guideEnds.start) : null;
   const guideEnd = guideEnds ? at(guideEnds.end) : null;
   const allSettled = tiles.length > 0 && settled >= tiles.length;
   useEffect(() => {
@@ -185,8 +195,8 @@ function MapContent({
           style={{ position: 'absolute', left: t.left, top: t.top, width: t.size, height: t.size }}
         />
       ))}
-      {/* Darkens the light map so it sits in the dark theme and the route stands out. */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: veil }]} />
+      {/* Darkens the light map so it sits in the dark mode and the route stands out. */}
+      {veil > 0 ? <View style={[StyleSheet.absoluteFill, { backgroundColor: colors.bg, opacity: veil }]} /> : null}
       {overTiles}
       <Svg width={width} height={height} style={StyleSheet.absoluteFill}>
         {/* The followed route: a grey band, wider than the walk, so the green goes inside it. */}
@@ -212,20 +222,15 @@ function MapContent({
             strokeLinecap="round"
           />
         ))}
-        {guideStart && guideEnd ? (
-          <>
-            <Circle cx={guideStart.x} cy={guideStart.y} r={8} fill="none" stroke={colors.guide} strokeWidth={3} />
-            <Circle cx={guideEnd.x} cy={guideEnd.y} r={6} fill={colors.guide} stroke={colors.overlay} strokeWidth={2} />
-          </>
-        ) : null}
-        {/* The dark outline keeps the green line readable over light tiles. */}
+        {guideStart ? <Circle cx={guideStart.x} cy={guideStart.y} r={8} fill="none" stroke={colors.guide} strokeWidth={3} /> : null}
+        {guideEnd ? <Circle cx={guideEnd.x} cy={guideEnd.y} r={6} fill={colors.guide} stroke={colors.overlay} strokeWidth={2} /> : null}
+        {/* The outline keeps the line readable over any tile. */}
         {lines.map((points, i) => (
           <Polyline
             key={`o${i}`}
             points={points}
             fill="none"
-            stroke={colors.bg}
-            strokeOpacity={0.7}
+            stroke={colors.mapCasing}
             strokeWidth={lineWidth + 4}
             strokeLinejoin="round"
             strokeLinecap="round"

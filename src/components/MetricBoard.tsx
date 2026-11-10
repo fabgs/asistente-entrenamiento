@@ -10,7 +10,7 @@ import {
   type WalkMetric,
   type WalkNumbers,
 } from '@/domain/walkStats';
-import { colors, radius, spacing } from '@/theme';
+import { cardOutline, colors, radius, spacing } from '@/theme';
 import { AppText, Value } from './ui';
 
 /**
@@ -131,7 +131,7 @@ function Fade({ k, style, children }: { k: string; style?: StyleProp<ViewStyle>;
 
 const styles = StyleSheet.create({
   hero: { gap: 2 },
-  grid: { backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden' },
+  grid: { backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden', ...cardOutline },
   gridRow: { flexDirection: 'row' },
   hDivider: { height: 1, backgroundColor: colors.border },
   vDivider: { width: 1, backgroundColor: colors.border },

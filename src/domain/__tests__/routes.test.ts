@@ -12,6 +12,7 @@ import {
   routeMatch,
   recentFirst,
   routeQuestion,
+  routeRecordText,
   routeRecords,
   timesLine,
   visitLines,
@@ -239,6 +240,18 @@ describe('the walks of a route', () => {
     // The best of the three before it is the second one (52:30), not this later one.
     expect(compareWithEarlier(fourth, all, true)).toEqual({ diffMs: -2.5 * MIN, against: 'best' });
     expect(ordinalOf(fourth, all)).toBe(4);
+  });
+
+  it('is a record of the route to beat the best of two or more earlier walks by 15 s', () => {
+    const all = [time(1, 55), time(2, 54 + 20 / 60), time(3, 52 + 10 / 60)];
+    expect(routeRecordText(all[2], all, true)).toBe('Nuevo récord en esta ruta · 52:10 · antes 54:20');
+    // The second has only one before it; 14 s faster is the same; slower is nothing.
+    expect(routeRecordText(all[1], all, true)).toBeNull();
+    expect(routeRecordText(time(4, 52 - 4 / 60), all, true)).toBeNull();
+    expect(routeRecordText(time(4, 56), all, true)).toBeNull();
+    // A variant or a walk that does not compete never is.
+    expect(routeRecordText(time(4, 40, 'variant'), all, true)).toBeNull();
+    expect(routeRecordText(time(4, 40, 'same', { kind: 'gap', m: 300 }), all, true)).toBeNull();
   });
 
   it('calls less than 15 s the same, and 15 s a difference', () => {

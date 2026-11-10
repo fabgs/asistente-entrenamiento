@@ -1,6 +1,7 @@
 import * as Application from 'expo-application';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
+import { AppearanceSection } from '@/components/Appearance';
 import { BackupSection, DevModeSection, SettingSwitch } from '@/components/DataSettings';
 import { showSnackbar } from '@/components/Dialog';
 import { Sheet } from '@/components/Sheet';
@@ -21,7 +22,9 @@ import {
 } from '@/components/ui';
 import type { Db } from '@/db/db';
 import { getAdminOptions, setAdminOptions } from '@/db/repositories/admin';
+import { getActiveCardioSession } from '@/db/repositories/cardioSessions';
 import { countOwnIncrements } from '@/db/repositories/exercises';
+import { getActiveSession } from '@/db/repositories/sessions';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { formatCountdown } from '@/domain/format';
 import { addTap, TAP_GAP_MS, tapOutcome, tapsLeftText, type Taps } from '@/domain/secretTaps';
@@ -51,6 +54,8 @@ interface Loaded {
   /** The copy in GitHub and test mode show (seven taps on the version). */
   admin: boolean;
   unusedPhotos: { files: string[]; bytes: number };
+  /** A workout or a cardio session in progress: the theme cannot change (it restarts the app). */
+  inProgress: boolean;
 }
 
 const load = async (db: Db): Promise<Loaded> => ({
@@ -62,6 +67,7 @@ const load = async (db: Db): Promise<Loaded> => ({
   ownIncrements: await countOwnIncrements(db),
   admin: await getAdminOptions(db),
   unusedPhotos: await unusedPhotos(db),
+  inProgress: (await getActiveSession(db)) !== null || (await getActiveCardioSession(db)) !== null,
 });
 
 /** Everything is saved as soon as it changes (PLAN.md §8). */
@@ -157,6 +163,8 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
       </Section>
 
       <Permissions permissions={data.permissions} scheduled={data.scheduled} bubble={settings.restOverlay} onChanged={reload} />
+
+      <AppearanceSection busy={data.inProgress} />
 
       <BackupSection
         settings={data.settings}

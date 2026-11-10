@@ -2,8 +2,9 @@ import * as Notifications from 'expo-notifications';
 import { router, Stack, ThemeProvider, type Href } from 'expo-router';
 import { SQLiteProvider, type SQLiteDatabase } from 'expo-sqlite';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { Appearance, View } from 'react-native';
 import { DialogHost, showSnackbar, SnackbarHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
 import { importSeed } from '@/db/seed';
@@ -22,10 +23,15 @@ import {
 } from '@/services/notifications';
 import { recoverPendingPhotos } from '@/services/photos';
 import { DATABASE, keyPragma, prepareDatabase } from '@/services/secureDatabase';
+import { consumeThemeReturn } from '@/services/themePreference';
 import { restoreWorkoutInProgress } from '@/services/workoutInProgress';
-import { colors, headerOptions, navigationTheme } from '@/theme';
+import { colors, headerOptions, isDark, navigationTheme, theme } from '@/theme';
 
 configureNotificationHandler();
+// What Android draws itself in the mode chosen in Ajustes: the date and time pickers, and the
+// window behind the screens while one slides over another.
+Appearance.setColorScheme(theme.mode);
+void SystemUI.setBackgroundColorAsync(colors.bg);
 
 async function initDatabase(db: SQLiteDatabase, key: string | null) {
   // SQLCipher: the key must be the first statement on the connection.
@@ -48,6 +54,8 @@ function Bootstrap() {
   useEffect(() => {
     (async () => {
       await ensureChannels();
+      // The app restarted to apply a theme: back to where it was chosen.
+      if (consumeThemeReturn()) router.navigate('/ajustes');
       if (!(await getPermissionState()).notifications) await requestNotificationPermission();
       await rescheduleDailyReminders(db);
       await restoreWorkoutInProgress(db);
@@ -88,7 +96,7 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={navigationTheme}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <SQLiteProvider databaseName={DATABASE} onInit={(db) => initDatabase(db, key)}>
         <Bootstrap />
         <Stack
@@ -100,6 +108,7 @@ export default function RootLayout() {
           <Stack.Screen name="ruta/[id]" options={{ title: 'Mapa' }} />
           <Stack.Screen name="mis-rutas" options={{ title: 'Mis rutas' }} />
           <Stack.Screen name="mis-rutas/[id]" options={{ title: 'Ruta' }} />
+          <Stack.Screen name="mapa-calor" options={{ title: 'Mapa de calor' }} />
           <Stack.Screen name="compartir/[tipo]/[id]" options={{ title: 'Compartir' }} />
           <Stack.Screen name="foto/[id]" options={{ title: 'Foto' }} />
           <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />

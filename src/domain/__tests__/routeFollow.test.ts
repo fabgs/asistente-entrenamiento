@@ -7,11 +7,14 @@ import {
   followView,
   parseFollowState,
   REMINDER_MS,
+  routeAhead,
   type FollowEvent,
   type FollowFix,
   type FollowLine,
   type FollowState,
 } from '../routeFollow';
+import { distanceM } from '../gps';
+import { routeLengthM } from '../routes';
 import { LINE, LOOP, OUT_AND_BACK, reversed, walkAlong, type Corner } from './routeFixtures';
 
 const T0 = Date.UTC(2026, 10, 9, 8, 0);
@@ -283,6 +286,63 @@ describe('following a route', () => {
       state = parseFollowState(JSON.stringify(followStep(line, state, chunk, chunk.at(-1)!.t + 1000, true).state));
     }
     expect(state).toEqual(whole);
+  });
+
+  describe('what is left of the route to draw', () => {
+    const route = [walkAlong(BLOCK, { seed: 1, drift: 0 })];
+    const line = buildFollowLine(route);
+    const walked = (fixes: FollowFix[], metres: number) => fixes.slice(0, Math.round(metres / (1.4 * 3)));
+
+    it('is the whole route before stepping on it and until the way round is known', () => {
+      expect(routeAhead(route, line, null)).toBe(route);
+      const far = fixesAlong([[-500, 500], [-500, 400]], { drift: 0 });
+      expect(routeAhead(route, line, run(line, far).state)).toBe(route);
+      const { state } = run(line, walked(fixesAlong(BLOCK, { drift: 0 }), 60));
+      expect(state.status).toBe('on');
+      expect(state.dir).toBe(0);
+      expect(routeAhead(route, line, state)).toBe(route);
+    });
+
+    it('loses what is behind the walker as they go, and starts where they are', () => {
+      const fixes = walked(fixesAlong(BLOCK, { drift: 0 }), 2000);
+      const { state } = run(line, fixes);
+      const view = followView(state, line);
+      const ahead = routeAhead(route, line, state);
+      expect(view.doneM).toBeGreaterThan(1900);
+      expect(routeLengthM(ahead)).toBeCloseTo(view.leftM, -1);
+      expect(distanceM(ahead[0][0], fixes.at(-1)!)).toBeLessThan(10);
+      expect(ahead[0].at(-1)).toEqual(route[0].at(-1));
+    });
+
+    it('keeps the part towards the start when the route is walked back to front', () => {
+      const way = [walkAlong(LINE, { seed: 1, drift: 0 })];
+      const wayLine = buildFollowLine(way);
+      const fixes = walked(fixesAlong(reversed(LINE), { drift: 0 }), 600);
+      const { state } = run(wayLine, fixes);
+      expect(state.dir).toBe(-1);
+      const ahead = routeAhead(way, wayLine, state);
+      expect(ahead[0][0]).toEqual(way[0][0]);
+      expect(distanceM(ahead[0].at(-1)!, fixes.at(-1)!)).toBeLessThan(10);
+      expect(routeLengthM(ahead)).toBeCloseTo(followView(state, wayLine).leftM, -1);
+    });
+
+    it('still shows what was left while off the route, and nothing at its end', () => {
+      const detour: Corner[] = [[0, 0], [600, 0], [600, -150], [900, -150]];
+      const { state } = run(line, fixesAlong(detour, { drift: 0 }));
+      expect(state.status).toBe('off');
+      expect(routeLengthM(routeAhead(route, line, state))).toBeGreaterThan(4300);
+      expect(routeAhead(route, line, run(line, fixesAlong(BLOCK, { drift: 0 })).state)).toEqual([]);
+    });
+
+    it('drops the segments already walked of a route in two parts', () => {
+      const parts = [walkAlong([[0, 0], [800, 0]], { seed: 1, drift: 0 }), walkAlong([[900, 0], [1700, 0]], { seed: 1, drift: 0 })];
+      const partsLine = buildFollowLine(parts);
+      const { state } = run(partsLine, walked(fixesAlong([[0, 0], [1700, 0]], { drift: 0 }), 1200));
+      const ahead = routeAhead(parts, partsLine, state);
+      expect(ahead).toHaveLength(1);
+      expect(ahead[0].at(-1)).toEqual(parts[1].at(-1));
+      expect(routeLengthM(ahead)).toBeCloseTo(followView(state, partsLine).leftM, -1);
+    });
   });
 
   it('writes the line under the figures and the notifications', () => {

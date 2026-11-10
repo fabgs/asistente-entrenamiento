@@ -1,6 +1,7 @@
+import { router } from 'expo-router';
 import { showDialog, showPrompt, showSnackbar } from '@/components/Dialog';
 import { openRoute, RouteRow } from '@/components/Routes';
-import { AddRow, Button, EmptyState, ListGroup, Loading, ROW_ICON_INSET, Screen } from '@/components/ui';
+import { AddRow, AppText, Button, EmptyState, ListGroup, ListRow, Loading, ROW_ICON_INSET, RowIcon, Screen } from '@/components/ui';
 import { importGpxRoute, routeList } from '@/db/repositories/routes';
 import { GpxError } from '@/domain/gpx';
 import { countOf } from '@/domain/progress';
@@ -10,7 +11,8 @@ import { pickGpx } from '@/services/gpx';
 
 /**
  * Mis rutas (PLAN.md §6.8, 1.4.8), from Historial → Cardio: the walks saved as routes, the one walked
- * last first, and the routes imported from a GPX (1.4.9).
+ * last first, and the routes imported from a GPX (1.4.9). Above them, the heat map of every walk
+ * (1.4.10), saved as a route or not.
  */
 export default function RoutesScreen() {
   const db = useDb();
@@ -33,10 +35,27 @@ export default function RoutesScreen() {
     if (count > 0) showSnackbar(`Ruta importada · la has hecho ${countOf(count, 'vez', 'veces')}`);
   };
 
+  const heatMap = (
+    <ListGroup inset={ROW_ICON_INSET}>
+      <ListRow
+        left={<RowIcon name="map-outline" />}
+        title="Mapa de calor"
+        // Two lines: with a big system font it does not fit in one.
+        subtitle={
+          <AppText variant="secondary" numberOfLines={2}>
+            Por dónde caminas más
+          </AppText>
+        }
+        onPress={() => router.push('/mapa-calor')}
+      />
+    </ListGroup>
+  );
+
   if (!data) return <Loading />;
   if (data.items.length === 0) {
     return (
       <Screen>
+        {heatMap}
         <EmptyState
           icon="map-marker-path"
           title="Sin rutas todavía"
@@ -48,6 +67,7 @@ export default function RoutesScreen() {
   }
   return (
     <Screen>
+      {heatMap}
       <ListGroup inset={ROW_ICON_INSET}>
         {data.items.map((item) => (
           <RouteRow key={item.route.id} item={item} today={data.today} onPress={() => openRoute(item.route.id)} />

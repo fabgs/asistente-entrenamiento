@@ -3,7 +3,8 @@ import { Image, PixelRatio, StyleSheet, Text, View, type StyleProp, type TextPro
 import Svg, { Circle, Defs, LinearGradient, Polyline, Rect, Stop } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
 import { outline } from '@/domain/mapView';
-import { colors, shareType } from '@/theme';
+// Always the dark palette, with the accent chosen: the looks of the image do not follow the mode.
+import { imageColors as colors, shareType } from '@/theme';
 import { RouteMap } from './RouteMap';
 import { Icon } from './ui';
 
@@ -362,6 +363,7 @@ export function WalkStory({
             height={frame.map * u}
             rounded={false}
             veil={0.25}
+            palette={colors}
             detail={TILE_DETAIL}
             attribution={false}
             exactFit

@@ -3,6 +3,8 @@ import { normalizeForSearch } from '@/domain/format';
 import { decodeSamples } from '@/domain/gps';
 import {
   exerciseBest,
+  longestWalkText,
+  sessionHasRecord,
   usualUnit,
   walkRecords,
   workoutsPerWeek,
@@ -25,6 +27,7 @@ import {
 import { bool, type Db } from '../db';
 import { getCardio } from './cardio';
 import { listRoutines, listSlots } from './routines';
+import { routeRecordOf } from './routes';
 
 /** What the row of Perfil says: «370 entrenos · 5100 series». */
 export async function workoutCounts(db: Db): Promise<{ workouts: number; sets: number }> {
@@ -199,7 +202,8 @@ async function timeRecords(db: Db): Promise<RecordsData['times']> {
   };
 }
 
-async function walks(db: Db): Promise<WalkRecords[]> {
+/** Every finished GPS walk, with the key of its activity. */
+async function walkRows(db: Db): Promise<WalkRow[]> {
   const rows = await db.getAllAsync<{
     id: number;
     activityId: number | null;
@@ -218,7 +222,7 @@ async function walks(db: Db): Promise<WalkRecords[]> {
     const activity = await getCardio(db, id);
     keys.set(id, activity ? { key: cardioKey(activity), name: activity.name } : null);
   }
-  const walkRows: WalkRow[] = rows.map((r) => {
+  return rows.map((r) => {
     const activity = r.activityId !== null ? keys.get(r.activityId) : null;
     return {
       id: r.id,
@@ -230,5 +234,74 @@ async function walks(db: Db): Promise<WalkRecords[]> {
       samples: decodeSamples(r.samples),
     };
   });
-  return walkRecords(walkRows);
+}
+
+const walks = async (db: Db): Promise<WalkRecords[]> => walkRecords(await walkRows(db));
+
+const RECORD_SET_SELECT = `SELECT s.exercise_id AS exerciseId, s.session_id AS sessionId, w.date, w.started_at AS startedAt, w.imported,
+              COALESCE(rs.unit, 'reps') AS unit, s.weight_kg AS weightKg, s.reps
+       FROM set_log s
+       JOIN workout_session w ON w.id = s.session_id
+       LEFT JOIN routine_slot rs ON rs.id = s.slot_id
+       WHERE s.is_warmup = 0 AND s.reps > 0`;
+
+type RecordSetRow = Omit<RecordSet, 'imported'> & { imported: number };
+
+/**
+ * What a set about to be logged is compared with (1.4.10, `recordOf`): the work sets of its exercise
+ * in the finished workouts, in any routine, and those already done in this one.
+ */
+export async function recordSetsOf(db: Db, exerciseId: number, sessionId: number): Promise<RecordSet[]> {
+  const rows = await db.getAllAsync<RecordSetRow>(
+    `${RECORD_SET_SELECT} AND s.exercise_id = ? AND (w.status = 'finished' OR w.id = ?) ORDER BY w.started_at, s.completed_at, s.id`,
+    exerciseId,
+    sessionId,
+  );
+  return rows.map((r) => ({ ...r, imported: bool(r.imported) }));
+}
+
+/**
+ * The exercises with a record in a workout, for the tag of its summary: computed from the sets, so
+ * correcting or deleting one moves it. None in an imported workout (its sets are the history).
+ */
+export async function sessionRecordExercises(db: Db, sessionId: number): Promise<number[]> {
+  const session = await db.getFirstAsync<{ date: string; startedAt: number; imported: number }>(
+    'SELECT date, started_at AS startedAt, imported FROM workout_session WHERE id = ?',
+    sessionId,
+  );
+  if (!session || session.imported) return [];
+  const own = await db.getAllAsync<RecordSetRow>(`${RECORD_SET_SELECT} AND s.session_id = ? ORDER BY s.completed_at, s.id`, sessionId);
+  const ids = [...new Set(own.map((s) => s.exerciseId))];
+  if (ids.length === 0) return [];
+  const before = (
+    await db.getAllAsync<RecordSetRow>(
+      `${RECORD_SET_SELECT} AND w.status = 'finished' AND s.session_id <> ? AND w.started_at <= ?
+         AND s.exercise_id IN (${ids.map(() => '?').join(', ')})`,
+      sessionId,
+      session.startedAt,
+      ...ids,
+    )
+  ).map((r) => ({ ...r, imported: bool(r.imported) }));
+  return ids.filter((exerciseId) =>
+    [...new Set(own.filter((s) => s.exerciseId === exerciseId).map((s) => s.unit))].some((unit) =>
+      sessionHasRecord(
+        before.filter((s) => s.exerciseId === exerciseId),
+        own.filter((s) => s.exerciseId === exerciseId && s.unit === unit),
+        unit,
+        { exerciseId, sessionId, date: session.date, startedAt: session.startedAt },
+      ),
+    ),
+  );
+}
+
+/**
+ * The notice of a walk just finished, if it is a record (1.4.10): the best time of the route it
+ * repeats, or the longest walk of its activity when it repeats none. One at most.
+ */
+export async function walkRecordText(db: Db, sessionId: number): Promise<string | null> {
+  const route = await routeRecordOf(db, sessionId);
+  if (route.repeats) return route.text;
+  const rows = await walkRows(db);
+  const walk = rows.find((w) => w.id === sessionId);
+  return walk ? longestWalkText(walk, rows) : null;
 }

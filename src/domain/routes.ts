@@ -311,6 +311,17 @@ export function visitLines(time: RouteTime, times: RouteTime[], closes: boolean)
   return { first, second: `${formatClock(Math.abs(diffMs))} más ${diffMs < 0 ? 'rápido' : 'lento'} que ${against}` };
 }
 
+/**
+ * «Nuevo récord en esta ruta · 52:10 · antes 54:20» (1.4.10): the walk competes and beats the best of
+ * two or more earlier ones by what the row under it calls faster. Without the name of the route: its
+ * row is right below.
+ */
+export function routeRecordText(time: RouteTime, times: RouteTime[], closes: boolean): string | null {
+  const comparison = compareWithEarlier(time, times, closes);
+  if (!comparison || comparison.against !== 'best' || comparison.diffMs > -SAME_TIME_MS) return null;
+  return `Nuevo récord en esta ruta · ${formatClock(time.activeMs)} · antes ${formatClock(time.activeMs - comparison.diffMs)}`;
+}
+
 /** Best and latest of the walks that compete in the route's own direction, and those walks in order for its chart. */
 export function routeRecords(times: RouteTime[], closes: boolean): { best: RouteTime | null; last: RouteTime | null; chart: RouteTime[] } {
   const chart = times.filter((t) => competes(t) && groupOf(t, closes) === 'main').sort((a, b) => a.startedAt - b.startedAt);

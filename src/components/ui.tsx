@@ -26,7 +26,7 @@ import { formatCountdown, formatDateWithYear, formatNumber, parseDecimal } from 
 import { movementPattern, muscleLabel, type ExerciseMuscles, type MovementPattern } from '@/domain/muscles';
 import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, pickerStartDate, today, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
-import { colors, maxFontScale, quietTypes, radius, spacing, type, unitSize, weight, type TypeName } from '@/theme';
+import { cardOutline, colors, maxFontScale, quietTypes, radius, spacing, switchThumb, type, unitSize, weight, type TypeName } from '@/theme';
 import { setBottomBarHeight } from './layers';
 
 /** Names from before the type scale, still accepted: muted = secondary, small = caption, huge = display. */
@@ -658,7 +658,7 @@ export function SwitchRow({
       <Switch
         value={value}
         onValueChange={onValueChange}
-        thumbColor={value ? colors.text : colors.muted}
+        thumbColor={value ? switchThumb.on : switchThumb.off}
         trackColor={{ false: colors.border, true: colors.primary }}
       />
     </Pressable>
@@ -1269,7 +1269,7 @@ const styles = StyleSheet.create({
   },
   noFontPadding: { includeFontPadding: false },
   tabular: { fontVariant: ['tabular-nums'] },
-  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md },
+  card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, gap: spacing.md, ...cardOutline },
   flush: { padding: 0, gap: 0, overflow: 'hidden' },
   block: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: spacing.md, gap: spacing.sm },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
@@ -1383,7 +1383,7 @@ const styles = StyleSheet.create({
   dayText: { ...type.control, color: colors.muted },
   todayDot: { position: 'absolute', bottom: 4, width: 4, height: 4, borderRadius: 2, backgroundColor: colors.muted },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
-  statRow: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden' },
+  statRow: { flexDirection: 'row', alignItems: 'stretch', backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden', ...cardOutline },
   statDivider: { width: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   stat: { flex: 1, minHeight: 72, gap: 2, paddingVertical: spacing.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
   sectionLabel: { color: colors.muted, ...type.overline },
@@ -1439,7 +1439,7 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.border,
   },
-  group: { backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden' },
+  group: { backgroundColor: colors.card, borderRadius: radius.lg, overflow: 'hidden', ...cardOutline },
   separator: { height: StyleSheet.hairlineWidth, backgroundColor: colors.border },
   listRow: {
     flexDirection: 'row',

@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.9** (`versionCode` 21, [app.json](app.json)) |
+| Versión de la app | **1.4.10** (`versionCode` 22, [app.json](app.json)) |
 | Esquema de la BD | **13** (`PRAGMA user_version`, 13 migraciones) |
-| Revisado | 2026-11-09, versión 1.4.9 (seguir una ruta con aviso al salirse, también con la pantalla bloqueada; importar y exportar GPX) |
+| Revisado | 2026-11-10, versión 1.4.10 (mapa de calor de los caminos, aviso «Nuevo récord», la ruta seguida que desaparece según se recorre, y tema: cuatro acentos y modo claro) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -37,7 +37,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 |---|---|---|
 | [src/app/](src/app/) | Rutas de expo-router (nombres en español). Cada fichero es una pantalla. | Solo UI: lee y escribe a través de repositorios, hooks y servicios. |
 | [src/components/](src/components/) | Sistema de diseño ([ui.tsx](src/components/ui.tsx)), capas ([Dialog.tsx](src/components/Dialog.tsx), [Sheet.tsx](src/components/Sheet.tsx)) y piezas compuestas (tarjetas, gráficas, mapas). | Igual que las pantallas. ESLint prohíbe `Text` de RN, colores literales y tamaños numéricos. |
-| [src/hooks/](src/hooks/) | `useDb`, `useLoader`, `useNow` ([data.ts](src/hooks/data.ts)); escrituras en cola y guardado ([editing.ts](src/hooks/editing.ts)); sesión de cardio en vivo ([walk.ts](src/hooks/walk.ts)). | |
+| [src/hooks/](src/hooks/) | `useDb`, `useLoader`, `useNow` ([data.ts](src/hooks/data.ts)); escrituras en cola y guardado ([editing.ts](src/hooks/editing.ts)); sesión de cardio en vivo y la ruta seguida ([walk.ts](src/hooks/walk.ts)); el mapa de calor, construido en dos pasos ([pathHeat.ts](src/hooks/pathHeat.ts)). | |
 | [src/db/](src/db/) | Interfaz `Db` ([db.ts](src/db/db.ts)), [migrations.ts](src/db/migrations.ts), [seed.ts](src/db/seed.ts), copias y borrado ([maintenance.ts](src/db/maintenance.ts)), datos de prueba (`demo*.ts`). | Depende solo de `src/domain` (y de los JSON de `data/seed`). Testeado con `node:sqlite`. |
 | [src/db/repositories/](src/db/repositories/) | Un repositorio por área, con SQL tipado. | Única puerta a SQLite desde la UI. |
 | [src/domain/](src/domain/) | Lógica pura: progresión, máquina del entreno, nutrición, GPS, sprints, músculos, cifrado de copias, formatos. | **TS puro**: sin React Native ni Expo (solo `date-fns`). Siempre con tests. |
@@ -53,6 +53,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 - `src/domain/` no importa nada de React Native ni de Expo; recibe `now` como parámetro.
 - Las pantallas no llaman a `Date.now()` para escribir: repositorios y servicios reciben `now` con valor por defecto.
 - Unidades: kg, fechas locales `YYYY-MM-DD`, instantes en epoch ms, día de la semana ISO (1 = lunes). La conversión a la convención de `expo-notifications` (1 = domingo) solo está en [dailyReminder.ts](src/services/dailyReminder.ts) (`isoToExpoWeekday`).
+- **Colores**: ninguna pantalla ni componente escribe un color ni decide por el modo: leen `colors` de [theme.ts](src/theme.ts), que se construye **una vez, al cargar el bundle**, con `buildColors` ([palette.ts](src/domain/palette.ts)) y la preferencia del móvil ([themePreference.ts](src/services/themePreference.ts)). Cambiar el tema reinicia el JavaScript (§5.15), así que los `StyleSheet.create` de módulo siempre tienen los colores del tema en uso. La imagen para compartir usa `imageColors` (siempre oscura).
 - Todo cambio en rutinas, slots, días o cardio llama a `reschedule(db)` ([editing.ts](src/hooks/editing.ts)) → `rescheduleDailyReminders()`.
 
 ```mermaid
@@ -96,13 +97,13 @@ sequenceDiagram
   participant S as secureDatabase.ts
   participant P as SQLiteProvider (onInit)
   participant B as Bootstrap
-  Note over L: al cargar el bundle se importa gpsTracker.ts (define la tarea entreno-gps) y se configura el handler de notificaciones
+  Note over L: al cargar el bundle: theme.ts lee el tema (almacén seguro) y construye colors, se importa gpsTracker.ts (define la tarea entreno-gps), se configura el handler de notificaciones y Appearance.setColorScheme pone el modo en lo nativo
   L->>S: prepareDatabase()
   S-->>L: clave (o null si la BD sigue sin cifrar)
   L->>P: abre entreno.db
   P->>P: PRAGMA key · migrate() · resetIfNewInstallInDevMode() · importSeed(SEED)
   P->>B: monta Bootstrap y el Stack
-  B->>B: ensureChannels · pedir permiso de notificaciones
+  B->>B: ensureChannels · si se reinició para aplicar un tema, navigate(/ajustes) · pedir permiso de notificaciones
   B->>B: rescheduleDailyReminders · restoreWorkoutInProgress · restoreCardioInProgress · maybeAutoBackup
   B->>B: getLastNotificationResponseAsync → router.navigate(data.url)
 ```
@@ -140,10 +141,11 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
-| [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount` |
+| [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount`, `routeRecordOf` (¿mejoró el mejor tiempo de su ruta?, 1.4.10) |
 | [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `listRoutePhotos` (las de todas las caminatas de una ruta), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
-| [records.ts](src/db/repositories/records.ts) | lecturas | `loadRecords` (totales, por año, mejor serie de cada ejercicio, tiempos y caminatas), `workoutCounts` (la fila del Perfil) |
-| [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`) |
+| [records.ts](src/db/repositories/records.ts) | lecturas | `loadRecords` (totales, por año, mejor serie de cada ejercicio, tiempos y caminatas), `workoutCounts` (la fila del Perfil); aviso de récord (1.4.10): `recordSetsOf` (con qué se compara una serie), `sessionRecordExercises` (la etiqueta del resumen), `walkRecordText` (al guardar una caminata) |
+| [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`, `heat-map`) |
+| [pathHeat.ts](src/db/repositories/pathHeat.ts) | `cardio_session` (lectura), `app_meta` (`heat-map-mode`) | `listHeatWalks` (las caminatas con GPS terminadas, la última primero, con su línea codificada), `getHeatMode`, `setHeatMode` |
 | [admin.ts](src/db/repositories/admin.ts) | `app_meta` (`admin`) | `getAdminOptions` (la primera vez, sí si ya hay copia en GitHub o modo pruebas), `setAdminOptions` |
 
 </details>
@@ -161,11 +163,13 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [schedule.ts](src/domain/schedule.ts) | Días ISO, fechas locales, `buildDailyMessage`, `isoToExpoWeekday`, frase de ánimo |
 | [muscles.ts](src/domain/muscles.ts) | 18 músculos, series por músculo (1 / 0,5), niveles, `CATALOG_MUSCLES`, búsqueda por músculo, patrón de movimiento; «Últimos días»: `lastWorkedPerMuscle`, `recencyLevel`, `calendarDaysBetween`, `formatDaysAgo` |
 | [workoutTimes.ts](src/domain/workoutTimes.ts) | Tiempos del entreno: serie, descanso real (`restsOf`), atípicos, medianas frente al plan (`restStats`, `sessionTimes`, `exerciseTimes`, `exerciseRestAcross`), duración de una rutina (`workoutDuration`) |
-| [records.ts](src/domain/records.ts) | Récords: mejor serie de un ejercicio en su unidad (`exerciseBest`, `recordReading`), entrenos por semana de un año, caminatas por actividad (`walkRecords`) |
+| [records.ts](src/domain/records.ts) | Récords: mejor serie de un ejercicio en su unidad (`exerciseBest`, `recordReading`), entrenos por semana de un año, caminatas por actividad (`walkRecords`); aviso «Nuevo récord» (1.4.10): `recordOf` (¿bate la serie a la mejor?, con su umbral de 3 entrenos), `recordText`, `sessionHasRecord` (la etiqueta del resumen), `longestWalkText` |
 | [cardioSport.ts](src/domain/cardioSport.ts) | El deporte de una actividad de cardio por su nombre, para su icono (`cardioSport`) |
-| [routeFollow.ts](src/domain/routeFollow.ts) | Seguir una ruta (1.4.9): la ruta en metros (`buildFollowLine`), el detector dentro/fuera con histéresis, el progreso con su ventana y el sentido (`followStep`), y lo que dice la píldora y la notificación (`followView`, `followText`, `followNotice`) |
+| [routeFollow.ts](src/domain/routeFollow.ts) | Seguir una ruta (1.4.9): la ruta en metros (`buildFollowLine`), el detector dentro/fuera con histéresis, el progreso con su ventana y el sentido (`followStep`), lo que dice la píldora y la notificación (`followView`, `followText`, `followNotice`) y lo que queda de la ruta por dibujar (`routeAhead`, 1.4.10) |
+| [pathHeat.ts](src/domain/pathHeat.ts) | Mapa de calor (1.4.10): caminatas distintas por celda de 25 m con margen de 10 m (`addHeatWalks`), el peso por antigüedad y los niveles de «Últimos 30 días» (`recencyWeight`, `recentTone`) y de «Siempre» (`alwaysCuts`, `alwaysTone`), una línea por camino cortada por nivel y simplificada (`heatLines`), el encuadre (`heatFrame`), la lectura de un toque (`heatCellAt`, `heatReading`) y la leyenda (`heatLegend`) |
+| [palette.ts](src/domain/palette.ts) | Los colores (1.4.10): las dos paletas, los cuatro acentos, `buildColors(modo, acento)`, la preferencia (`parseThemePreference`, `themeLabel`) y utilidades de color (`contrast`, `over`, `mix`, `withAlpha`) |
 | [gpx.ts](src/domain/gpx.ts) | GPX sin dependencias: leer (`parseGpx`, `checkGpxRoute`) y escribir (`toGpx`, `walkElevation`, `gpxFileName`) |
-| [routes.ts](src/domain/routes.ts) | Mis rutas: ¿repite una caminata una ruta? (`routeMatch`: salida y llegada, distancia, celdas de 25 m, sentido; `bestRouteMatch`), por qué una vez no compite por el mejor (`exclusionOf`), comparación con las anteriores y sus textos (`visitLines`, `routeRecords`, `routeQuestion`) |
+| [routes.ts](src/domain/routes.ts) | Mis rutas: ¿repite una caminata una ruta? (`routeMatch`: salida y llegada, distancia, celdas de 25 m, sentido; `bestRouteMatch`), por qué una vez no compite por el mejor (`exclusionOf`), comparación con las anteriores y sus textos (`visitLines`, `routeRecords`, `routeQuestion`) y el récord de una ruta (`routeRecordText`, 1.4.10) |
 | [zoom.ts](src/domain/zoom.ts) | Geometría del zoom de las fotos (worklets): encaje, límites, pellizco sobre los dedos, página tras deslizar |
 | [progress.ts](src/domain/progress.ts) | Volumen, récords, 1RM estimado (Epley, hasta 12 reps), escalas de ejes, agrupar por meses |
 | [cardioPlan.ts](src/domain/cardioPlan.ts) | Planes LISS/MISS/HIIT → fases y alarmas; `sharesLockCountdown` |
@@ -205,6 +209,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [photos.ts](src/services/photos.ts) | Hacer una foto o elegirla de la galería, guardar su copia reducida, quitarla y borrar las de una sesión; recuperar la que Android dejó a medias (`recoverPendingPhotos`); imágenes sin sesión | Sesión de cardio, Resumen, Foto, Compartir, cardioSession |
 | [shareImage.ts](src/services/shareImage.ts) | Captura de una vista, guardar en la galería, compartir | Compartir |
 | [network.ts](src/services/network.ts) | ¿Se pueden cargar teselas ahora? | Compartir |
+| [themePreference.ts](src/services/themePreference.ts) | El tema del móvil en el almacén seguro (lectura síncrona al cargar el bundle), aplicarlo reiniciando el JavaScript (`applyTheme` → `reloadAppAsync`) y volver a Ajustes (`consumeThemeReturn`) | `theme.ts`, Apariencia, `_layout` |
 
 </details>
 
@@ -220,15 +225,16 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [Ring.tsx](src/components/Ring.tsx) | Anillo del descanso (Reanimated) |
 | [LineChart.tsx](src/components/LineChart.tsx) · [TrackChart.tsx](src/components/TrackChart.tsx) · [MetricBoard.tsx](src/components/MetricBoard.tsx) | Gráfica de progreso/peso; gráfica de la ruta; panel de cifras de la caminata |
 | [Routes.tsx](src/components/Routes.tsx) | Mis rutas: la fila de una ruta (`RouteRow`, con «Importada de un GPX»), en el detalle de una caminata la fila de su ruta o la tarjeta «¿Es una variante de…?» (`WalkRouteBlock`), la hoja «Seguir una ruta» (`FollowRouteSheet`) y la píldora bajo las cifras (`RouteFollowPill`) |
-| [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura, y la de las filas centrada en la columna de los iconos, `RouteRowThumbnail`); MapLibre en un WebView |
+| [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura, y la de las filas centrada en la columna de los iconos, `RouteRowThumbnail`), con velo solo en el modo oscuro y `palette` para dibujarse siempre en oscuro en la imagen para compartir; MapLibre en un WebView, que también pinta el mapa de calor (`heat`: caminos con su color, ancho y borde, teselas casi sin color y el toque ajustado al camino más cercano) |
 | [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo con la ruta en el mismo sitio en los tres primeros (en Mapa, zoom entre niveles con `fitViewExact`); la marca y «© OpenStreetMap» en la última línea |
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
 | [PhotoPager.tsx](src/components/PhotoPager.tsx) | Visor de fotos con páginas y zoom (pellizco, doble toque, arrastre) en un solo juego de gestos de `react-native-gesture-handler` 3 y Reanimated |
 | [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Tabla y detalle de sprints; pantalla en directo |
-| [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda; hoja de músculos |
+| [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda (`HeatLegend`, también la del mapa de calor, con su rampa); hoja de músculos |
 | [WeightSheet.tsx](src/components/WeightSheet.tsx) | Hoja de un pesaje |
 | [DataSettings.tsx](src/components/DataSettings.tsx) | Secciones de Ajustes: copia de seguridad y modo pruebas |
 | [FormRow.tsx](src/components/FormRow.tsx) · [SearchField.tsx](src/components/SearchField.tsx) | Fila de formulario; buscador |
+| [Appearance.tsx](src/components/Appearance.tsx) | Ajustes → Apariencia (1.4.10): la fila «Tema y color» y su hoja (Oscuro · Claro, cuatro muestras, mini vista previa con la paleta candidata y «Aplicar») |
 
 </details>
 
@@ -238,7 +244,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 ### 2.1 Rutas
 
-32 ficheros en `src/app/`: 2 layouts, 5 pestañas y 25 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
+33 ficheros en `src/app/`: 2 layouts, 5 pestañas y 26 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
 
 | Fichero | URL y parámetros | Título | Para qué |
 |---|---|---|---|
@@ -255,8 +261,9 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [progreso/[id].tsx](src/app/progreso/[id].tsx) | `/progreso/:exerciseId` | Nombre del ejercicio | Gráfica, récords, sesiones y cambios de peso |
 | [cardio-sesion/[id].tsx](src/app/cardio-sesion/[id].tsx) | `/cardio-sesion/:cardioSessionId` | En directo: nombre o píldora del GPS; terminada: vacío | Caminata, Fases o Sprints en directo, o su detalle |
 | [ruta/[id].tsx](src/app/ruta/[id].tsx) | `/ruta/:cardioSessionId` · `?modo=3d` | Sin cabecera | Mapa a pantalla completa con gráfica |
-| [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | Las caminatas guardadas como ruta, la última hecha arriba; «Importar GPX» |
+| [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | La fila «Mapa de calor» y las caminatas guardadas como ruta, la última hecha arriba; «Importar GPX» |
 | [mis-rutas/[id].tsx](src/app/mis-rutas/[id].tsx) | `/mis-rutas/:routeId` | Vacío (el nombre va en la página) | Una ruta: mapa con las fotos, mejor y última, gráfica de los tiempos y cada vez; «Seguir esta ruta» |
+| [mapa-calor.tsx](src/app/mapa-calor.tsx) | `/mapa-calor` | Mapa de calor | Los caminos de todas las caminatas, más rojos cuanto más se andan: «Últimos 30 días» o «Siempre» |
 | [compartir/[tipo]/[id].tsx](src/app/compartir/[tipo]/[id].tsx) | `/compartir/cardio/:id` · `/compartir/entreno/:id` | Compartir | Imagen para compartir (historia o cuadrado) |
 | [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página, con zoom |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
@@ -271,7 +278,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [pesos.tsx](src/app/pesos.tsx) | `/pesos` | Pesajes | Todos los pesajes, por meses, de 30 en 30 |
 | [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
 | [alimento/[id].tsx](src/app/alimento/[id].tsx) | `/alimento/:id` · `/alimento/nuevo?nombre=` | «Alimento» o «Nuevo alimento» | Editor de alimento |
-| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, copia, modo pruebas (GitHub y modo pruebas, solo con las opciones de administrador) |
+| [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, apariencia (tema y color), copia, modo pruebas (GitHub y modo pruebas, solo con las opciones de administrador) |
 | [cifrado.tsx](src/app/cifrado.tsx) | `/cifrado` | «Cifrar las copias» o «Cambiar la contraseña» | Contraseña de las copias |
 | [dev/componentes.tsx](src/app/dev/componentes.tsx) | `/dev/componentes` | Componentes | Catálogo de componentes; solo `__DEV__` (en release redirige a `/`) |
 
@@ -320,15 +327,15 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - **Calentamiento** (rutina con `warmup`, 1.4.7): «Empezar · <ejercicio>» → `endWarmup` → vista serie; ⋮ «Descartar entreno» ⤒.
   - **Lista**: fila de ejercicio → vista serie (o, si se está descansando, lo marca como siguiente); «Añadir ejercicio a la rutina» (rutina) → `/ejercicios?pickFor=:routineId`; «Añadir otro ejercicio» (suelto, fuera del descanso) → `/ejercicio-suelto?sesion=:id`; «Terminar…» ⇄ `/workout/resumen/:id?nuevo=1` (⤒ si era una sesión suelta vacía); ⋮ «Descartar entreno» ⤒; mini barra del descanso → vista descanso.
   - **Serie**: ⋮ «Editar ejercicio de la rutina» → `/slot/:id` (además «Saltar ejercicio» y «Añadir aproximación», sin navegar).
-  - **Descanso**: sin navegación propia; al acabar (`endRest`, que marca el inicio de la serie siguiente), vista serie o lista.
+  - **Descanso**: sin navegación propia; al acabar (`endRest`, que marca el inicio de la serie siguiente), vista serie o lista. Si la serie recién hecha batió la mejor del ejercicio (1.4.10), su fila lleva la etiqueta «Récord».
   - Si la sesión ya no está `in_progress` → `<Redirect>` a `/workout/resumen/:id`.
 - **Atrás**: desde serie, descanso o calentamiento vuelve a la lista (`usePreventRemove`; con el calentamiento, la lista muestra abajo `WarmupBar` y elegir un ejercicio lo pone como siguiente y vuelve al calentamiento); desde la lista sale. En una sesión suelta sin series, Atrás la descarta.
-- **Capas**: hojas de corrección de serie, aproximación y «Cambiar peso»/«Cambiar lastre»; diálogos «¿Terminar ya?», «¿Descartar el entreno?»; Snackbar con «Deshacer» (serie borrada, ejercicio saltado).
+- **Capas**: hojas de corrección de serie, aproximación y «Cambiar peso»/«Cambiar lastre»; diálogos «¿Terminar ya?», «¿Descartar el entreno?»; Snackbar con «Deshacer» (serie borrada, ejercicio saltado) y, sin acción, «Nuevo récord · 42,5 kg · antes 40 kg» al hacer una serie que bate la mejor del ejercicio (1.4.10).
 
 #### Resumen · `/workout/resumen/:sessionId`
 - **Llega desde**: fin del entreno (⇄, con `?nuevo=1`); Hoy (fila de Hecho, «Terminar» del entreno viejo); Historial · Entrenos; Progreso (fila de sesión); `<Redirect>` del entreno terminado.
 - **Lleva a**: compartir → `/compartir/entreno/:id`; nombre de un ejercicio → `/progreso/:exerciseId`; una foto → `/foto/:id`; con `?nuevo=1`: «Compartir» y «Listo» ⤒; ⋮ «Borrar entreno» ↩ (o ⤒, y borra sus fotos).
-- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; «Tiempos» (1.4.7, solo con datos): calentamiento y descanso entre series frente al plan (`sessionTimes`), y en cada tarjeta «12 min · descansos 2:41 · 3:15»; «Músculos» (1.4.5): la silueta del entreno (`SessionMusclesSection`, `workSetsOfSession`) y, al tocar una zona, sus series; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
+- **Capas**: ⋮ «Corregir series» (modo corrección en la misma pantalla, hoja con reps y peso, «Borrar» con «Deshacer»); título editable (diálogo de texto); cajas de sugerencia («Subir a…» / «Mantener…») y «Aplicar las N»; la etiqueta «Récord» en la tarjeta de un ejercicio cuya mejor serie se batió en ese entreno (1.4.10, `sessionRecordExercises`); «Tiempos» (1.4.7, solo con datos): calentamiento y descanso entre series frente al plan (`sessionTimes`), y en cada tarjeta «12 min · descansos 2:41 · 3:15»; «Músculos» (1.4.5): la silueta del entreno (`SessionMusclesSection`, `workSetsOfSession`) y, al tocar una zona, sus series; al final, «Añadir foto» o la tira de fotos (menú «Hacer una foto» · «Elegir de la galería»; abren la cámara o el selector del sistema).
 
 #### Ejercicio suelto · `/ejercicio-suelto`
 - **Llega desde**: Hoy «Hacer un ejercicio suelto»; lista de un entreno suelto «Añadir otro ejercicio» (`?sesion=`).
@@ -341,22 +348,27 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Cardio (sesión) · `/cardio-sesion/:id`
 - **Llega desde**: Hoy («Iniciar», «Ver», fila «En curso», fila de cardio hecho, hoja «Hacer otro cardio», diálogos «Ver cardio/sprints» y «Seguir sin GPS»); Historial · Cardio; alarma de fase (`cardio-<id>-*`, `navigate`); Ajustes · Modo pruebas «Añadir caminata/sprints de prueba» (solo desarrollo).
 - **Lleva a**:
-  - Caminata en directo: tocar el mapa o «ampliar» → `/ruta/:id`; la cámara de la cabecera abre la cámara del sistema y la foto se queda en ese punto de la ruta.
+  - Caminata en directo: tocar el mapa o «ampliar» → `/ruta/:id`; la cámara de la cabecera abre la cámara del sistema y la foto se queda en ese punto de la ruta. Siguiendo una ruta, el mapa pinta en gris solo lo que queda de ella (`useFollowedRoute` → `routeAhead`, 1.4.10) y encuadra la ruta entera.
   - Caminata terminada: mapa o «ampliar» → `/ruta/:id`; «3D» → `/ruta/:id?modo=3d`; compartir → `/compartir/cardio/:id`; la fila de su ruta (entre las cifras y el mapa) → `/mis-rutas/:routeId`; el Snackbar «Ruta guardada» → «Ver» → `/mis-rutas/:routeId`.
   - Terminada (caminata, Fases, sprints): una foto de la tira → `/foto/:id`.
   - Sprints terminados: compartir → `/compartir/cardio/:id`.
   - Recién terminada: «Compartir» (caminata, sprints) y «Listo» ⤒.
   - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒); en sprints también «Terminar ahora»; en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
-- **Capas**: «¿Terminar y guardar?»; «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
+- **Capas**: «¿Terminar y guardar?» y, al guardar una caminata que mejora el tiempo de su ruta o es la más larga de su actividad, el Snackbar «Nuevo récord en esta ruta · 52:10 · antes 54:20» o «Nuevo récord de distancia · …» (1.4.10); «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
 
 #### Mapa · `/ruta/:id`
 - **Llega desde**: sesión de cardio (caminata, en directo o terminada).
-- **Lleva a**: «Volver» (botón flotante; no hay cabecera) ↩. Dentro: 2D/3D, Mapa/Satélite, ver la ruta entera, norte, hoja con la gráfica, «Recentrar», «Reintentar» sin conexión.
+- **Lleva a**: «Volver» (botón flotante; no hay cabecera) ↩. Dentro: 2D/3D, Mapa/Satélite, ver la ruta entera, norte, hoja con la gráfica, «Recentrar», «Reintentar» sin conexión. En directo y siguiendo una ruta, en gris lo que queda de ella; de una caminata terminada, solo su línea (1.4.10).
 
 #### Mis rutas · `/mis-rutas`
 - **Llega desde**: Historial · Cardio (fila «Mis rutas», desde la primera caminata con GPS o la primera ruta).
-- **Lleva a**: una ruta → `/mis-rutas/:routeId`; «Importar GPX» → selector de ficheros → nombre → `/mis-rutas/:routeId`.
-- **Capas**: ninguna. Sin rutas, «Sin rutas todavía» y cómo se guarda una (`routeList`: la última hecha arriba; las que no tienen caminatas al final).
+- **Lleva a**: «Mapa de calor» (primera fila, siempre) → `/mapa-calor`; una ruta → `/mis-rutas/:routeId`; «Importar GPX» → selector de ficheros → nombre → `/mis-rutas/:routeId`.
+- **Capas**: ninguna. Sin rutas, la fila del mapa de calor y debajo «Sin rutas todavía» y cómo se guarda una (`routeList`: la última hecha arriba; las que no tienen caminatas al final).
+
+#### Mapa de calor · `/mapa-calor`
+- **Llega desde**: Mis rutas (primera fila).
+- **Lleva a**: nada (Atrás ↩). Dentro: el mapa interactivo con los caminos, «ver todo» y norte; abajo, el segmentado «Últimos 30 días · Siempre» (se recuerda, `app_meta('heat-map-mode')`) y una línea con la leyenda o la lectura del camino tocado (tocar fuera la quita); «Reintentar» sin conexión.
+- **Capas**: ninguna. La pista de la primera vez («Los caminos que repites se van poniendo rojos.») va sobre el mapa hasta el primer toque. Sin caminatas con GPS, «Sin caminatas todavía».
 
 #### Ruta · `/mis-rutas/:id`
 - **Llega desde**: Mis rutas (también tras importar un GPX); la fila de la ruta y el «Ver» de «Ruta guardada» en el detalle de una caminata.
@@ -428,7 +440,8 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Llega desde**: engranaje del Perfil; etiqueta «Pruebas» de Hoy.
 - **Lleva a**: «Cifrar las copias» / «Copias cifradas» → `/cifrado`; modo pruebas: «Reiniciar datos ahora» y «Cargar datos de prueba (Excel)» ⤒; «Añadir caminata de prueba» / «Añadir sprints de prueba» → `/cardio-sesion/:id`; «Catálogo de componentes» → `/dev/componentes` (estas tres y «Cargar datos de prueba», solo en desarrollo). Las filas de permisos piden el permiso o abren el ajuste de Android correspondiente (`expo-intent-launcher`).
 - **Opciones de administrador** (1.4.5): la copia en GitHub y el modo pruebas solo se ven con ellas (el modo pruebas, también mientras esté activo); siete toques en «Entreno vX» del pie las muestran u ocultan; desde el tercero el pie dice cuántos faltan (un Snackbar taparía la versión) y al séptimo sale el Snackbar ([secretTaps.ts](src/domain/secretTaps.ts), `app_meta('admin')`).
-- **Capas**: hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
+- **Apariencia** (1.4.10): la fila «Tema y color · Oscuro · Verde» abre una hoja con «Oscuro · Claro», cuatro colores, una mini vista previa y «Aplicar», que reinicia el JavaScript y vuelve a Ajustes (§5.15); con un entreno o un cardio en curso no deja aplicar.
+- **Capas**: hoja «Apariencia»; hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
 
 #### Cifrar las copias · `/cifrado`
 - **Llega desde**: Ajustes.
@@ -465,6 +478,7 @@ flowchart LR
     MAP["Mapa<br/>/ruta/:id"]
     MR["Mis rutas<br/>/mis-rutas"]
     RT["Ruta<br/>/mis-rutas/:id"]
+    HM["Mapa de calor<br/>/mapa-calor"]
   end
   SHARE["Compartir"]
   FOTO["Foto<br/>/foto/:id"]
@@ -606,6 +620,8 @@ flowchart TD
   FOTO["Foto<br/>/foto/:id"]
   MR["Mis rutas<br/>/mis-rutas"]
   RT["Ruta<br/>/mis-rutas/:id"]
+  HM["Mapa de calor<br/>/mapa-calor"]
+  MR -->|"fila Mapa de calor"| HM
   HOY -->|"Iniciar / Ver"| CS
   HOY -->|"fila En curso"| CS
   HOY -->|"hoja Hacer otro cardio"| CS
@@ -1013,7 +1029,7 @@ erDiagram
 |---|---|---|
 | `profile` | Datos del cuerpo y de los objetivos | El peso no va aquí: es el último de `weight_log`. Los g/kg de proteína y grasa y los L/kg de agua se editan en Objetivos del día (el agua en ml/kg). `name` no se usa. |
 | `settings` | Ajustes de la app y estado de la copia | `progression_mode`, `sessions_below_to_decrease` y `default_increment_kg` se editan en Ajustes → «Sugerencias de peso» y `getSettings` los limpia (`sanitizeProgression`). `cardio_*` y `distance_unit` recuerdan la vista de la caminata. |
-| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas), `hint:<pista>` (pistas de un solo uso), `admin` (opciones de administrador) y `photo-pending` (la foto mientras la cámara o la galería están abiertas). No va en la copia. |
+| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas), `hint:<pista>` (pistas de un solo uso), `heat-map-mode` (el modo del mapa de calor, 1.4.10), `admin` (opciones de administrador) y `photo-pending` (la foto mientras la cámara o la galería están abiertas). No va en la copia. |
 | `weight_log` | Un pesaje por día | `logWeight` hace *upsert* por fecha. |
 | `exercise` | Catálogo de ejercicios | `pair = 1`: el peso es de cada mancuerna y el volumen cuenta las dos. Crear uno con el nombre de un archivado lo recupera. |
 | `exercise_muscle` | Músculos principales y secundarios de cada ejercicio | Un músculo es principal o secundario, no ambos. Claves desconocidas se ignoran al leer. |
@@ -1071,6 +1087,8 @@ erDiagram
 | `database-key` | Clave hex de SQLCipher | `secureDatabase.ts` |
 | `backup-key` | Clave derivada de la contraseña de las copias y su KDF (`{kdf, key}`) | `backupCipher.ts` / `backup.ts` |
 | `github-backup-token` | Token *fine-grained* de GitHub | `backup.ts` (`githubToken`) |
+| `theme` | El tema del móvil, `{mode, accent}` (1.4.10): aquí y no en la base porque hace falta leerlo de forma síncrona al cargar el bundle, antes de abrir la base cifrada; no va en la copia y un reinicio de los datos no lo toca | `themePreference.ts` |
+| `theme-return` | Marca de que la app se reinició para aplicar un tema: el arranque siguiente abre Ajustes y la borra | `themePreference.ts` |
 
 Además, el módulo nativo usa `SharedPreferences`: posición de la burbuja (`rest_timer_overlay`) y latencia aprendida del pitido (`sprint-beep`).
 
@@ -1192,7 +1210,7 @@ sequenceDiagram
 2. La tarea `entreno-gps` (definida al cargar [gpsTracker.ts](src/services/gpsTracker.ts)) abre su conexión cifrada y guarda los puntos con `addTrackPoints` en la sesión GPS o de sprints en marcha (sin pausa), con su `segment` y `received_at`.
 3. Pantalla en directo: `useCardioSession` relee cada 3 s; píldora del GPS como título; panel de cifras (`MetricBoard`); segmentado Mapa · Gráfica · Parciales (se recuerda en `settings.cardio_live_panel`); tocar el mapa → `/ruta/:id`.
 4. «Pausar» → para el GPS y `paused_at`; «Seguir» → `paused_ms` += pausa, `segment + 1`, GPS otra vez (la distancia nunca une tramos).
-5. «Terminar» → «¿Terminar y guardar?» → `finishCardioSession`: `summarizeTrack`, `encodeRoute` → `route`, `buildSamples` → `samples`, borra `cardio_point`, *upsert* en `cardio_log` con el resultado («5,2 km · 58 min») y `session_id`; después `linkToRepeatedRoute` la enlaza a la ruta guardada que repita igual o al revés (un fallo ahí no pierde la caminata) → detalle con «Compartir» y «Listo» → `maybeAutoBackup`.
+5. «Terminar» → «¿Terminar y guardar?» → `finishCardioSession`: `summarizeTrack`, `encodeRoute` → `route`, `buildSamples` → `samples`, borra `cardio_point`, *upsert* en `cardio_log` con el resultado («5,2 km · 58 min») y `session_id`; después `linkToRepeatedRoute` la enlaza a la ruta guardada que repita igual o al revés (un fallo ahí no pierde la caminata) → detalle con «Compartir» y «Listo»; `walkRecordText` (1.4.10) mira si mejoró el mejor tiempo de la ruta que repite (`routeRecordOf` → `routeRecordText`) o, si no repite ninguna, si es la más larga de su actividad (`longestWalkText`), y lo dice en un Snackbar → `maybeAutoBackup`.
 6. ⋮ «Descartar caminata» / «Borrar caminata» → `discardCardio` → `deletingPhotosOf` + `discardCardioSession` (puntos, registro del día, fotos y sesión; después los ficheros de las fotos).
 7. Cámara de la cabecera (en directo) → `placeFromFix` con el último punto (≤ 30 s y ±50 m) → `takePhoto`: la foto se queda en ese punto del mapa (§5.14).
 8. **Mis rutas** (1.4.8): al abrir una caminata terminada, `useCardioSession` lee `walkRoute`: la fila de su ruta («3.ª vez · 2:10 más rápido que tu mejor», `visitLines`) o, sin ruta y sin «No», la ruta que parece repetir (`routeMatch` contra todas, `bestRouteMatch`) para la tarjeta de la pregunta; no escribe nada. «Sí» → `linkWalk`; «No» → `setRouteDeclined` (Snackbar «Deshacer»). ⋮ «Guardar como ruta» → nombre → `saveWalkAsRoute` (en una transacción: copia `route`, distancia y desnivel de `walkSnapshot`, enlaza la caminata y las demás sin ruta que la repiten igual o al revés) → Snackbar con «Ver». ⋮ «Quitar de la ruta» → `unlinkWalk` (deja `route_declined = 1`; «Deshacer» → `linkWalk`).
@@ -1278,6 +1296,8 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 - **Mis datos**: fecha de nacimiento (calendario nativo), altura y sexo → `updateProfile` al momento.
 - **Objetivos** (`/objetivos`): objetivo con signo en `deficit_kcal`, actividad (`activity_factor`) y proteína, grasa y agua por kilo → `updateProfile`; recalcula TMB, gasto, IMC, calorías y macros en la misma pantalla (`computeTargets`: hidratos ≥ 0 y `kcalOver`).
 
+- **Aviso «Nuevo récord»** (1.4.10): en el entreno, `completeSet` lee antes de guardar la serie con qué se compara (`recordSetsOf`: las series de trabajo del ejercicio en los entrenos terminados y las de este) y, guardada, `recordOf` dice si bate a la mejor; si es así, Snackbar con `recordText` y la etiqueta en la fila del descanso (estado de la pantalla; corregir o borrar una serie la quita). El resumen calcula su etiqueta con `sessionRecordExercises` (las series del entreno en orden frente a las de los entrenos anteriores; nunca en uno importado). Nada se guarda: sale de las series.
+
 ### 5.11 Recordatorio diario
 
 - `rescheduleDailyReminders` ([dailyReminder.ts](src/services/dailyReminder.ts)) va en cola y es idempotente: cancela `daily-1` … `daily-7` y, si está activado, programa 7 avisos `WEEKLY` (día con `isoToExpoWeekday`, hora y minuto de `daily_reminder_time`) en el canal `daily-reminder-v1`, con el texto de `buildDailyMessage` (rutinas con su número de ejercicios y el cardio del día) y `data.url = '/'`.
@@ -1320,6 +1340,22 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 
 | Si Android cierra la app | Cámara o galería abiertas | `launching` guarda `app_meta('photo-pending')` (sesión, origen, sitio y hora) y lo borra al volver. Si no vuelve, al arrancar `recoverPendingPhotos` (desde `_layout.tsx`) añade lo de `getPendingResultAsync` o, si Android mató el proceso, la imagen que la cámara escribió en `cache/ImagePicker` después de abrirla (`cameraFileSince`), y abre la sesión con «Foto añadida». |
 | Fotos sin sesión | Ajustes → Copia de seguridad | `unusedPhotos`: ficheros de `Documents/photos` sin fila (`photosWithoutSession`); la fila sale solo si hay alguno y «Borrar» (con confirmación) los borra (`deleteUnusedPhotos`). |
+
+### 5.15 Apariencia: tema y color
+
+1. **Al cargar el bundle**, [theme.ts](src/theme.ts) llama a `readThemePreference()` (lectura síncrona de `theme` en el almacén seguro; si no hay nada o no se puede leer, Oscuro y Verde) y construye `colors` con `buildColors` ([palette.ts](src/domain/palette.ts)): los neutros del modo, el acento como `primary`, `up` y sus tintes, y con el Azul, «en curso» en turquesa. También `imageColors` (oscura con el acento), `isDark`, `mapBrightness`, `cardOutline` (el borde de las tarjetas, solo en claro) y `navigationTheme` (de `DarkTheme` o `DefaultTheme`).
+2. [_layout.tsx](src/app/_layout.tsx), al cargar: `Appearance.setColorScheme(modo)` (el calendario y el reloj nativos) y `SystemUI.setBackgroundColorAsync(colors.bg)` (la ventana tras las pantallas); la barra de estado, con iconos claros u oscuros según el modo.
+3. Ajustes → «Tema y color» → hoja ([Appearance.tsx](src/components/Appearance.tsx)): la elección vive en el estado de la hoja y la mini vista previa se pinta con `buildColors(elección)` (copias de una fila, una ruta, un segmento y un botón: los componentes de verdad ya tomaron sus colores al arrancar). «Aplicar» → `applyTheme`: guarda `theme` y `theme-return` y llama a `reloadAppAsync()`.
+4. El JavaScript arranca otra vez con los colores nuevos; `Bootstrap` ve `theme-return` (`consumeThemeReturn`) y navega a `/ajustes`. Lo nativo no se reinicia: el servicio del GPS, las alarmas y la cuenta atrás siguen; aun así, con un entreno o un cardio en curso la hoja no deja aplicar.
+
+No cambian con el tema: la imagen para compartir (`imageColors`), el icono, la pantalla de arranque, el color de las notificaciones y lo que dibuja el módulo `rest-timer`.
+
+### 5.16 Mapa de calor
+
+1. Mis rutas → «Mapa de calor» → `/mapa-calor`. `usePathHeat` ([pathHeat.ts](src/hooks/pathHeat.ts)) lee `listHeatWalks` (caminatas con GPS terminadas, la última primero) y construye el mapa en dos pasos: `addHeatWalks` con las de los últimos 30 días (la pantalla ya puede pintar «Últimos 30 días») y después las antiguas de 50 en 50, cediendo el hilo entre lotes. El resultado se queda en memoria hasta que haya otra caminata o cambie el día.
+2. `addHeatWalks` ([pathHeat.ts](src/domain/pathHeat.ts)): proyecta cada línea a metros planos, la recorre cada 5 m (sin unir pausas ni saltos de más de 60 m), cuenta la caminata una vez en cada celda de 25 m con algún punto a 10 m o menos, y se queda con los tramos que todavía no tienen una línea cerca (rejilla de 5 m, unos 15 m), que son lo que se dibuja.
+3. La pantalla pide `heatLines(heat, modo)` (cada tramo cortado donde cambia su nivel y simplificado) y los pasa a `InteractiveMap` como `heat` con su color (`colors.trail*`; una caminata suelta que se apaga, `mix` hacia el gris), ancho y borde; `heatFrame` da el encuadre.
+4. Un toque: el WebView busca los caminos en 24 px, ajusta el toque al punto más cercano y lo manda; `heatCellAt` lee su celda y `heatReading` escribe la línea de abajo. Tocar fuera la quita.
 
 ---
 
@@ -1403,6 +1439,7 @@ Actualízalo **en el mismo commit** que el cambio de código, y la cabecera (ver
 | Un flujo, servicio o repositorio | §5 y el inventario de §1.6. |
 | Una notificación, canal, alarma, tarea o función nativa | §6 (y §3.6 si se puede tocar). |
 | Una regla entre capas | §1.3. |
+| Un color, un acento o algo que dependa del modo | [palette.ts](src/domain/palette.ts) (y sus tests de contraste), §5.15 y PLAN.md §12. Nunca un color escrito en una pantalla. |
 
 Para comprobar la navegación contra el código:
 

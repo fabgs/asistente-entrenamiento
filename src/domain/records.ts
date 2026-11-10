@@ -2,11 +2,12 @@
  * Récords (1.4.7, PLAN.md §6.6): totals, the best set of each exercise and the walks, from the data
  * that is already there. Pure: the repository reads the rows and the screen only formats.
  */
-import { formatLoad, formatNumber, formatSetValues, formatShortDate, loadFigure, NBSP } from './format';
+import { formatKg, formatLoad, formatNumber, formatSetValues, formatShortDate, loadFigure, NBSP } from './format';
 import { kmSplits, type TrackSample } from './gps';
 import { calendarDaysBetween } from './muscles';
 import { computeRecords, splitUnit, type ExerciseSession } from './progress';
 import type { RepUnit } from './types';
+import { fixed } from './walkStats';
 
 /** A work set of a finished workout, with what the records need to know of it. */
 export interface RecordSet {
@@ -160,4 +161,114 @@ export function recordReading(
       ? `ahora ${formatLoad(row.slotWeightKg, row.bodyweight, row.pair).toLowerCase()}`
       : null;
   return { figure, subtitle: [amount, date, now, imported].filter(Boolean).join(' · ') };
+}
+
+/**
+ * «Nuevo récord» (1.4.10, PLAN.md §6.6): the set just done becomes the best set of its exercise, the
+ * one Récords shows. A notice with the figure and the one before; nothing else.
+ */
+
+/** Workouts of the exercise there must be before a set can be a record: the first days always are. */
+export const RECORD_MIN_SESSIONS = 3;
+
+export type NewRecord =
+  /** Heavier than ever. */
+  | { kind: 'weight'; kg: number; beforeKg: number }
+  /** With the heaviest weight ever, more reps (or seconds, or steps). */
+  | { kind: 'amountAtWeight'; kg: number; amount: number; before: number }
+  /** An exercise that never had a load: more than ever. */
+  | { kind: 'amount'; amount: number; before: number };
+
+/**
+ * Whether a work set beats the best set of its exercise. `earlier` are its work sets with reps in the
+ * finished workouts and those done before it in this one (`sessionId`), in any unit: only those in
+ * `unit` are compared. Equalling is not beating; a second set like the first says nothing and a
+ * better one is another record. Needs three earlier workouts of the exercise in that unit, and with
+ * a load for a record with a load: the first day with a belt of an exercise noted without one is not
+ * a record.
+ */
+export function recordOf(
+  earlier: readonly RecordSet[],
+  set: { weightKg: number | null; reps: number },
+  unit: RepUnit,
+  sessionId: number,
+): NewRecord | null {
+  if (set.reps <= 0) return null;
+  const sets = earlier.filter((s) => s.unit === unit && s.reps > 0);
+  const best = exerciseBest(sets, unit);
+  if (!best) return null;
+  const before = sets.filter((s) => s.sessionId !== sessionId);
+  const workouts = new Set(before.map((s) => s.sessionId)).size;
+  const loaded = new Set(before.filter((s) => (s.weightKg ?? 0) > 0).map((s) => s.sessionId)).size;
+  const kg = set.weightKg ?? 0;
+  if (best.kind === 'amount') {
+    // Never a load before: one today is a first day, not a record.
+    if (kg > 0 || workouts < RECORD_MIN_SESSIONS || set.reps <= best.amount) return null;
+    return { kind: 'amount', amount: set.reps, before: best.amount };
+  }
+  if (loaded < RECORD_MIN_SESSIONS) return null;
+  if (kg > best.kg) return { kind: 'weight', kg, beforeKg: best.kg };
+  if (kg === best.kg && set.reps > best.reps) return { kind: 'amountAtWeight', kg, amount: set.reps, before: best.reps };
+  return null;
+}
+
+/** «14 reps», «70 s», «2:30 min», «40 pasos». */
+const amountText = (amount: number, unit: RepUnit) => (unit === 'reps' ? `${amount}${NBSP}reps` : formatSetValues([amount], unit));
+
+/**
+ * The notice: «Nuevo récord · 42,5 kg · antes 40 kg», «Nuevo récord · 9 reps con 42,5 kg · antes 8»,
+ * «Nuevo récord · 14 reps · antes 13». The load as everywhere: «lastre 15 kg», «2 × 20 kg».
+ */
+export function recordText(record: NewRecord, unit: RepUnit, exercise: { bodyweight: boolean; pair: boolean }): string {
+  const load = (kg: number) => formatLoad(kg, exercise.bodyweight, exercise.pair).toLowerCase();
+  // A time changes of unit at two minutes: the one before keeps its own.
+  const earlier = (amount: number) => (unit === 'seconds' ? amountText(amount, unit) : String(amount));
+  switch (record.kind) {
+    case 'weight':
+      return `Nuevo récord · ${load(record.kg)} · antes ${exercise.bodyweight ? formatKg(record.beforeKg) : load(record.beforeKg)}`;
+    case 'amountAtWeight':
+      return `Nuevo récord · ${amountText(record.amount, unit)} con ${load(record.kg)} · antes ${earlier(record.before)}`;
+    case 'amount':
+      return `Nuevo récord · ${amountText(record.amount, unit)} · antes ${earlier(record.before)}`;
+  }
+}
+
+/**
+ * Whether a workout holds a record of an exercise, for its tag in the summary: some set of it, in
+ * the order they were done, beat what there was before it. Computed from the sets, never stored, so
+ * correcting a set moves it. `before` are the sets of the earlier workouts.
+ */
+export function sessionHasRecord(
+  before: readonly RecordSet[],
+  sets: readonly { weightKg: number | null; reps: number }[],
+  unit: RepUnit,
+  session: Pick<RecordSet, 'exerciseId' | 'sessionId' | 'date' | 'startedAt'>,
+): boolean {
+  const earlier = [...before];
+  let found = false;
+  for (const set of sets) {
+    if (recordOf(earlier, set, unit, session.sessionId)) found = true;
+    earlier.push({ ...session, imported: false, unit, weightKg: set.weightKg, reps: set.reps });
+  }
+  return found;
+}
+
+/** Walks of the activity there must be before one can be its longest. */
+export const LONGEST_MIN_WALKS = 5;
+/** Under this, a longer walk is the error of the GPS (3–8 %) on the usual one. */
+export const LONGEST_MARGIN = 0.05;
+
+/**
+ * «Nuevo récord de distancia · 7,42 km · antes 6,90 km»: the walk just finished is the longest of its
+ * activity by more than the margin, with five before it. Not for a walk that repeats a saved route
+ * (the caller leaves those out: the same loop is never longer, only measured differently).
+ */
+export function longestWalkText(walk: WalkRow, walks: readonly WalkRow[]): string | null {
+  const earlier = walks.filter((w) => w.key === walk.key && w.id !== walk.id && w.startedAt < walk.startedAt && (w.distanceM ?? 0) > 0);
+  if (earlier.length < LONGEST_MIN_WALKS) return null;
+  const longest = Math.max(...earlier.map((w) => w.distanceM ?? 0));
+  const metres = walk.distanceM ?? 0;
+  if (metres <= longest * (1 + LONGEST_MARGIN)) return null;
+  const km = (m: number) => `${fixed(m / 1000, 2)}${NBSP}km`;
+  return `Nuevo récord de distancia · ${km(metres)} · antes ${km(longest)}`;
 }

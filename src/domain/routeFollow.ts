@@ -411,6 +411,49 @@ export function followView(state: FollowState | null, line: FollowLine): FollowV
   return { ...base, kind: state.status === 'approach' ? 'approach' : state.status };
 }
 
+/**
+ * What is left of a followed route, to draw it (1.4.10): the part behind the walker goes away as
+ * they walk it, the same metres the line under the figures counts. All of it until the way round is
+ * known (hiding the wrong half would hide what is ahead), and nothing once at its end. `segments`
+ * are the ones `line` was built from.
+ */
+export function routeAhead(segments: LatLon[][], line: FollowLine, state: FollowState | null): LatLon[][] {
+  if (!state || state.status === 'approach' || state.dir === 0) return segments;
+  if (state.status === 'done') return [];
+  const track = shownTrack(state);
+  if (!track) return segments;
+  // In metres the way the route was saved: from the walker to its end, or from its start to the walker.
+  const lo = state.dir === 1 ? track.p : -Infinity;
+  const hi = state.dir === 1 ? Infinity : line.total - track.p;
+  const ahead: LatLon[][] = [];
+  let along = 0;
+  for (const segment of segments) {
+    const kept: LatLon[] = [];
+    for (let i = 0; i + 1 < segment.length; i++) {
+      const a = toXY(line, segment[i]);
+      const b = toXY(line, segment[i + 1]);
+      const length = Math.hypot(b.x - a.x, b.y - a.y);
+      const from = Math.max(lo, along);
+      const to = Math.min(hi, along + length);
+      if (length > 0 && from < to) {
+        const cut = (m: number): LatLon => {
+          const t = (m - along) / length;
+          return t <= 0
+            ? segment[i]
+            : t >= 1
+              ? segment[i + 1]
+              : { lat: segment[i].lat + t * (segment[i + 1].lat - segment[i].lat), lon: segment[i].lon + t * (segment[i + 1].lon - segment[i].lon) };
+        };
+        if (kept.length === 0) kept.push(cut(from));
+        kept.push(cut(to));
+      }
+      along += length;
+    }
+    if (kept.length > 1) ahead.push(kept);
+  }
+  return ahead;
+}
+
 /** «60 m» (to tens) under a kilometre, «2,3 km» from there. */
 export function shortDistance(metres: number): string {
   return metres < 1000 ? `${Math.round(metres / 10) * 10}${NBSP}m` : `${formatNumber(metres / 1000, 1)}${NBSP}km`;

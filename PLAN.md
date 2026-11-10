@@ -1092,6 +1092,12 @@ Requisito: la prueba al aire libre con distancias medidas (§14), para ajustar c
 
 **Músculos** (fase 17): la silueta de cada entreno en su resumen y en la imagen para compartir; avisos del plan en el editor de rutinas (un músculo una sola vez por semana, sprints menos de 24 h después de trabajo excéntrico de isquios); constancia (series hechas frente a las planificadas por semana) y récords en vez de niveles. Descartado: importar exercemus, radar, niveles e insignias por volumen, rankings con amigos (piden servidor), semáforo de recuperación de 48 h y «generar entreno» (sin slot no hay peso ni progresión).
 
+**Dieta: planes de día y marcar lo comido** (idea del usuario del 2026-11-10; sin hacer, por decidir si entra y en qué versión). Hoy la pestaña Dieta es un plan fijo por día de la semana (`diet_item.weekday`, §5) y nada dice si se cumplió; el usuario no la está usando.
+- **Planes de día**, como las rutinas: además de los siete días de la semana, días definidos con nombre («Día de descanso», «Comida fuera»…) con sus cuatro comidas, que se crean, se editan y se copian igual que un día de la semana.
+- **Cambiar el de hoy**: al entrar, Dieta enseña lo de hoy, como ahora; un botón abre la lista de los planes de día y el elegido sustituye al de hoy solo ese día (mañana vuelve el de su día de la semana).
+- **Lista de comprobación**: marcar cada alimento, o la comida entera, según se come, y que los totales digan lo comido frente al plan y al objetivo. Es la forma ligera del «registro diario de comidas reales» de más abajo: lo marcado por fecha ya es un historial.
+- Por decidir al hacerlo: si se marca por alimento o por comida, si el historial se ve (la semana) y si Hoy lleva una fila con las comidas del día.
+
 Registro diario de comidas reales y lista de la compra · estimación de 1RM · deload automático tras estancamiento · widget de pantalla de inicio con "lo de hoy" · integración con Health Connect (pasos, peso) · versión iOS · horario de estudio del Excel (pestaña "Rutina") como agenda diaria · sprints: parar con el botón de volumen o desde la notificación, detectar la parada con el GPS, cuenta previa configurable, distancia marcada, gráfica de velocidad por sprint, récords entre sesiones y recalcular sesiones antiguas desde `lap_fixes` · hacer otra cosa: ejercicio «solo hoy» dentro de un entreno de rutina, ejercicio del catálogo que no está en ninguna rutina, peso solo para esa sesión, repetir el mismo cardio el mismo día, cardio sin día (catálogo de cardio) y marcar una actividad con GPS desde el pool sin grabarla.
 
 ---

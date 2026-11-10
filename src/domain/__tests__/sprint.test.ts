@@ -3,6 +3,7 @@ import { NBSP } from '../format';
 import {
   cancelGo,
   closeForFinish,
+  comparisonCaption,
   decodeLapFixes,
   decodeLaps,
   DEFAULT_SPRINT_PLAN,
@@ -21,6 +22,7 @@ import {
   sprintLabel,
   sprintState,
   stopLap,
+  straightComparison,
   type Lap,
   type SprintFix,
 } from '../sprint';
@@ -220,6 +222,107 @@ describe('sprint state and transitions', () => {
   });
 });
 
+describe('the count before the beep (1.5.0)', () => {
+  const slow = { ...plan, leadSec: 15 };
+  const resting = [closed(T + 15_000, T + 27_000), pending(T + 117_000)];
+
+  it('is how long «Empezar sprint» waits for the beep', () => {
+    expect(goNow(slow, [], T)).toEqual([pending(T + 15_000)]);
+    expect(sprintState(slow, goNow(slow, [], T)!, T + 14_000).kind).toBe('waiting');
+  });
+
+  it('is where skipping the rest leaves the start, only when that is sooner', () => {
+    expect(goNow(slow, resting, T + 30_000)!.at(-1)!.startAt).toBe(T + 45_000);
+    // 12 s left of the rest: a count of 15 would make it later.
+    expect(goNow(slow, resting, T + 105_000)).toBeNull();
+    expect(goNow(plan, resting, T + 105_000)!.at(-1)!.startAt).toBe(T + 110_000);
+  });
+
+  it('is the least a rest can be shortened to, and no shift inside it', () => {
+    expect(shiftRest(slow, resting, -30, T + 90_000)!.at(-1)!.startAt).toBe(T + 105_000);
+    expect(shiftRest(slow, resting, -30, T + 103_000)).toBeNull();
+    expect(shiftRest(slow, resting, 30, T + 103_000)).toBeNull();
+    expect(shiftRest(slow, resting, 30, T + 90_000)!.at(-1)!.startAt).toBe(T + 147_000);
+  });
+
+  it('is what one more sprint waits when the rest is already over', () => {
+    const done = [closed(T, T + 10_000)];
+    const one = { ...slow, sprints: 1 };
+    expect(extraSprint(one, done, T + 20_000)!.at(-1)).toEqual(pending(T + 100_000));
+    expect(extraSprint(one, done, T + 300_000)!.at(-1)).toEqual(pending(T + 315_000));
+  });
+});
+
+describe('stopping with a button (1.5.0)', () => {
+  const running = [pending(T)];
+
+  it('ignores a press before 3 s instead of voiding the start', () => {
+    expect(stopLap(plan, running, T + 400, { button: true })).toEqual({ kind: 'ignored' });
+    expect(stopLap(plan, running, T + 2000, { button: true })).toEqual({ kind: 'ignored' });
+    // The same moment on the screen is a false start.
+    expect(stopLap(plan, running, T + 2000).kind).toBe('false-start');
+    expect(stopLap(plan, running, T + 3000, { button: true })).toMatchObject({ kind: 'stopped', timeMs: 3000 });
+  });
+
+  it('stops at the press, however late it is read, and the rest runs from the press', () => {
+    const stopped = stopLap(plan, running, T + 12_000, { button: true, now: T + 20_000 });
+    expect(stopped).toMatchObject({ kind: 'stopped', number: 1, timeMs: 12_000 });
+    if (stopped.kind !== 'stopped') throw new Error('not stopped');
+    expect(stopped.laps).toEqual([closed(T, T + 12_000), pending(T + 102_000)]);
+  });
+
+  it('leaves no start pending when it is read once the rest would be over or inside its count', () => {
+    const late = stopLap(plan, running, T + 12_000, { button: true, now: T + 200_000 });
+    if (late.kind !== 'stopped') throw new Error('not stopped');
+    expect(late.laps).toEqual([closed(T, T + 12_000)]);
+    expect(sprintState(plan, late.laps, T + 200_000)).toEqual({ kind: 'ready', number: 2 });
+    // 3 s before the rest ends, with a count of 5: too late for that beep.
+    const inside = stopLap(plan, running, T + 12_000, { button: true, now: T + 99_000 });
+    if (inside.kind !== 'stopped') throw new Error('not stopped');
+    expect(inside.laps).toHaveLength(1);
+    // Read just in time for the count.
+    const inTime = stopLap(plan, running, T + 12_000, { button: true, now: T + 97_000 });
+    if (inTime.kind !== 'stopped') throw new Error('not stopped');
+    expect(inTime.laps.at(-1)).toEqual(pending(T + 102_000));
+  });
+
+  it('does nothing when no sprint was running at the press: the screen got there first', () => {
+    const resting = [closed(T, T + 12_000), pending(T + 102_000)];
+    expect(stopLap(plan, resting, T + 12_500, { button: true, now: T + 13_000 })).toEqual({ kind: 'ignored' });
+    expect(stopLap(plan, [], T, { button: true })).toEqual({ kind: 'ignored' });
+  });
+});
+
+describe('the straight next to the GPS (1.5.0)', () => {
+  const row = (distanceM: number | null, quality: 'good' | 'weak' | 'none' | null = 'good') => ({ distanceM, quality });
+
+  it('is nothing without a straight written down', () => {
+    expect(straightComparison([row(58), row(59), row(60)], null)).toBeNull();
+  });
+
+  it('compares it with the median of the sprints with a good GPS, from three on', () => {
+    const five = [row(57.4), row(58.2), row(61), row(55), row(58.4)];
+    const comparison = straightComparison(five, 60)!;
+    expect(comparison).toEqual({ straightM: 60, gps: { medianM: 58, diffM: -2, count: 5 } });
+    expect(comparisonCaption(comparison)).toBe(`2${NBSP}m menos · 5 sprints`);
+    // An even number: the middle two.
+    const four = straightComparison([row(62), row(63), row(64), row(70)], 60)!;
+    expect(four.gps).toEqual({ medianM: 64, diffM: 4, count: 4 });
+    expect(comparisonCaption(four)).toBe(`4${NBSP}m más · 4 sprints`);
+    expect(comparisonCaption(straightComparison([row(59.6), row(60.2), row(60.4)], 60)!)).toBe('Igual · 3 sprints');
+  });
+
+  it('leaves out the sprints the GPS measured badly or not at all, and says so with too few', () => {
+    const rows = [row(58), row(59), row(90, 'weak'), row(null, 'none'), row(40, null)];
+    const comparison = straightComparison(rows, 60)!;
+    expect(comparison).toEqual({ straightM: 60, gps: null });
+    expect(comparisonCaption(comparison)).toBe('Pocos sprints con buen GPS para comparar');
+    // One odd reading among good ones does not move the median.
+    expect(straightComparison([row(58), row(59), row(60), row(120)], 60)!.gps!.medianM).toBe(60);
+    expect(straightComparison([], 60)).toEqual({ straightM: 60, gps: null });
+  });
+});
+
 describe('laps and plans as JSON', () => {
   it('decodes laps defensively', () => {
     expect(decodeLaps(null)).toEqual([]);
@@ -233,14 +336,21 @@ describe('laps and plans as JSON', () => {
     expect(parseSprintPlan(JSON.stringify(plan))).toEqual(plan);
     expect(parseSprintPlan('{"kind":"hiit","sprints":6,"restSec":90}')).toBeNull();
     expect(parseSprintPlan('{"kind":"sprint","sprints":6}')).toBeNull();
-    expect(parseSprintPlan('{"kind":"sprint","sprints":0,"restSec":5}')).toEqual({ kind: 'sprint', sprints: 1, restSec: 30 });
+    expect(parseSprintPlan('{"kind":"sprint","sprints":0,"restSec":5}')).toEqual({ kind: 'sprint', sprints: 1, restSec: 30, leadSec: 5, straightM: null });
+    // A plan stored before the 1.5.0 has neither the count nor the straight.
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90}')).toEqual(plan);
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"leadSec":15,"straightM":60}')).toMatchObject({ leadSec: 15, straightM: 60 });
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"leadSec":2,"straightM":5}')).toMatchObject({ leadSec: 5, straightM: 10 });
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"leadSec":90,"straightM":1000}')).toMatchObject({ leadSec: 30, straightM: 400 });
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"leadSec":"x","straightM":0}')).toMatchObject({ leadSec: 5, straightM: null });
     expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":900}')!.restSec).toBe(600);
     expect(parsePlan(JSON.stringify(plan))).toBeNull();
   });
 
   it('describes plans, labels and results', () => {
     expect(describeSprintPlan(plan)).toBe('6 sprints · descanso 1:30');
-    expect(describeSprintPlan({ kind: 'sprint', sprints: 1, restSec: 120 })).toBe('1 sprint · descanso 2:00');
+    expect(describeSprintPlan({ ...plan, sprints: 1, restSec: 120 })).toBe('1 sprint · descanso 2:00');
+    expect(describeSprintPlan({ ...plan, straightM: 60 })).toBe(`6 sprints · descanso 1:30 · recta 60${NBSP}m`);
     expect(sprintLabel(4, plan)).toBe('Sprint 4 de 6');
     expect(sprintLabel(7, plan)).toBe('Sprint 7');
     const fast: Lap[] = [

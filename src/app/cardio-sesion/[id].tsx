@@ -9,7 +9,7 @@ import { askPhotoSource, PhotoSection } from '@/components/Photos';
 import { RouteMap } from '@/components/RouteMap';
 import { FollowRouteSheet, openRoute, RouteFollowPill, WalkRouteBlock } from '@/components/Routes';
 import { SprintDetails } from '@/components/Sprint';
-import { askFinishSprints, SprintLive } from '@/components/SprintLive';
+import { askFinishSprints, SprintLive, type SprintLiveHandle } from '@/components/SprintLive';
 import { TrackChart } from '@/components/TrackChart';
 import {
   AppText,
@@ -34,7 +34,7 @@ import {
   Tag,
   type IconName,
 } from '@/components/ui';
-import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
+import { setCardioTitle, setSprintStraight, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen, type Hint } from '@/db/repositories/hints';
 import type { Photo, PhotoOwner } from '@/db/repositories/photos';
 import {
@@ -66,7 +66,7 @@ import type { FollowState } from '@/domain/routeFollow';
 import { defaultRouteName, recentFirst } from '@/domain/routes';
 import { localDateString, parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
-import { sprintGps } from '@/domain/sprint';
+import { sprintGps, STRAIGHT_RANGE_M } from '@/domain/sprint';
 import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
 import { useDb, useNow } from '@/hooks/data';
 import { useCardioSession, useFollowedRoute, type SprintLive as SprintLiveData } from '@/hooks/walk';
@@ -119,13 +119,9 @@ export default function CardioSessionScreen() {
   const [justFinished, setJustFinished] = useState(false);
   // «Seguir una ruta…» from the menu of a walk being recorded.
   const [followSheet, setFollowSheet] = useState<RouteListItem[] | null>(null);
-  // Discarding leaves once the live screen has let go of the back button.
+  // Discarding leaves at once: the sprints in progress let go of the back button in the same render.
   const [leaving, setLeaving] = useState(false);
-  useEffect(() => {
-    if (!leaving) return;
-    if (router.canGoBack()) router.back();
-    else router.dismissTo('/');
-  }, [leaving]);
+  const sprintLive = useRef<SprintLiveHandle>(null);
 
   const session = data?.session;
   const inProgress = session?.status === 'in_progress';
@@ -218,7 +214,12 @@ export default function CardioSessionScreen() {
           style: 'destructive',
           onPress: async () => {
             await discardCardio(db, session);
+            // In one go, not in two renders: a header updated while its screen is already leaving
+            // crashes react-native-screens (seen in the workout screen, 1.5.0).
+            sprintLive.current?.allowLeaving();
             setLeaving(true);
+            if (router.canGoBack()) router.back();
+            else router.dismissTo('/');
           },
         },
         { text: 'Cancelar', style: 'cancel' },
@@ -296,6 +297,26 @@ export default function CardioSessionScreen() {
       console.warn('Could not export the GPX', e);
       showSnackbar('No se pudo exportar el GPX');
     });
+  /** «Recta…»: the metres of the straight, also for sprints already done (measured later on a map). Empty takes it away. */
+  const editStraight = async () => {
+    const current = session.sprint?.straightM ?? null;
+    const text = await showPrompt('Recta', {
+      value: current === null ? '' : String(current),
+      message: 'Si sabes cuánto mide, apúntala. El GPS la mide igual y verás las dos.',
+      placeholder: 'La mide el GPS',
+      keyboard: 'number',
+      suffix: 'm',
+      maxLength: 3,
+    });
+    if (text === null) return;
+    const metres = text.trim() === '' ? null : Number(text.trim());
+    if (metres !== null && !(Number.isInteger(metres) && metres >= STRAIGHT_RANGE_M[0] && metres <= STRAIGHT_RANGE_M[1])) {
+      showSnackbar(`Entre ${STRAIGHT_RANGE_M[0]} y ${STRAIGHT_RANGE_M[1]}${NBSP}m`);
+      return;
+    }
+    await setSprintStraight(db, session.id, metres);
+    reload();
+  };
   const menu = () => {
     const at = Date.now();
     // «Terminar ahora» once there is something to keep: a sprint done or one running.
@@ -305,6 +326,7 @@ export default function CardioSessionScreen() {
         ? [{ text: 'Terminar ahora', icon: 'flag-checkered' as const, onPress: () => askFinishSprints(session, at, () => finish()) }]
         : []),
       ...followItems,
+      ...(isSprint ? [{ text: 'Recta…', icon: 'ruler' as const, onPress: editStraight }] : []),
       ...(canSaveRoute ? [{ text: 'Guardar como ruta', icon: 'map-marker-path' as const, onPress: saveRoute }] : []),
       ...(routeLink ? [{ text: 'Quitar de la ruta', icon: 'link-variant-off' as const, onPress: () => leaveRoute(routeLink) }] : []),
       ...(canExport ? [{ text: 'Exportar GPX', icon: 'file-export-outline' as const, onPress: exportGpx }] : []),
@@ -451,9 +473,11 @@ export default function CardioSessionScreen() {
       <>
         <Stack.Screen options={{ title: session.name, headerTitle: () => <SprintGpsPill live={live} />, headerRight }} />
         <SprintLive
+          ref={sprintLive}
           session={session}
           live={live}
           hintSeen={hints.has('sprint-how')}
+          volumeHintSeen={hints.has('sprint-volume')}
           leaving={leaving}
           reload={reload}
           onFinish={() => finish()}
@@ -981,7 +1005,7 @@ function FinishedView({
         </>
       ) : session.tracking === 'sprint' ? (
         <>
-          <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} />
+          <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} straightM={session.sprint?.straightM ?? null} />
           {photoSection}
         </>
       ) : (

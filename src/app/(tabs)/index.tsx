@@ -21,8 +21,8 @@ import {
   cardioIcon,
   useBusy,
 } from '@/components/ui';
-import { cardioLogOn, listCardio, setCardioDone, type CardioActivity, type CardioDone } from '@/db/repositories/cardio';
-import { getActiveCardioSession, getCardioSession } from '@/db/repositories/cardioSessions';
+import { cardioLogOn, listCardio, setCardioDone, type CardioActivity } from '@/db/repositories/cardio';
+import { cardioSessionsOn, getActiveCardioSession, getCardioSession, type DoneCardioSession } from '@/db/repositories/cardioSessions';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import {
@@ -37,7 +37,7 @@ import {
 import { getProfile, getSettings, latestWeight, toProgressionSettings } from '@/db/repositories/settings';
 import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { sharesLockCountdown, trackingDetails } from '@/domain/cardioPlan';
-import { cardioPool, doneOnOtherDays } from '@/domain/cardioPool';
+import { cardioPool, poolLine, type PoolEntry } from '@/domain/cardioPool';
 import { formatDuration, formatLongDate, formatShortDate, workoutTitle } from '@/domain/format';
 import { allDoneMessage, isoWeekdayOf, localDateString, weekdaysLabel } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -84,6 +84,7 @@ export default function TodayScreen() {
       allCardio,
       cardio: allCardio.filter((c) => c.weekday === weekday),
       cardioDone: await cardioLogOn(db, date),
+      cardioSessions: await cardioSessionsOn(db, date),
       workoutsDone: await finishedSessionsOn(db, date),
       active: await getActiveSession(db),
       activeCardio: await getActiveCardioSession(db),
@@ -213,7 +214,15 @@ export default function TodayScreen() {
     router.push(`/cardio-sesion/${sessionId}`);
   };
 
-  /** A cardio of the pool: checked off at once, or started like today's. */
+  /** The circle of a row of the pool: done without recording it, whatever way it is recorded (1.5.0). */
+  const markCardio = (activity: CardioActivity) =>
+    run(async () => {
+      setSheet(null);
+      await setCardioDone(db, data.date, activity, true);
+      reload();
+    })();
+
+  /** A cardio of the pool: checked off at once, or started like today's (again, if it was done today). */
   const pickCardio = (activity: CardioActivity) =>
     run(async () => {
       setSheet(null);
@@ -261,20 +270,26 @@ export default function TodayScreen() {
     !data.profile.heightCm && 'la altura',
     !data.weightKg && 'el peso',
   ].filter((m): m is string => !!m);
-  const doneIds = new Set(data.cardioDone.keys());
-  const pendingCardio = data.cardio.filter((c) => !doneIds.has(c.id));
-  const doneCardio = data.cardio.filter((c) => doneIds.has(c.id));
-  // Cardio of other days done today (from the pool) also counts as done.
-  const extraCardio = doneOnOtherDays(data.allCardio, data.weekday, doneIds);
+  const pendingCardio = data.cardio.filter((c) => !data.cardioDone.has(c.id));
+  // «Hecho»: a row for each session finished today (the same cardio twice is two) and, apart, what
+  // was only checked off, of today or of any other day, which its ✓ unchecks.
+  const sessionIds = new Set(data.cardioSessions.map((s) => s.id));
+  const checkedCardio = data.allCardio.filter((c) => {
+    const done = data.cardioDone.get(c.id);
+    return !!done && (done.sessionId === null || !sessionIds.has(done.sessionId));
+  });
+  const doneTimes = new Map<number, number>();
+  for (const s of data.cardioSessions) if (s.activityId !== null) doneTimes.set(s.activityId, (doneTimes.get(s.activityId) ?? 0) + 1);
+  for (const c of checkedCardio) doneTimes.set(c.id, Math.max(1, doneTimes.get(c.id) ?? 0));
   const doneRoutineIds = new Set(data.workoutsDone.map((s) => s.routineId));
   const pendingRoutines = data.today.filter((r) => !doneRoutineIds.has(r.id));
-  const pool = cardioPool(data.allCardio, data.weekday, doneIds);
+  const pool = cardioPool(data.allCardio, data.weekday, doneTimes);
   const hasSlots = [...data.slotsByRoutine.values()].some((s) => s.length > 0);
   const nothingPending = pendingCardio.length === 0 && pendingRoutines.length === 0;
   const stale = !!data.active && data.now.getTime() - data.active.startedAt > STALE_SESSION_MS;
   // The routine card already has "Continuar entreno" when today's routine is the one running.
   const showActiveCard = !!data.active && (stale || !pendingRoutines.some((r) => r.id === data.active!.routineId));
-  const hasDone = data.workoutsDone.length + doneCardio.length + extraCardio.length > 0;
+  const hasDone = data.workoutsDone.length + data.cardioSessions.length + checkedCardio.length > 0;
   const showPoolRow = pool.length > 0 && !data.activeCardio;
   const showRoutineRow = data.others.length > 0 && !data.active;
   const showLooseRow = hasSlots && !data.active;
@@ -353,7 +368,7 @@ export default function TodayScreen() {
                 <CardioRow
                   key={c.id}
                   activity={c}
-                  done={null}
+                  done={false}
                   running={data.activeCardio?.activityId === c.id}
                   onToggle={() => toggleCardio(c)}
                   onStart={() => beginCardio(c)}
@@ -386,15 +401,11 @@ export default function TodayScreen() {
             {data.workoutsDone.map((s) => (
               <DoneWorkoutRow key={`w${s.id}`} done={s} />
             ))}
-            {[...doneCardio, ...extraCardio].map((c) => (
-              <CardioRow
-                key={`c${c.id}`}
-                activity={c}
-                done={data.cardioDone.get(c.id) ?? null}
-                running={false}
-                onToggle={() => toggleCardio(c)}
-                onStart={() => beginCardio(c)}
-              />
+            {data.cardioSessions.map((s) => (
+              <DoneCardioRow key={`s${s.id}`} done={s} />
+            ))}
+            {checkedCardio.map((c) => (
+              <CardioRow key={`c${c.id}`} activity={c} done running={false} onToggle={() => toggleCardio(c)} onStart={() => beginCardio(c)} />
             ))}
           </ListGroup>
         </Section>
@@ -469,26 +480,8 @@ export default function TodayScreen() {
       <Sheet visible={sheet === 'cardio'} title="Hacer otro cardio" onClose={() => setSheet(null)}>
         <ScrollView style={{ flexGrow: 0 }}>
           <ListGroup style={{ backgroundColor: colors.cardAlt }}>
-            {pool.map(({ activity: a, weekdays }) => (
-              <ListRow
-                key={a.id}
-                onPress={() => pickCardio(a)}
-                left={<Icon name={cardioIcon(a.name, a.tracking)} size={22} color={colors.muted} />}
-                title={a.name}
-                subtitle={
-                  // The days on a line of their own: cut at the end of a long line, they were lost.
-                  <View>
-                    {a.target || trackingDetails(a) ? (
-                      <AppText variant="secondary" numberOfLines={1}>
-                        {[a.target, trackingDetails(a)].filter(Boolean).join(' · ')}
-                      </AppText>
-                    ) : null}
-                    <AppText variant="secondary" numberOfLines={1}>
-                      {weekdaysLabel(weekdays)}
-                    </AppText>
-                  </View>
-                }
-              />
+            {pool.map((entry) => (
+              <PoolRow key={entry.activity.id} entry={entry} onPick={() => pickCardio(entry.activity)} onMark={() => markCardio(entry.activity)} />
             ))}
           </ListGroup>
         </ScrollView>
@@ -497,6 +490,43 @@ export default function TodayScreen() {
   );
 }
 
+/**
+ * A row of «Hacer otro cardio» (PLAN.md §6.3). Tapping it starts the activity (or checks it off, if
+ * that is how it is recorded); its circle leaves it done without recording it. One already done
+ * today has no circle: it is there to do it again.
+ */
+function PoolRow({ entry, onPick, onMark }: { entry: PoolEntry<CardioActivity>; onPick: () => void; onMark: () => void }) {
+  const a = entry.activity;
+  const details = [a.target, trackingDetails(a)].filter(Boolean).join(' · ');
+  return (
+    <ListRow
+      onPress={onPick}
+      chevron={false}
+      left={
+        <View style={styles.cardioLeft}>
+          {entry.doneToday > 0 ? <View style={styles.noCircle} /> : <CheckMark round done={false} onPress={onMark} />}
+          <Icon name={cardioIcon(a.name, a.tracking)} size={22} color={colors.muted} />
+        </View>
+      }
+      title={a.name}
+      subtitle={
+        // Its days on a line of their own: cut at the end of a long line, they were lost.
+        <View>
+          {details ? (
+            <AppText variant="secondary" numberOfLines={1}>
+              {details}
+            </AppText>
+          ) : null}
+          <AppText variant="secondary" numberOfLines={1}>
+            {poolLine(entry)}
+          </AppText>
+        </View>
+      }
+    />
+  );
+}
+
+/** A cardio of «Para hoy», or one checked off without recording it in «Hecho» (its ✓ unchecks it). */
 function CardioRow({
   activity,
   done,
@@ -505,20 +535,20 @@ function CardioRow({
   onStart,
 }: {
   activity: CardioActivity;
-  done: CardioDone | null;
+  done: boolean;
   running: boolean;
   onToggle: () => void;
   onStart: () => void;
 }) {
   const details = trackingDetails(activity);
   // The target goes under the name: next to the check, the icon and «Iniciar» there is no room for both.
-  const subtitle = done?.value ?? ([activity.target, details, activity.notes].filter(Boolean).join(' · ') || undefined);
-  const sessionId = done?.sessionId;
+  const plan = [activity.target, details, activity.notes].filter(Boolean).join(' · ') || undefined;
+  // One that is recorded with GPS, phases or sprints and was only checked off says so.
+  const subtitle = done && activity.tracking !== 'check' ? 'Sin grabar' : plan;
   const title = activity.name;
 
   return (
     <ListRow
-      onPress={sessionId ? () => router.push(`/cardio-sesion/${sessionId}`) : undefined}
       left={
         // Round like the routines done next to it in «Hecho».
         done ? (
@@ -532,7 +562,6 @@ function CardioRow({
       }
       title={<AppText variant="rowTitle" style={done ? { color: colors.muted } : undefined}>{title}</AppText>}
       subtitle={subtitle}
-      chevron={!!sessionId}
       right={
         !done && activity.tracking !== 'check' ? (
           <Button
@@ -543,6 +572,18 @@ function CardioRow({
           />
         ) : undefined
       }
+    />
+  );
+}
+
+/** A cardio session finished today: its result, and its detail on a tap. The same one twice is two rows. */
+function DoneCardioRow({ done }: { done: DoneCardioSession }) {
+  return (
+    <ListRow
+      onPress={() => router.push(`/cardio-sesion/${done.id}`)}
+      left={<Icon name="check-circle" size={22} color={colors.primary} />}
+      title={<AppText variant="rowTitle" style={{ color: colors.muted }}>{done.title}</AppText>}
+      subtitle={done.result}
     />
   );
 }
@@ -563,4 +604,6 @@ function DoneWorkoutRow({ done }: { done: SessionSummaryRow }) {
 const styles = StyleSheet.create({
   headRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   cardioLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  // The place of the circle in a row of the pool that has none, so the icons stay in line.
+  noCircle: { width: 22 },
 });

@@ -5,6 +5,7 @@ import { formatKg } from '@/domain/format';
 import {
   DEFAULT_PROGRESSION,
   INCREMENT_LIMITS,
+  deloadExample,
   lowerExamples,
   raiseExamples,
   SESSIONS_BELOW_LIMITS,
@@ -114,8 +115,12 @@ export function WeightRulesSection({
             onChange={(n) => onChange({ sessionsBelowToDecrease: Number(n) })}
           />
         </View>
-        <Example title="Ejemplo en 10–12 reps con 20 kg" lines={lowerExamples(engine)} />
+        <Example title="Ejemplo en 10–12 reps con 20 kg" lines={[...lowerExamples(engine), deloadExample(engine)]} />
         <View style={styles.notes}>
+          {/* The deload (1.5.0): a fixed rule, said here because it is also a «bajar». */}
+          <AppText variant="secondary">
+            También tras tres sesiones seguidas con el mismo peso sin mejorar las reps: baja cerca de un 10 %.
+          </AppText>
           <AppText variant="secondary">Solo en los ejercicios con «Proponer bajar el peso».</AppText>
           <AppText variant="caption">{FROM_NEXT}</AppText>
         </View>

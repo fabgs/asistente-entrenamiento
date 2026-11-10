@@ -41,4 +41,6 @@ export interface Recommendation {
   toKg: number | null;
   reason: string;
   repsToBeat?: number[];
+  /** A «bajar» that is a deload after stalling (PLAN.md §6.2, rule 12): the only one of more than one increment. */
+  deload?: boolean;
 }

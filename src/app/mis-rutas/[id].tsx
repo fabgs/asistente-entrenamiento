@@ -31,7 +31,7 @@ import { paceMinPerKm, type LatLon } from '@/domain/gps';
 import { capitalize, countOf, formatDayMonth } from '@/domain/progress';
 import { formatRecordDate } from '@/domain/records';
 import { exclusionText, routeCloses, routeFacts, routeKm, routeRecords, type RouteTime } from '@/domain/routes';
-import { cardioKey } from '@/domain/cardioPool';
+import { walksToStart } from '@/domain/cardioPool';
 import { localDateString } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
 import { followRoute, GPS_ERROR_MESSAGE, startCardio } from '@/services/cardioSession';
@@ -70,7 +70,8 @@ export default function RouteScreen() {
       times: await routeTimes(db, route),
       places: photos.flatMap((p): LatLon[] => (p.place ? [p.place] : [])),
       active: await getActiveCardioSession(db),
-      walks: walksToStart(await listCardio(db), await cardioLogOn(db, today)),
+      // The walks Hoy lets start, as «Hacer otro cardio» groups them; one done today can be done again.
+      walks: walksToStart(await listCardio(db), new Map([...(await cardioLogOn(db, today)).keys()].map((id) => [id, 1]))),
     };
   });
 
@@ -198,18 +199,6 @@ export default function RouteScreen() {
       </Section>
     </Screen>
   );
-}
-
-/**
- * The walks with GPS that Hoy would let start now (today's and those of other days, one per
- * activity as «Hacer otro cardio» groups them), without those already done today.
- */
-function walksToStart(all: CardioActivity[], doneToday: ReadonlyMap<number, unknown>): CardioActivity[] {
-  const groups = new Map<string, CardioActivity[]>();
-  for (const a of all.filter((a) => a.tracking === 'gps')) groups.set(cardioKey(a), [...(groups.get(cardioKey(a)) ?? []), a]);
-  return [...groups.values()]
-    .filter((group) => !group.some((a) => doneToday.has(a.id)))
-    .map((group) => group.reduce((a, b) => (b.id < a.id ? b : a)));
 }
 
 /** One walk of the route: «Lun 9 nov», «10:42 · al revés» and why it does not compete, if so; its time and pace. */

@@ -5,7 +5,8 @@ import { int, type Db } from '../db';
 
 export interface CardioActivity {
   id: number;
-  weekday: IsoWeekday;
+  /** Null for an activity «sin día» (1.5.0): of no weekday, offered in «Hacer otro cardio». */
+  weekday: IsoWeekday | null;
   name: string;
   target: string | null;
   intensity: string | null;
@@ -17,10 +18,14 @@ export interface CardioActivity {
   sprint: SprintPlan | null;
 }
 
-type CardioRow = Omit<CardioActivity, 'plan' | 'sprint'> & { plan: string | null };
+type CardioRow = Omit<CardioActivity, 'plan' | 'sprint' | 'weekday'> & { plan: string | null; weekday: IsoWeekday; noDay: number };
 
-const toActivity = (row: CardioRow): CardioActivity => ({
+const COLUMNS = 'id, weekday, no_day AS noDay, name, target, intensity, notes, tracking, plan';
+
+const toActivity = ({ noDay, ...row }: CardioRow): CardioActivity => ({
   ...row,
+  // The weekday stored with `no_day` is a filler for the column's CHECK.
+  weekday: noDay ? null : row.weekday,
   plan: parsePlan(row.plan),
   sprint: row.tracking === 'sprint' ? parseSprintPlan(row.plan) : null,
 });
@@ -30,19 +35,16 @@ const planJson = (fields: CardioFields) => {
   return plan ? JSON.stringify(plan) : null;
 };
 
+/** The weekly cardio in its order: each day's, then the activities «sin día». */
 export async function listCardio(db: Db): Promise<CardioActivity[]> {
   const rows = await db.getAllAsync<CardioRow>(
-    `SELECT id, weekday, name, target, intensity, notes, tracking, plan FROM cardio_activity
-     WHERE archived = 0 ORDER BY weekday, position, id`,
+    `SELECT ${COLUMNS} FROM cardio_activity WHERE archived = 0 ORDER BY no_day, weekday, position, id`,
   );
   return rows.map(toActivity);
 }
 
 export async function getCardio(db: Db, id: number): Promise<CardioActivity | null> {
-  const row = await db.getFirstAsync<CardioRow>(
-    'SELECT id, weekday, name, target, intensity, notes, tracking, plan FROM cardio_activity WHERE id = ?',
-    id,
-  );
+  const row = await db.getFirstAsync<CardioRow>(`SELECT ${COLUMNS} FROM cardio_activity WHERE id = ?`, id);
   return row ? toActivity(row) : null;
 }
 
@@ -95,15 +97,20 @@ export interface CardioFields {
   sprint?: SprintPlan | null;
 }
 
-export async function addCardio(db: Db, weekday: IsoWeekday, fields: CardioFields): Promise<number> {
-  const row = await db.getFirstAsync<{ next: number }>(
-    'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM cardio_activity WHERE weekday = ?',
-    weekday,
-  );
+/** A new activity at the end of its day, or of those «sin día» (`weekday` null). */
+export async function addCardio(db: Db, weekday: IsoWeekday | null, fields: CardioFields): Promise<number> {
+  const row =
+    weekday === null
+      ? await db.getFirstAsync<{ next: number }>('SELECT COALESCE(MAX(position), -1) + 1 AS next FROM cardio_activity WHERE no_day = 1')
+      : await db.getFirstAsync<{ next: number }>(
+          'SELECT COALESCE(MAX(position), -1) + 1 AS next FROM cardio_activity WHERE no_day = 0 AND weekday = ?',
+          weekday,
+        );
   const result = await db.runAsync(
-    `INSERT INTO cardio_activity (weekday, name, target, intensity, notes, position, tracking, plan)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    weekday,
+    `INSERT INTO cardio_activity (weekday, no_day, name, target, intensity, notes, position, tracking, plan)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    weekday ?? 1,
+    weekday === null ? 1 : 0,
     fields.name,
     fields.target,
     fields.intensity,

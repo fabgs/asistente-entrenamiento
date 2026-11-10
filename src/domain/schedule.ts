@@ -92,6 +92,9 @@ export function allDoneMessage(isoDate: string): string {
 }
 
 /** "Lunes", "Lunes y jueves", "Lunes, miércoles y viernes" or "Sin día". */
+/** `?dia=` of the editor of a cardio activity of no day («sin día», 1.5.0), where a weekday goes for the others. */
+export const NO_DAY_PARAM = 'sin';
+
 export function weekdaysLabel(days: IsoWeekday[]): string {
   const names = days.map((d, i) => (i === 0 ? WEEKDAY_NAMES[d] : WEEKDAY_NAMES[d].toLowerCase()));
   if (names.length === 0) return 'Sin día';

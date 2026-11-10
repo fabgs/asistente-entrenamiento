@@ -18,5 +18,8 @@
     <receiver
       android:name=".SprintBeepReceiver"
       android:exported="false" />
+    <receiver
+      android:name=".SprintStopReceiver"
+      android:exported="false" />
   </application>
 </manifest>

@@ -26,6 +26,9 @@ interface Prompt {
   maxLength?: number;
   /** Hides what is typed (a password). */
   secure?: boolean;
+  /** The number pad, and a unit inside the field («m»). */
+  keyboard?: 'text' | 'number';
+  suffix?: string;
   confirm: string;
   resolve: (text: string | null) => void;
 }
@@ -57,7 +60,16 @@ export function showActions(actions: SheetAction[], title?: string): void {
  */
 export function showPrompt(
   title: string,
-  options: { value: string; message?: string; placeholder?: string; maxLength?: number; secure?: boolean; confirm?: string },
+  options: {
+    value: string;
+    message?: string;
+    placeholder?: string;
+    maxLength?: number;
+    secure?: boolean;
+    keyboard?: 'text' | 'number';
+    suffix?: string;
+    confirm?: string;
+  },
 ): Promise<string | null> {
   return new Promise((resolve) => {
     if (!present) return resolve(null);
@@ -192,6 +204,8 @@ export function DialogHost() {
               placeholder={request.placeholder}
               maxLength={request.maxLength}
               secure={request.secure}
+              keyboard={request.keyboard}
+              suffix={request.suffix}
               autoFocus
             />
             <View style={styles.buttons}>

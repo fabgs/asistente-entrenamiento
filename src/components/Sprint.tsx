@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, View } from 'react-native';
 import { formatDuration, formatMetres, formatNumber, formatSprintTime, NBSP } from '@/domain/format';
 import { splitUnit } from '@/domain/progress';
-import { lapRows, sprintSummary, type Lap, type LapRow, type SprintMeasure } from '@/domain/sprint';
+import { comparisonCaption, lapRows, sprintSummary, straightComparison, type Lap, type LapRow, type SprintMeasure } from '@/domain/sprint';
 import { colors, spacing } from '@/theme';
 import { AppText, ListGroup, Section, Stat, StatRow } from './ui';
 
@@ -114,8 +114,38 @@ export function SprintStats({ rows, totalMs }: { rows: LapRow[]; totalMs?: numbe
   );
 }
 
+/**
+ * The straight the athlete wrote down next to what the GPS measured (PLAN.md §6.8, 1.5.0): two
+ * figures in plain text, so the GPS's does not read as corrected. Nothing without a straight.
+ */
+export function StraightStats({ rows, straightM }: { rows: LapRow[]; straightM: number | null }) {
+  const comparison = straightComparison(rows, straightM);
+  if (!comparison) return null;
+  const { gps } = comparison;
+  return (
+    <View style={{ gap: spacing.xs }}>
+      <StatRow>
+        <Stat label="Recta" value={String(comparison.straightM)} unit="m" caption={gps ? undefined : comparisonCaption(comparison)} />
+        {gps ? <Stat label="GPS" value={String(gps.medianM)} unit="m" caption={comparisonCaption(comparison)} /> : null}
+      </StatRow>
+      <AppText variant="caption">Recta: lo que apuntaste. No cambia los metros ni la velocidad.</AppText>
+    </View>
+  );
+}
+
 /** A finished sprints session: its figures, every sprint and what the numbers mean. */
-export function SprintDetails({ laps, totalMs, measures }: { laps: Lap[]; totalMs?: number; measures?: (SprintMeasure | null)[] }) {
+export function SprintDetails({
+  laps,
+  totalMs,
+  measures,
+  straightM = null,
+}: {
+  laps: Lap[];
+  totalMs?: number;
+  measures?: (SprintMeasure | null)[];
+  /** The straight written down in the plan of the session, if any. */
+  straightM?: number | null;
+}) {
   const rows = lapRows(laps, measures);
   const summary = sprintSummary(rows);
   if (rows.length === 0) return <AppText variant="caption">Sin sprints guardados.</AppText>;
@@ -132,6 +162,7 @@ export function SprintDetails({ laps, totalMs, measures }: { laps: Lap[]; totalM
           )}
           {summary.anyWeak ? <AppText variant="caption">≈: GPS débil en ese sprint.</AppText> : null}
         </View>
+        <StraightStats rows={rows} straightM={straightM} />
       </Section>
     </>
   );

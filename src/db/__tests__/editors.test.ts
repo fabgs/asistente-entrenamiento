@@ -104,12 +104,14 @@ describe('weekly cardio editor', () => {
 
   it('keeps the plan of the sprints in the same column', async () => {
     const db = await seededDb();
-    const sprint = { kind: 'sprint', sprints: 8, restSec: 120 } as const;
+    const sprint = { kind: 'sprint', sprints: 8, restSec: 120, leadSec: 10, straightM: 60 } as const;
     const id = await addCardio(db, 3, { name: 'Sprints', target: null, intensity: null, notes: null, tracking: 'sprint', sprint });
     const saved = (await getCardio(db, id))!;
     expect(saved).toMatchObject({ tracking: 'sprint', plan: null, sprint });
     const fields = cardioFieldsOf(saved);
-    expect(sameCardioFields(fields, { ...fields, sprint: { restSec: 120, sprints: 8, kind: 'sprint' } })).toBe(true);
+    expect(sameCardioFields(fields, { ...fields, sprint: { straightM: 60, leadSec: 10, restSec: 120, sprints: 8, kind: 'sprint' } })).toBe(true);
+    expect(sameCardioFields(fields, { ...fields, sprint: { ...sprint, straightM: null } })).toBe(false);
+    expect(sameCardioFields(fields, { ...fields, sprint: { ...sprint, leadSec: 5 } })).toBe(false);
     expect(sameCardioFields(fields, { ...fields, sprint: { ...sprint, sprints: 6 } })).toBe(false);
     await updateCardio(db, id, { ...fields, tracking: 'timer', plan: DEFAULT_PLANS.hiit, sprint: null });
     expect(await getCardio(db, id)).toMatchObject({ tracking: 'timer', plan: DEFAULT_PLANS.hiit, sprint: null });

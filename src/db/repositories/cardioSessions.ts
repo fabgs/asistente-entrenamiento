@@ -404,16 +404,71 @@ export async function finishSprintSession(db: Db, id: number, finishedAt: number
   });
 }
 
+/**
+ * The straight of a sprints session (1.5.0), in the copy of the plan it keeps: written down before
+ * running or afterwards, once measured on a map. Null takes it away. Nothing else changes: the
+ * comparison with the GPS is worked out when the session is read.
+ */
+export async function setSprintStraight(db: Db, id: number, straightM: number | null): Promise<void> {
+  const session = await getCardioSession(db, id);
+  if (!session?.sprint) return;
+  await db.runAsync('UPDATE cardio_session SET plan = ? WHERE id = ?', JSON.stringify({ ...session.sprint, straightM }), id);
+}
+
 /** An empty title goes back to the activity name. */
 export async function setCardioTitle(db: Db, id: number, title: string): Promise<void> {
   await db.runAsync('UPDATE cardio_session SET title = ? WHERE id = ?', title.trim() || null, id);
 }
 
+/** What a finished session says in Hoy and in the history: «5,14 km · 59 min», «30 min», «6 sprints · máx. …». */
+const resultOf = (session: CardioSession): string =>
+  session.tracking === 'sprint'
+    ? formatSprintResult(session.laps)
+    : formatCardioResult(session.distanceM, activeMs(session, session.finishedAt ?? session.startedAt));
+
+/** A session finished on a day, as a row of «Hecho»: the same activity done twice is two of them (1.5.0). */
+export interface DoneCardioSession {
+  id: number;
+  activityId: number | null;
+  /** The title given to it, or the name of its activity. */
+  title: string;
+  tracking: CardioSessionTracking;
+  result: string;
+}
+
+/** The cardio sessions finished on `date`, in the order they ended. */
+export async function cardioSessionsOn(db: Db, date: string): Promise<DoneCardioSession[]> {
+  const rows = await db.getAllAsync<SessionRow>(
+    `SELECT * FROM cardio_session WHERE date = ? AND status = 'finished' ORDER BY finished_at, id`,
+    date,
+  );
+  return rows.map(toSession).map((s) => ({ id: s.id, activityId: s.activityId, title: s.title ?? s.name, tracking: s.tracking, result: resultOf(s) }));
+}
+
+/**
+ * Deletes a session with its points, its photos' rows and its day's log: «Hecho» on Hoy must not
+ * keep a cardio that is no longer anywhere. If the activity has another session finished that day
+ * (done twice, 1.5.0), the day stays done and its log points to the latest one left.
+ */
 export async function discardCardioSession(db: Db, id: number): Promise<void> {
   await db.withTransactionAsync(async () => {
+    const session = await getCardioSession(db, id);
     await db.runAsync('DELETE FROM cardio_point WHERE session_id = ?', id);
-    // Its day's log goes too: «Hecho» on Hoy must not keep a cardio that is no longer anywhere.
-    await db.runAsync('DELETE FROM cardio_log WHERE session_id = ?', id);
+    const left =
+      session && session.activityId !== null
+        ? await db.getFirstAsync<SessionRow>(
+            `SELECT * FROM cardio_session WHERE date = ? AND activity_id = ? AND status = 'finished' AND id <> ?
+             ORDER BY finished_at DESC, id DESC LIMIT 1`,
+            session.date,
+            session.activityId,
+            id,
+          )
+        : null;
+    if (left) {
+      await db.runAsync('UPDATE cardio_log SET value = ?, session_id = ? WHERE session_id = ?', resultOf(toSession(left)), left.id, id);
+    } else {
+      await db.runAsync('DELETE FROM cardio_log WHERE session_id = ?', id);
+    }
     await db.runAsync('DELETE FROM photo WHERE cardio_session_id = ?', id);
     await db.runAsync('DELETE FROM cardio_session WHERE id = ?', id);
   });

@@ -1,12 +1,14 @@
 """Simulates sprints on the Android emulator by sending GPS fixes with `adb emu geo fix`, one a second.
 
 Standing still until the start, then the profile of the test fixture (0 → 4 → 7 → 8 × 7 → 5 → 1 → 0 m/s,
-about 73 m) northwards, then standing still again. The emulator gives no Doppler speed, so the app
-measures from the positions and marks the sprint as weak (≈).
+about 73 m) northwards, then standing still again. Without a Doppler speed the app measures from the
+positions and marks the sprint as weak (≈); `--doppler` sends the speed with each fix, as a phone does,
+and the sprint counts as well measured.
 
     python scripts/simulate_sprint.py              # press Enter when the beep sounds
     python scripts/simulate_sprint.py --wait 5     # the beep is 5 s away (just tapped «Empezar sprint»)
     python scripts/simulate_sprint.py --wait 5 --sprints 2 --rest 90
+    python scripts/simulate_sprint.py --wait 5 --doppler
 
 Run it from the repo root, with adb on the PATH (as AGENTS.md says, adb always from the root).
 """
@@ -20,10 +22,16 @@ import time
 LAT0, LON0 = 41.3655, 2.1585
 M_PER_DEG_LAT = 6_371_008.8 * math.pi / 180
 SPEEDS = [4, 7, 8, 8, 8, 8, 8, 8, 8, 5, 1]  # m/s at seconds 1…11 after the beep
+KNOT = 0.514444  # m/s
+doppler = False
 
 
-def fix(lat: float, lon: float) -> None:
-    subprocess.run(['adb', 'emu', 'geo', 'fix', f'{lon:.7f}', f'{lat:.7f}'], check=False, capture_output=True)
+def fix(lat: float, lon: float, speed: float = 0.0) -> None:
+    args = ['adb', 'emu', 'geo', 'fix', f'{lon:.7f}', f'{lat:.7f}']
+    if doppler:
+        # The console takes the velocity last, in knots, after an altitude and the satellites.
+        args += ['0', '12', f'{speed / KNOT:.2f}']
+    subprocess.run(args, check=False, capture_output=True)
 
 
 # One fix a second on the wall clock: `adb` takes a few hundred ms, and sleeping a whole second
@@ -50,7 +58,7 @@ def sprint(lat: float, direction: int) -> float:
     for v in SPEEDS:
         d += (previous + v) / 2
         previous = v
-        fix(lat + direction * d / M_PER_DEG_LAT, LON0)
+        fix(lat + direction * d / M_PER_DEG_LAT, LON0, v)
         tick()
     return lat + direction * d / M_PER_DEG_LAT
 
@@ -61,7 +69,10 @@ def main() -> None:
     parser.add_argument('--sprints', type=int, default=1)
     parser.add_argument('--rest', type=float, default=90, help='seconds between sprints (the rest of the plan)')
     parser.add_argument('--after', type=float, default=15, help='seconds standing still after the last sprint')
+    parser.add_argument('--doppler', action='store_true', help='send the speed with each fix: a well measured sprint')
     args = parser.parse_args()
+    global doppler
+    doppler = args.doppler
 
     lat = LAT0
     if args.wait is None:

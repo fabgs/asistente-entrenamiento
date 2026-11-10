@@ -19,7 +19,7 @@ import { cancelCardioTimer, scheduleCardioTimer } from './cardioTimer';
 import { SPRINT_GPS, startGpsTracking, stopGpsTracking, WALK_GPS, type GpsStart } from './gpsTracker';
 import { deletingPhotosOf } from './photos';
 import { dismissRouteAlert } from './routeAlert';
-import { finishSprints, stopSprintTracking, syncSprint } from './sprintSession';
+import { applyButtonStop, finishSprints, stopSprintTracking, syncSprint } from './sprintSession';
 
 /** When the plan's clock would have started without the pauses so far. */
 const planStart = (session: CardioSession, now: number) => now - activeMs(session, now);
@@ -93,7 +93,11 @@ export async function ensureCardioRunning(db: Db, session: CardioSession, now = 
 /** At start-up: sprints left running get their GPS, their next beep and their countdown back. */
 export async function restoreCardioInProgress(db: Db, now = Date.now()): Promise<void> {
   const session = await getActiveCardioSession(db);
-  if (session?.tracking === 'sprint') await ensureCardioRunning(db, session, now);
+  if (session?.tracking !== 'sprint') return;
+  // A stop pressed on a button while the JavaScript was not there (1.5.0) is applied first.
+  await applyButtonStop(db).catch((e) => console.warn('Could not apply the stop', e));
+  const current = await getActiveCardioSession(db);
+  if (current?.tracking === 'sprint') await ensureCardioRunning(db, current, now);
 }
 
 export async function finishCardio(db: Db, session: CardioSession, now = Date.now()): Promise<void> {

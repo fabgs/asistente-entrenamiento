@@ -158,18 +158,18 @@ export default function WorkoutScreen() {
   // A loose workout with nothing done yet is dropped on the way out: there is nothing to keep.
   const [leaving, setLeaving] = useState(false);
   const emptyLoose = data?.session.routineId === null && data.sets.length === 0;
-  usePreventRemove(!leaving && data?.session.status === 'in_progress' && (((resting || warming) && !browsing) || inSet), () => {
+  usePreventRemove(!leaving && data?.session.status === 'in_progress' && (((resting || warming) && !browsing) || inSet), ({ repeat }) => {
     if (resting || warming) setBrowsing(true);
     else if (emptyLoose) {
       clearWorkoutInProgress();
-      discardSession(db, id).then(() => setLeaving(true));
+      // Letting go of the back button and going back in one go: as two renders, the header was
+      // updated while its screen was already leaving and react-native-screens crashed (1.5.0).
+      discardSession(db, id).then(() => {
+        setLeaving(true);
+        repeat();
+      });
     } else updateSessionState(db, id, { currentSlotId: null }).then(reload);
   });
-  useEffect(() => {
-    if (!leaving) return;
-    if (router.canGoBack()) router.back();
-    else router.dismissTo('/');
-  }, [leaving]);
 
   const keepAwake = data?.settings.keepAwake ?? false;
   useEffect(() => {

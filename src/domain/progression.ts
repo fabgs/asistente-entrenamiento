@@ -72,6 +72,20 @@ function aboveReason(reps: number[], target: RepTarget, settings: ProgressionSet
 
 export const SESSIONS_IN_WORDS: Record<number, string> = { 1: 'una', 2: 'dos', 3: 'tres', 4: 'cuatro' };
 
+/** Sessions in a row within the target, with the same weight and no more reps, that call for a deload (rule 12). */
+export const DELOAD_SESSIONS = 3;
+/** How much a deload takes off, rounded to the increment and never less than one. */
+export const DELOAD_SHARE = 0.1;
+
+/**
+ * The weight after a deload: the multiple of the increment closest to 10 % less (on a tie, the
+ * smaller drop) and at least one increment. 35 kg by 2,5 → 32,5; 60 → 55; 37,5 → 35.
+ */
+export function deloadWeight(weightKg: number, incrementKg: number): number {
+  const steps = Math.max(1, Math.ceil((weightKg * DELOAD_SHARE) / incrementKg - 0.5 - 1e-9));
+  return round2(weightKg - steps * incrementKg);
+}
+
 /**
  * Suggests the load for the next session of a slot (PLAN.md §6.2).
  * `history` holds finished sessions that included the slot, newest first.
@@ -156,16 +170,41 @@ export function recommend(
     };
   }
 
+  // Within the target. Stalled there (rule 12): complete sessions in a row with this weight, all
+  // within the target, whose reps have not gone up. Every third one suggests a deload, so an
+  // ignored one does not come back at each session.
+  const total = (s: SessionPerformance) => s.reps.slice(0, slot.sets).reduce((sum, r) => sum + r, 0);
+  let stalled = 0;
+  for (const s of history) {
+    if (s.reps.length < slot.sets || !sameWeight(s.weightKg, last.weightKg) || assess(s.reps, slot.target, settings) !== 'in') break;
+    stalled++;
+  }
+  const deloadKg = slot.allowDecrease && weight > 0 ? deloadWeight(weight, increment) : 0;
+  const position = stalled % DELOAD_SESSIONS;
+  if (deloadKg > 0 && stalled >= DELOAD_SESSIONS && position === 0 && total(last) <= total(history[DELOAD_SESSIONS - 1])) {
+    return {
+      action: 'decrease',
+      fromKg: slot.weightKg,
+      toKg: deloadKg,
+      reason: 'Tres sesiones seguidas sin mejorar las reps: descarga para volver a subir',
+      repsToBeat: last.reps,
+      deload: true,
+    };
+  }
+  // One session short of it, said so: one more rep next time avoids the surprise.
+  const warning =
+    deloadKg > 0 && position === DELOAD_SESSIONS - 1 && total(last) <= total(history[1]) ? ': si la próxima no mejora, te sugerirá bajar' : '';
+
   if (slot.target.kind === 'range') {
     // «Todas las series» rises only with every set at the top: the average may be above it already.
     if (settings.mode === 'strict') {
       const { max } = slot.target;
       const hit = last.reps.filter((r) => r >= max).length;
-      return keep(hit > 0 ? `${hit} de ${last.reps.length} series en ${max} o más` : `Ninguna serie en ${max} o más`);
+      return keep(`${hit > 0 ? `${hit} de ${last.reps.length} series en ${max} o más` : `Ninguna serie en ${max} o más`}${warning}`);
     }
-    return keep(`Media de ${formatNumber(average(last.reps), 1)}, dentro de ${slot.target.min}–${slot.target.max}`);
+    return keep(`Media de ${formatNumber(average(last.reps), 1)}, dentro de ${slot.target.min}–${slot.target.max}${warning}`);
   }
-  return keep('Aún no completas todas las series');
+  return keep(`Aún no completas todas las series${warning}`);
 }
 
 /** «14, 12 y 11». */
@@ -207,6 +246,15 @@ export function raiseExamples(settings: ProgressionSettings): RuleExample[] {
     label: repsList(reps),
     outcome: outcomeLabel(recommend(exampleSlot(35), null, [{ weightKg: 35, reps }], settings)),
   }));
+}
+
+/** The deload, on 10–12 reps with 20 kg: three sessions within the range that go nowhere. */
+export function deloadExample(settings: ProgressionSettings): RuleExample {
+  const flat = { weightKg: 20, reps: [11, 11, 10] };
+  return {
+    label: `${repsList(flat.reps)} ${SESSIONS_IN_WORDS[DELOAD_SESSIONS]} veces seguidas`,
+    outcome: outcomeLabel(recommend(exampleSlot(20), null, Array.from({ length: DELOAD_SESSIONS }, () => flat), settings)),
+  };
 }
 
 /** «Cuándo bajar», on 10–12 reps with 20 kg: 9, 9 and 8 one session short of the rule, then enough. */

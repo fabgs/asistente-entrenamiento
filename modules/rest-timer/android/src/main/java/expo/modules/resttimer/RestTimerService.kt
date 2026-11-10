@@ -36,8 +36,9 @@ import kotlin.math.abs
  * ticking on the lock screen with the app closed, and becomes a Live Update on Android 16) and,
  * while the app is in the background, a draggable bubble over other apps. Otherwise it shows the
  * activity in progress with a chronometer counting up, as a way back into the app; a countdown
- * that ends falls back to it. The rest-end sound is a separate alarm scheduled with
- * expo-notifications.
+ * that ends falls back to it. While a sprint runs (1.5.0) it shows that instead, counting up from
+ * its start, with a «Parar» that stops it: set before the start, it takes over when the countdown to
+ * the beep ends. The rest-end sound is a separate alarm scheduled with expo-notifications.
  */
 class RestTimerService : Service() {
   private val handler = Handler(Looper.getMainLooper())
@@ -121,6 +122,12 @@ class RestTimerService : Service() {
   }
 
   private fun showOngoingOrStop() {
+    val sprint = running
+    // The countdown to the beep ends a moment before or after the start it counts to.
+    if (sprint != null && sprint.startedAt <= System.currentTimeMillis() + 50) {
+      post(buildRunning(sprint))
+      return
+    }
     val activity = ongoing
     if (activity == null) {
       // Started for an activity cleared on the way: foreground first, as Android requires.
@@ -175,6 +182,31 @@ class RestTimerService : Service() {
       .setContentText(activity.body)
       .setChronometerCountDown(false)
       .setWhen(activity.startedAt)
+    return decorate(builder)
+  }
+
+  /** A sprint running, with the time since its start counting up and «Parar». */
+  private fun buildRunning(sprint: Ongoing): Notification {
+    val builder =
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        Notification.Builder(this, ONGOING_CHANNEL_ID)
+      } else {
+        @Suppress("DEPRECATION")
+        Notification.Builder(this)
+      }
+    builder
+      .setContentTitle(sprint.title)
+      .setContentText(sprint.body)
+      .setChronometerCountDown(false)
+      .setWhen(sprint.startedAt)
+    val stop = PendingIntent.getBroadcast(
+      this,
+      STOP_REQUEST,
+      Intent(this, SprintStopReceiver::class.java).addFlags(Intent.FLAG_RECEIVER_FOREGROUND),
+      PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+    @Suppress("DEPRECATION")
+    builder.addAction(Notification.Action.Builder(smallIcon(), "Parar", stop).build())
     return decorate(builder)
   }
 
@@ -343,6 +375,7 @@ class RestTimerService : Service() {
     private const val ACTION_ONGOING = "expo.modules.resttimer.ONGOING"
     private const val GROUP_KEY = "rest-countdown"
     private const val NOTIFICATION_ID = 7341
+    private const val STOP_REQUEST = 7344
     private const val EXTRA_ENDS_AT = "endsAt"
     private const val EXTRA_TITLE = "title"
     private const val EXTRA_BODY = "body"
@@ -362,6 +395,9 @@ class RestTimerService : Service() {
     /** Shown whenever no countdown is running; it outlives the countdowns. */
     @Volatile
     private var ongoing: Ongoing? = null
+    /** A sprint running, or about to when its countdown ends: shown instead of `ongoing`. */
+    @Volatile
+    private var running: Ongoing? = null
 
     private fun launch(context: Context, intent: Intent) {
       // Android 12+ refuses to start a foreground service from the background. The app calls this
@@ -407,6 +443,28 @@ class RestTimerService : Service() {
 
     fun stopOngoing() {
       ongoing = null
+      val service = instance ?: return
+      service.handler.post { service.refreshOngoing() }
+    }
+
+    /**
+     * The sprint that starts at `startAt` (now or when the countdown to its beep ends): its
+     * notification with «Parar», and the volume buttons stop it from `minMs` after the start.
+     */
+    fun startSprintRunning(context: Context, startAt: Long, title: String, body: String, minMs: Long) {
+      running = Ongoing(startAt, title, body)
+      SprintStop.arm(startAt, minMs)
+      val service = instance
+      if (service != null) {
+        service.handler.post { service.refreshOngoing() }
+      } else if (startAt <= System.currentTimeMillis()) {
+        launch(context, Intent(context, RestTimerService::class.java).setAction(ACTION_ONGOING))
+      }
+    }
+
+    fun stopSprintRunning() {
+      running = null
+      SprintStop.disarm()
       val service = instance ?: return
       service.handler.post { service.refreshOngoing() }
     }

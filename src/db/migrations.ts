@@ -357,6 +357,10 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE cardio_session ADD COLUMN follow_state TEXT;
   ALTER TABLE settings ADD COLUMN route_alert INTEGER NOT NULL DEFAULT 1;
   `,
+  // Cardio «sin día» (1.5.0): an activity of no weekday, to do when one feels like it. `weekday` is
+  // NOT NULL with a CHECK and SQLite cannot relax a column, so a flag says it has none (the column
+  // then holds a 1 that means nothing; the repository gives null).
+  `ALTER TABLE cardio_activity ADD COLUMN no_day INTEGER NOT NULL DEFAULT 0;`,
 ];
 
 export async function migrate(db: Db): Promise<void> {

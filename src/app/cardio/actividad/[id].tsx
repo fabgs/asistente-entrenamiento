@@ -37,8 +37,16 @@ import {
   type PlanKind,
 } from '@/domain/cardioPlan';
 import { formatDuration, NBSP } from '@/domain/format';
-import { DEFAULT_SPRINT_PLAN, describeSprintPlan, REST_RANGE_S, SPRINTS_RANGE, type SprintPlan } from '@/domain/sprint';
-import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
+import {
+  DEFAULT_SPRINT_PLAN,
+  describeSprintPlan,
+  LEAD_RANGE_S,
+  REST_RANGE_S,
+  SPRINTS_RANGE,
+  STRAIGHT_RANGE_M,
+  type SprintPlan,
+} from '@/domain/sprint';
+import { ISO_WEEKDAYS, NO_DAY_PARAM, WEEKDAY_NAMES } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { emitDataChanged, queueWrite, reschedule, useSaveGuard } from '@/hooks/editing';
@@ -66,8 +74,8 @@ const PLAN_KINDS: { value: PlanKind; label: string }[] = [
 ];
 
 /**
- * An activity of the weekly cardio (`id`), or a new one (`id = nueva`, `dia` = ISO weekday): nothing
- * is saved until «Añadir» (D29).
+ * An activity of the weekly cardio (`id`), or a new one (`id = nueva`, `dia` = ISO weekday, or `sin`
+ * for one of no day, 1.5.0): nothing is saved until «Añadir» (D29).
  */
 export default function ActivityScreen() {
   const { id, dia } = useLocalSearchParams<{ id: string; dia?: string }>();
@@ -89,11 +97,20 @@ export default function ActivityScreen() {
       </Screen>
     );
   }
-  const weekday = data.activity?.weekday ?? ISO_WEEKDAYS.find((d) => String(d) === dia) ?? 1;
+  // Null is «sin día»: its own, not a day left out (a new one without `dia` goes to Monday, as before).
+  const weekday = data.activity ? data.activity.weekday : dia === NO_DAY_PARAM ? null : (ISO_WEEKDAYS.find((d) => String(d) === dia) ?? 1);
   return <ActivityForm key={id} activity={data.activity} weekday={weekday} />;
 }
 
-function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; weekday: IsoWeekday }) {
+/** Metres of the straight as typed: a whole number in range, null when empty, NaN when it is neither. */
+function parseStraight(text: string): number | null {
+  const typed = text.trim();
+  if (typed === '') return null;
+  const metres = Number(typed);
+  return Number.isInteger(metres) && metres >= STRAIGHT_RANGE_M[0] && metres <= STRAIGHT_RANGE_M[1] ? metres : NaN;
+}
+
+function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; weekday: IsoWeekday | null }) {
   const db = useDb();
   const [name, setName] = useState(activity?.name ?? '');
   const [target, setTarget] = useState(activity?.target ?? '');
@@ -102,9 +119,13 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
   const [tracking, setTracking] = useState<CardioTracking>(activity?.tracking ?? 'check');
   const [plan, setPlan] = useState<CardioPlan>(activity?.plan ?? DEFAULT_PLANS.liss);
   const [sprint, setSprint] = useState<SprintPlan>(activity?.sprint ?? DEFAULT_SPRINT_PLAN);
+  // The straight is typed: it may be empty (the GPS measures it) or, for a moment, out of range.
+  const [straight, setStraight] = useState(activity?.sprint?.straightM != null ? String(activity.sprint.straightM) : '');
+  const [straightError, setStraightError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const typedStraight = parseStraight(straight);
   const fields = {
     name: name.trim(),
     target: target.trim() || null,
@@ -112,7 +133,7 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
     notes: notes.trim() || null,
     tracking,
     plan: tracking === 'timer' ? plan : null,
-    sprint: tracking === 'sprint' ? sprint : null,
+    sprint: tracking === 'sprint' ? { ...sprint, straightM: typedStraight } : null,
   };
   const dirty = activity
     ? !sameCardioFields(fields, cardioFieldsOf(activity))
@@ -122,6 +143,10 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
   const save = async () => {
     if (!fields.name) {
       setError('Ponle un nombre');
+      return false;
+    }
+    if (fields.sprint && Number.isNaN(fields.sprint.straightM)) {
+      setStraightError(true);
       return false;
     }
     await queueWrite(async () => {
@@ -189,7 +214,7 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
             : undefined,
         }}
       />
-      <AppText variant="secondary">{`Cardio del ${WEEKDAY_NAMES[weekday].toLowerCase()}`}</AppText>
+      <AppText variant="secondary">{weekday === null ? 'Cardio sin día' : `Cardio del ${WEEKDAY_NAMES[weekday].toLowerCase()}`}</AppText>
 
       <View style={styles.fields}>
         <TextField
@@ -233,6 +258,17 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
                   max={SPRINTS_RANGE[1]}
                 />
               </FormRow>
+              <FormRow>
+                <NumberRow
+                  label="Cuenta previa"
+                  value={sprint.leadSec}
+                  onChange={(leadSec) => setSprint({ ...sprint, leadSec })}
+                  step={5}
+                  min={LEAD_RANGE_S[0]}
+                  max={LEAD_RANGE_S[1]}
+                  format={seconds}
+                />
+              </FormRow>
             </ListGroup>
           </Section>
           <Section label="Descanso">
@@ -244,8 +280,22 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
               min={REST_RANGE_S[0]}
               max={REST_RANGE_S[1]}
             />
-            <AppText variant="secondary">{describeSprintPlan(sprint)}</AppText>
+            <AppText variant="secondary">{describeSprintPlan({ ...sprint, straightM: Number.isNaN(typedStraight) ? null : typedStraight })}</AppText>
           </Section>
+          <TextField
+            label="Recta"
+            value={straight}
+            onChangeText={(text) => {
+              setStraight(text);
+              setStraightError(false);
+            }}
+            keyboard="number"
+            suffix="m"
+            placeholder="La mide el GPS"
+            maxLength={3}
+            help="Si sabes cuánto mide, apúntala. El GPS la mide igual y verás las dos."
+            error={straightError ? `Entre ${STRAIGHT_RANGE_M[0]} y ${STRAIGHT_RANGE_M[1]}${NBSP}m` : undefined}
+          />
         </>
       ) : null}
 

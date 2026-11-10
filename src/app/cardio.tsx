@@ -15,15 +15,15 @@ import {
 import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
 import { listRoutines, setRoutineOnWeekday, type Routine } from '@/db/repositories/routines';
 import { trackingDetails } from '@/domain/cardioPlan';
-import { ISO_WEEKDAYS, WEEKDAY_NAMES } from '@/domain/schedule';
+import { ISO_WEEKDAYS, NO_DAY_PARAM, WEEKDAY_NAMES, weekdaysLabel } from '@/domain/schedule';
 import type { IsoWeekday } from '@/domain/types';
 import { useDb, useLoader } from '@/hooks/data';
 import { reschedule, useOnDataChanged, useSavedAtOnce } from '@/hooks/editing';
 import { colors, spacing } from '@/theme';
 
 // cardio/actividad/[id] is new: until the dev server regenerates the typed routes, its links are cast.
-const activityHref = (id: number | 'nueva', day?: IsoWeekday) =>
-  (day ? `/cardio/actividad/${id}?dia=${day}` : `/cardio/actividad/${id}`) as Href;
+const activityHref = (id: number | 'nueva', day?: IsoWeekday | null) =>
+  (day !== undefined ? `/cardio/actividad/${id}?dia=${day ?? NO_DAY_PARAM}` : `/cardio/actividad/${id}`) as Href;
 
 /** "Caminar · 5 km" */
 const activityTitle = (a: CardioActivity) => (a.target ? `${a.name} · ${a.target}` : a.name);
@@ -31,7 +31,10 @@ const activityTitle = (a: CardioActivity) => (a.target ? `${a.name} · ${a.targe
 /** Intensity, or the plan of the timer or the sprints, and the notes (as on Hoy). */
 const activityDetails = (a: CardioActivity) => [trackingDetails(a), a.notes].filter(Boolean).join(' · ') || undefined;
 
-/** The whole week's cardio or, with `?dia=N` (ISO weekday), that day: its routines and its cardio. */
+/**
+ * The whole week's cardio (each day's and, at the end, the activities «sin día», 1.5.0) or, with
+ * `?dia=N` (ISO weekday), that day: its routines and its cardio.
+ */
 export default function CardioScreen() {
   const { dia } = useLocalSearchParams<{ dia?: string }>();
   const day = ISO_WEEKDAYS.find((d) => String(d) === dia);
@@ -49,7 +52,8 @@ export default function CardioScreen() {
     );
   }
 
-  const activities = (weekday: IsoWeekday) => (
+  // `weekday` null: those of no day, to do when one feels like it (from «Hacer otro cardio»).
+  const activities = (weekday: IsoWeekday | null) => (
     <ListGroup inset={72}>
       {data.cardio
         .filter((a) => a.weekday === weekday)
@@ -74,6 +78,12 @@ export default function CardioScreen() {
             {activities(weekday)}
           </Section>
         ))}
+        <Section label={weekdaysLabel([])}>
+          {activities(null)}
+          {data.cardio.some((a) => a.weekday === null) ? null : (
+            <AppText variant="caption">Para cuando apetezca. Salen en Hoy, en «Hacer otro cardio».</AppText>
+          )}
+        </Section>
       </Screen>
     );
   }

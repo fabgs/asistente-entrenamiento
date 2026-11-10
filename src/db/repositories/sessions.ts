@@ -427,8 +427,14 @@ export interface SlotPerformance extends SessionPerformance {
   sessionId: number;
 }
 
+/**
+ * Sessions the engine looks back at. The deload (PLAN.md §6.2, rule 12) counts how many in a row
+ * went nowhere and suggests it on every third: with fewer sessions than the run, it would lose count.
+ */
+export const RULE_HISTORY = 30;
+
 /** Performances of a slot in finished sessions, newest first. */
-export async function slotHistory(db: Db, slotId: number, limit = 6): Promise<SlotPerformance[]> {
+export async function slotHistory(db: Db, slotId: number, limit = RULE_HISTORY): Promise<SlotPerformance[]> {
   const rows = await db.getAllAsync<{ session_id: number; weight_kg: number | null; reps: number }>(
     `SELECT sl.session_id, sl.weight_kg, sl.reps
      FROM set_log sl JOIN workout_session ws ON ws.id = sl.session_id

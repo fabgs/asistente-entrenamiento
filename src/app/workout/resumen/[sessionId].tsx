@@ -41,6 +41,7 @@ import {
   refreshRecommendations,
   restoreSet,
   setSessionTitle,
+  RULE_HISTORY,
   slotHistory,
   updateSetReps,
   updateSetWeight,
@@ -101,7 +102,7 @@ export default function SummaryScreen() {
     }
     const keepReasons = new Map<number, Recommendation>();
     for (const slot of slots) {
-      const history = await slotHistory(db, slot.id, 12);
+      const history = await slotHistory(db, slot.id, 2 * RULE_HISTORY);
       const from = history.findIndex((h) => h.sessionId === id);
       if (from >= 0) {
         const rec = recommend(slotRule(slot), slot.exerciseIncrementKg, history.slice(from), progression);

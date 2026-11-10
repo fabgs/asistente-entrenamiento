@@ -1,16 +1,17 @@
 import * as Haptics from 'expo-haptics';
 import { useFocusEffect, usePreventRemove } from 'expo-router';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
 import { AppState, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
 import type { CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen } from '@/db/repositories/hints';
-import { formatClock, formatCountdown, formatSprintTime } from '@/domain/format';
+import { formatClock, formatCountdown, formatSprintTime, NBSP } from '@/domain/format';
 import { splitUnit } from '@/domain/progress';
-import { lapRows, LEAD_MS, sprintGps, sprintLabel, sprintState, type LapRow, type SprintState } from '@/domain/sprint';
+import { lapRows, leadMs, sprintGps, sprintLabel, sprintState, type LapRow, type SprintState } from '@/domain/sprint';
 import { useDb, useNow } from '@/hooks/data';
 import type { SprintLive as Live } from '@/hooks/walk';
 import {
   addExtraSprint,
+  applyButtonStop,
   cancelSprintGo,
   dropLastSprint,
   dropRunningSprint,
@@ -20,12 +21,14 @@ import {
   stopSprint,
   syncSprint,
   undoSprint,
+  type SprintStop,
   type SprintUndo,
 } from '@/services/sprintSession';
 import { colors, radius, spacing } from '@/theme';
+import { onSprintButtonStop } from '../../modules/rest-timer';
 import { showActions, showDialog, showSnackbar } from './Dialog';
 import { Ring } from './Ring';
-import { sprintMetres, sprintSpeed, SprintStats, SprintTable } from './Sprint';
+import { sprintMetres, sprintSpeed, SprintStats, SprintTable, StraightStats } from './Sprint';
 import { AppText, BottomBar, Button, Card, Icon, ListGroup, ListRow, RowIcon, Screen, Tag, Value } from './ui';
 
 const RING_SIZE = 264;
@@ -55,21 +58,31 @@ export function askFinishSprints(session: CardioSession, at: number, onFinish: (
   );
 }
 
+export interface SprintLiveHandle {
+  /** Lets go of the back button at once, to leave in the same render (discarding). */
+  allowLeaving: () => void;
+}
+
 /**
- * Sprints in progress (PLAN.md §6.8): ready, the 5 s count, running (a huge «Parar»), resting and
- * done. Everything is worked out from the laps of the session and the clock.
+ * Sprints in progress (PLAN.md §6.8): ready, the count before the beep, running (a huge «Parar»),
+ * resting and done. Everything is worked out from the laps of the session and the clock.
  */
 export function SprintLive({
+  ref,
   session,
   live,
   hintSeen,
+  volumeHintSeen,
   leaving,
   reload,
   onFinish,
 }: {
+  ref?: Ref<SprintLiveHandle>;
   session: CardioSession;
   live: Live;
   hintSeen: boolean;
+  /** The one-time hint about stopping with a volume button or the notification (1.5.0). */
+  volumeHintSeen: boolean;
   /** The screen is about to close (discarding): back is no longer held. */
   leaving: boolean;
   reload: () => Promise<void>;
@@ -80,7 +93,7 @@ export function SprintLive({
   const plan = session.sprint!;
   const state = sprintState(plan, session.laps, now);
   const rows = lapRows(session.laps, live.measures);
-  const counting = state.kind === 'waiting' && state.goAt - now <= LEAD_MS;
+  const counting = state.kind === 'waiting' && state.goAt - now <= leadMs(plan);
 
   // Over the lock screen only while this screen is in front.
   useFocusEffect(
@@ -110,9 +123,10 @@ export function SprintLive({
     }
   }, [second]);
 
-  usePreventRemove(!leaving && (state.kind === 'running' || counting), () =>
+  const allowLeaving = usePreventRemove(!leaving && (state.kind === 'running' || counting), () =>
     showSnackbar(state.kind === 'running' ? 'Toca Parar para terminar el sprint' : 'Toca Cancelar para no salir'),
   );
+  useImperativeHandle(ref, () => ({ allowLeaving }), [allowLeaving]);
 
   const undo = async (u: SprintUndo) => {
     await undoSprint(db, session.id, u);
@@ -123,25 +137,58 @@ export function SprintLive({
     await reload();
   };
 
+  /** What a stop leaves on screen, whether it came from the panel or from a button. */
+  const afterStop = async (result: SprintStop) => {
+    if (result.kind === 'ignored') return;
+    if (result.kind === 'false-start') {
+      showSnackbar('Salida anulada', { label: 'Deshacer', onPress: () => undo(result.undo) });
+    } else {
+      if (!hintSeen) await markHintSeen(db, 'sprint-how');
+      if (!volumeHintSeen) await markHintSeen(db, 'sprint-volume');
+      showSnackbar(`Sprint ${result.number} · ${formatSprintTime(result.timeMs)}`, { label: 'Deshacer', onPress: () => undo(result.undo) });
+    }
+    await reload();
+  };
+
   const stopping = useRef(false);
   const stop = async () => {
     if (stopping.current) return;
     stopping.current = true;
     try {
       const result = await stopSprint(db, session.id);
-      if (result.kind === 'ignored') return;
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      if (result.kind === 'false-start') {
-        showSnackbar('Salida anulada', { label: 'Deshacer', onPress: () => undo(result.undo) });
-      } else {
-        if (!hintSeen) await markHintSeen(db, 'sprint-how');
-        showSnackbar(`Sprint ${result.number} · ${formatSprintTime(result.timeMs)}`, { label: 'Deshacer', onPress: () => undo(result.undo) });
-      }
-      await reload();
+      if (result.kind !== 'ignored') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await afterStop(result);
     } finally {
       stopping.current = false;
     }
   };
+
+  // A volume button or the notification's «Parar» (1.5.0): the press is kept by the native side
+  // (which also vibrates) and applied here, when it happens and on coming back to the app.
+  const buttonStop = useRef(async () => {});
+  useEffect(() => {
+    buttonStop.current = async () => {
+      if (stopping.current) return;
+      stopping.current = true;
+      try {
+        await afterStop(await applyButtonStop(db));
+      } finally {
+        stopping.current = false;
+      }
+    };
+  });
+  useEffect(() => {
+    const press = () => buttonStop.current().catch((e) => console.warn('Could not apply the stop', e));
+    press();
+    const off = onSprintButtonStop(press);
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next === 'active') press();
+    });
+    return () => {
+      off();
+      sub.remove();
+    };
+  }, []);
 
   const removeLast = (row: LapRow) =>
     showActions([
@@ -170,11 +217,15 @@ export function SprintLive({
   };
 
   const gps = sprintGps(live.lastFix, live.gpsOn, now);
-  const hint = hintSeen ? null : (
-    <Card>
-      <AppText variant="bodySm">Sal con el pitido y toca Parar al terminar. Tras el descanso, el siguiente pitido es la salida.</AppText>
-    </Card>
-  );
+  const hint =
+    hintSeen && volumeHintSeen ? null : (
+      <Card>
+        {hintSeen ? null : (
+          <AppText variant="bodySm">Sal con el pitido y toca Parar al terminar. Tras el descanso, el siguiente pitido es la salida.</AppText>
+        )}
+        {volumeHintSeen ? null : <AppText variant="bodySm">También paras con un botón de volumen o desde la notificación.</AppText>}
+      </Card>
+    );
 
   if (state.kind === 'running') {
     const time = splitUnit(formatSprintTime(now - state.startAt));
@@ -253,6 +304,7 @@ export function SprintLive({
         <AppText variant="title">{state.count} sprints hechos</AppText>
         <SprintStats rows={rows} />
         {table}
+        <StraightStats rows={rows} straightM={plan.straightM} />
       </Screen>
     );
   }
@@ -282,7 +334,8 @@ export function SprintLive({
         </AppText>
         <AppText variant="title">Cuando quieras</AppText>
         <AppText variant="secondary">
-          Descanso de {formatCountdown(plan.restSec * 1000)} entre sprints. Cada salida es un pitido.
+          Descanso de {formatCountdown(plan.restSec * 1000)} entre sprints. Cada salida es un pitido tras una cuenta de {plan.leadSec}
+          {NBSP}s.
         </AppText>
         {noGps ? (
           <AppText variant="secondary" style={{ color: colors.warning }}>

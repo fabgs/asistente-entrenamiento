@@ -15,6 +15,18 @@ interface RestTimerNative {
   cancelSprintBeep?: () => void;
   /** Missing in native builds older than the encrypted copies (1.3.4). */
   pbkdf2Sha256?: (password: string, salt: string, iterations: number) => Promise<string>;
+  /** Missing in native builds older than 1.5.0. */
+  startSprintRunning?: (startAt: number, title: string, body: string, minMs: number) => void;
+  stopSprintRunning?: () => void;
+  takeSprintStop?: () => SprintButtonStop | null;
+  addListener?: (event: 'onSprintStop', listener: (stop: SprintButtonStop) => void) => { remove(): void };
+}
+
+/** A sprint stopped without the screen: with a volume button or the notification's «Parar». */
+export interface SprintButtonStop {
+  /** When it was pressed, epoch ms. */
+  at: number;
+  source: 'volume' | 'notification';
 }
 
 // Android only; absent on other platforms and in Jest.
@@ -58,6 +70,30 @@ export function scheduleSprintBeep(goAt: number): void {
 
 export function cancelSprintBeep(): void {
   native?.cancelSprintBeep?.();
+}
+
+/**
+ * The sprint starting at `startAt` (now, or when the countdown to its beep ends): a notification with
+ * the time running and «Parar», and the volume buttons stop it while the app is in front. A press
+ * before `minMs` from the start is ignored. Calling it again replaces it.
+ */
+export function startSprintRunning(startAt: number, title: string, body: string, minMs: number): void {
+  native?.startSprintRunning?.(startAt, title, body, minMs);
+}
+
+export function stopSprintRunning(): void {
+  native?.stopSprintRunning?.();
+}
+
+/** The stop pressed and not yet applied, if any; each one is returned once. */
+export function takeSprintStop(): SprintButtonStop | null {
+  return native?.takeSprintStop?.() ?? null;
+}
+
+/** Called when a button stops a sprint while the JavaScript is alive (the stop is also kept for `takeSprintStop`). */
+export function onSprintButtonStop(listener: () => void): () => void {
+  const sub = native?.addListener?.('onSprintStop', listener);
+  return () => sub?.remove();
 }
 
 /**

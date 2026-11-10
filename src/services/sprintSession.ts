@@ -1,6 +1,7 @@
 import type { Db } from '@/db/db';
 import {
   finishSprintSession,
+  getActiveCardioSession,
   getCardioSession,
   lastTrackPoint,
   listSprintFixes,
@@ -15,6 +16,7 @@ import {
   encodeLapFixes,
   encodeLaps,
   extraSprint,
+  FALSE_START_MS,
   goNow,
   measureLaps,
   shiftRest,
@@ -30,12 +32,17 @@ import {
   scheduleSprintBeep,
   setShowWhenLocked,
   startRestCountdown,
+  startSprintRunning,
   stopRestCountdown,
+  stopSprintRunning,
+  takeSprintStop,
 } from '../../modules/rest-timer';
 import { cancelCardioTimer } from './cardioTimer';
 import { isGpsRecording, stopGpsTracking } from './gpsTracker';
 
 const SETTLE_POLL_MS = 500;
+/** Under «Sprint 3 de 6» in the notification shown while running. */
+const RUNNING_TEXT = 'Toca Parar al llegar';
 const SETTLE_WAIT_MS = 5_000;
 
 /** The laps before and after an action, to put back what it did. */
@@ -48,14 +55,25 @@ export type SprintUndo = { from: string; to: string | null };
 export async function syncSprint(session: CardioSession, now = Date.now()): Promise<void> {
   const plan = session.sprint;
   const state = plan && session.status === 'in_progress' ? sprintState(plan, session.laps, now) : null;
-  if (!plan || state?.kind !== 'waiting') {
+  if (!plan || !state || state.kind === 'ready' || state.kind === 'done') {
+    cancelSprintBeep();
+    stopSprintRunning();
+    stopRestCountdown();
+    return;
+  }
+  // While it runs (1.5.0): a notification with its time and «Parar», and the volume buttons stop it.
+  const label = sprintLabel(state.number, plan);
+  if (state.kind === 'running') {
+    startSprintRunning(state.startAt, label, RUNNING_TEXT, FALSE_START_MS);
     cancelSprintBeep();
     stopRestCountdown();
     return;
   }
   scheduleSprintBeep(state.goAt);
-  const label = sprintLabel(state.number, plan);
   startRestCountdown(state.goAt, state.restFrom ? 'Descanso' : 'Preparados', `${label} · sale con el pitido`, false);
+  // Set from the rest already (after its countdown, which it must not replace), so it takes over at
+  // the beep without waiting for the JavaScript.
+  startSprintRunning(state.goAt, label, RUNNING_TEXT, FALSE_START_MS);
 }
 
 /** Reads the session, applies `transition` and writes it only if nothing changed meanwhile. */
@@ -75,12 +93,12 @@ async function apply(
   return { from: json, to: session.lapsJson };
 }
 
-/** «Empezar sprint» and «Saltar descanso»: the beep in 5 s. */
+/** «Empezar sprint» and «Saltar descanso»: the beep after the count of the plan. */
 export async function goSprint(db: Db, sessionId: number, now = Date.now()): Promise<boolean> {
   return !!(await apply(db, sessionId, now, (plan, laps) => goNow(plan, laps, now)));
 }
 
-/** «Cancelar» during the last 5 s. */
+/** «Cancelar» during the count. */
 export async function cancelSprintGo(db: Db, sessionId: number, now = Date.now()): Promise<boolean> {
   return !!(await apply(db, sessionId, now, (plan, laps) => cancelGo(plan, laps, now)));
 }
@@ -90,17 +108,34 @@ export type SprintStop =
   | { kind: 'false-start'; undo: SprintUndo }
   | { kind: 'stopped'; number: number; timeMs: number; last: boolean; undo: SprintUndo };
 
-/** «Parar». `at` is taken when it is called, before anything is awaited: it is the time of the tap. */
-export async function stopSprint(db: Db, sessionId: number, at = Date.now()): Promise<SprintStop> {
+/**
+ * «Parar». `at` is taken when it is called, before anything is awaited: it is the time of the tap.
+ * With `button` (a volume key or the notification) `at` is the press, read later: see `stopLap`.
+ */
+export async function stopSprint(db: Db, sessionId: number, at = Date.now(), button = false): Promise<SprintStop> {
   let outcome: ReturnType<typeof stopLap> = { kind: 'ignored' };
-  const undo = await apply(db, sessionId, at, (plan, laps) => {
-    outcome = stopLap(plan, laps, at);
+  const now = Date.now();
+  const undo = await apply(db, sessionId, now, (plan, laps) => {
+    outcome = stopLap(plan, laps, at, { now, button });
     return outcome.kind === 'ignored' ? null : outcome.laps;
   });
   const result = outcome as ReturnType<typeof stopLap>;
   if (!undo || result.kind === 'ignored') return { kind: 'ignored' };
   if (result.kind === 'false-start') return { kind: 'false-start', undo };
   return { kind: 'stopped', number: result.number, timeMs: result.timeMs, last: result.last, undo };
+}
+
+/**
+ * Applies a stop pressed on a volume button or on the notification (1.5.0), if one is waiting: the
+ * native side keeps the moment of the press until the app takes it, here. Called when it happens,
+ * on coming back to the app and when the app starts, so a press is never lost.
+ */
+export async function applyButtonStop(db: Db): Promise<SprintStop> {
+  const press = takeSprintStop();
+  if (!press) return { kind: 'ignored' };
+  const session = await getActiveCardioSession(db);
+  if (!session?.sprint) return { kind: 'ignored' };
+  return stopSprint(db, session.id, press.at, true);
 }
 
 /** Puts the laps back as they were before an action (the Snackbar's «Deshacer»). */
@@ -136,6 +171,7 @@ export function showOverLockScreen(on: boolean): void {
 /** Stops everything a sprints session keeps running: GPS, alarm, countdown and the lock-screen pass. */
 export async function stopSprintTracking(session: CardioSession): Promise<void> {
   cancelSprintBeep();
+  stopSprintRunning();
   await stopGpsTracking();
   await cancelCardioTimer(session.id);
   showOverLockScreen(false);

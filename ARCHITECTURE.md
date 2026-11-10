@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.4.10** (`versionCode` 22, [app.json](app.json)) |
-| Esquema de la BD | **13** (`PRAGMA user_version`, 13 migraciones) |
-| Revisado | 2026-11-10, versión 1.4.10 (mapa de calor de los caminos, aviso «Nuevo récord», la ruta seguida que desaparece según se recorre, y tema: cuatro acentos y modo claro) |
+| Versión de la app | **1.5.0** (`versionCode` 23, [app.json](app.json)) |
+| Esquema de la BD | **14** (`PRAGMA user_version`, 14 migraciones) |
+| Revisado | 2026-11-10, versión 1.5.0 (descarga tras estancarse; cardio «sin día», repetir el mismo cardio en el día y marcar sin grabar desde «Hacer otro cardio»; sprints con cuenta previa, recta y parada con un botón de volumen o desde la notificación) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -132,13 +132,13 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | Fichero | Tablas | Funciones principales |
 |---|---|---|
 | [routines.ts](src/db/repositories/routines.ts) | `routine`, `routine_weekday`, `routine_slot` | `listRoutines`, `listSlots`, `createRoutine`, `renameRoutine`, `setRoutineWarmup`, `setRoutineWeekdays`, `setRoutineOnWeekday`, `archiveRoutine`, `addSlot`, `updateSlotPrescription`, `archiveSlot`, `moveSlot`, `looseSlotFor` (la ficha de un ejercicio suelto; los que no están en ninguna rutina, en la oculta `LOOSE_ROUTINE`) |
-| [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession` (con calentamiento si la rutina lo tiene), `endWarmup`, `endRest`, `openSlot` (marcan dónde empieza cada serie), `isWarmingUp`, `lastWarmupOf`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn` |
+| [sessions.ts](src/db/repositories/sessions.ts) | `workout_session`, `set_log` (y `weight_change` al terminar) | `startSession` (con calentamiento si la rutina lo tiene), `endWarmup`, `endRest`, `openSlot` (marcan dónde empieza cada serie), `isWarmingUp`, `lastWarmupOf`, `startLooseSession`, `addLooseExercise`, `sessionSlots`, `logSet`, `logWarmupSet`, `deleteSet`/`restoreSet`, `finishSession`, `refreshRecommendations`, `discardSession`, `deleteFinishedSession`, `openNextSet`, `finishedSessionsOn`, `slotHistory` (las últimas `RULE_HISTORY` sesiones de un slot, lo que mira el motor) |
 | [weightChanges.ts](src/db/repositories/weightChanges.ts) | `weight_change`, `routine_slot.weight_kg` | `listOpenChanges`, `createRecommendation`, `applyChange`, `dismissChange`, `undoChange`, `setSlotWeightManually`, `expireOpenChanges` |
 | [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise`, `listArchivedExercises`, `isExerciseArchived`, `restoreExercise` |
 | [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek` (también el último día de cada músculo, `lastWorkedDates`), `plannedWeekSets` |
 | [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
-| [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio`, `cardioLogOn`, `setCardioDone`, `addCardio`, `updateCardio`, `archiveCardio`, `unarchiveCardio` |
-| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `discardCardioSession` |
+| [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio` (cada día y, al final, las «sin día»: `weekday` null, columna `no_day`), `cardioLogOn`, `setCardioDone`, `addCardio` (a un día o sin día), `updateCardio`, `archiveCardio`, `unarchiveCardio` |
+| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `setSprintStraight` (la recta de una sesión, 1.5.0), `cardioSessionsOn` (las sesiones terminadas un día, una fila de «Hecho» cada una), `discardCardioSession` (si la actividad tiene otra sesión ese día, el registro pasa a ella) |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
 | [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount`, `routeRecordOf` (¿mejoró el mejor tiempo de su ruta?, 1.4.10) |
@@ -155,7 +155,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 | Fichero | Qué resuelve |
 |---|---|
-| [progression.ts](src/domain/progression.ts) | `recommend()`: subir, bajar o mantener el peso de un slot (PLAN §6.2) |
+| [progression.ts](src/domain/progression.ts) | `recommend()`: subir, bajar o mantener el peso de un slot (PLAN §6.2), y la descarga tras tres sesiones que no avanzan (`deloadWeight`, 1.5.0); ejemplos de las reglas para Ajustes (`raiseExamples`, `lowerExamples`, `deloadExample`) |
 | [workoutMachine.ts](src/domain/workoutMachine.ts) | `setsDone`, `nextPendingSlot`, `nextStep`, `slotToOpen`, `looseSlotIds` |
 | [warmup.ts](src/domain/warmup.ts) | Propuesta de aproximaciones (50 % × 10, 70 % × 5, 85 % × 3 o las de la última vez) |
 | [nutrition.ts](src/domain/nutrition.ts) | Edad, TMB, gasto, objetivos, macros, desviación (PLAN §4–5) |
@@ -173,12 +173,12 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [zoom.ts](src/domain/zoom.ts) | Geometría del zoom de las fotos (worklets): encaje, límites, pellizco sobre los dedos, página tras deslizar |
 | [progress.ts](src/domain/progress.ts) | Volumen, récords, 1RM estimado (Epley, hasta 12 reps), escalas de ejes, agrupar por meses |
 | [cardioPlan.ts](src/domain/cardioPlan.ts) | Planes LISS/MISS/HIIT → fases y alarmas; `sharesLockCountdown` |
-| [cardioPool.ts](src/domain/cardioPool.ts) | «Hacer otro cardio»: agrupar y filtrar el cardio de otros días |
+| [cardioPool.ts](src/domain/cardioPool.ts) | «Hacer otro cardio»: agrupar el cardio igual (`cardioKey`), qué se ofrece y en qué orden (`cardioPool`: lo hecho hoy, lo «sin día», lo de otros días), su última línea (`poolLine`) y las caminatas que se pueden empezar (`walksToStart`) |
 | [gps.ts](src/domain/gps.ts) | Filtrado, distancia, tramos, muestras, parciales, polilínea |
 | [walkStats.ts](src/domain/walkStats.ts) | Cifras del panel de la caminata |
 | [trackChart.ts](src/domain/trackChart.ts) | Series, zoom y escalas de la gráfica de la ruta |
 | [mapView.ts](src/domain/mapView.ts) | Teselas de OSM y encuadre del mapa estático |
-| [sprint.ts](src/domain/sprint.ts) | Estado de los sprints a partir de las vueltas, transiciones y medición GPS |
+| [sprint.ts](src/domain/sprint.ts) | Estado de los sprints a partir de las vueltas, transiciones y medición GPS; desde la 1.5.0, la cuenta previa del plan (`leadMs`), la parada de un botón y la aplicada tarde (`stopLap`) y la recta frente al GPS (`straightComparison`, `comparisonCaption`) |
 | [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`, `walkTrackOf`); imágenes sin sesión (`photosWithoutSession`) |
 | [secretTaps.ts](src/domain/secretTaps.ts) | Siete toques en la versión para ver u ocultar las opciones de administrador (`addTap`, `tapOutcome`) |
 | [backupCipher.ts](src/domain/backupCipher.ts) | Formato de copia cifrada, PBKDF2/AES con un «kit» inyectado |
@@ -200,7 +200,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [routeAlert.ts](src/services/routeAlert.ts) | Notificación inmediata al salirse de la ruta seguida, el recordatorio y la vuelta (`notifyFollow`), y quitarla (`dismissRouteAlert`) | `gpsTracker`, cardioSession, ruta |
 | [gpx.ts](src/services/gpx.ts) | Elegir un GPX y comprobarlo (`pickGpx`); exportar una caminata o una ruta (`shareWalkGpx`, `shareRouteGpx`) | Mis rutas, ruta, sesión de cardio |
 | [cardioTimer.ts](src/services/cardioTimer.ts) | Alarmas de cambio de fase | cardioSession, sprintSession |
-| [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido y cuenta atrás | `SprintLive`, cardioSession |
+| [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido, cuenta atrás y la notificación del sprint en marcha; aplicar la parada de un botón (`applyButtonStop`, 1.5.0) | `SprintLive`, cardioSession |
 | [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` (guarda los puntos lote a lote y avisa si te sales de la ruta seguida) y arrancar/parar el GPS | cardioSession, sprintSession, `walk.ts`, `_layout` |
 | [secureDatabase.ts](src/services/secureDatabase.ts) | Clave SQLCipher, cifrar una BD antigua, conexión de la tarea GPS | `_layout`, gpsTracker |
 | [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub, modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
@@ -298,9 +298,9 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - Para hoy · cardio: círculo ✓ marca o desmarca (sin navegar); «Iniciar» / «Ver» (GPS, Fases, Sprints) → `/cardio-sesion/:id`; una caminata con rutas guardadas abre antes la hoja «Seguir una ruta» (una ruta o «Caminar libre» → `/cardio-sesion/:id`).
   - Para hoy · `RoutineCard`: «Empezar rutina» / «Continuar entreno» → `/workout/:id`; el chevron despliega ejercicios y sugerencias («Aplicar las N», sin navegar).
   - «Completa tu perfil» → `/perfil`.
-  - Hecho: fila de entreno → `/workout/resumen/:id`; fila de cardio con sesión → `/cardio-sesion/:id` (su ✓ lo desmarca).
+  - Hecho: fila de entreno → `/workout/resumen/:id`; una fila por sesión de cardio terminada hoy → `/cardio-sesion/:id` (1.5.0: repetir una actividad son dos filas); lo que solo se marcó, con su ✓ para desmarcarlo («Sin grabar» si es de GPS, Fases o Sprints).
   - «Hacer otro cardio» → hoja; «Entrenar otra rutina» → hoja; «Hacer un ejercicio suelto» → `/ejercicio-suelto`.
-- **Capas**: hoja «Entrenar otra rutina» (elegir → `/workout/:id`); hoja «Hacer otro cardio» (Marcar = marca; el resto → `/cardio-sesion/:id`); diálogos «Hay un entreno en curso» («Ver entreno» → `/workout/:id`), «Hay sprints en curso» / «Hay un cardio en curso» («Ver sprints» / «Ver cardio» → `/cardio-sesion/:id`), «No se puede grabar la ruta», «No hay GPS» («Seguir sin GPS» → `/cardio-sesion/:id`; «Cancelar» descarta la sesión).
+- **Capas**: hoja «Entrenar otra rutina» (elegir → `/workout/:id`); hoja «Hacer otro cardio» (lo hecho hoy, lo «sin día» y lo de otros días; tocar la fila: Marcar = marca y el resto → `/cardio-sesion/:id`; tocar su círculo: hecha sin grabar, 1.5.0); diálogos «Hay un entreno en curso» («Ver entreno» → `/workout/:id`), «Hay sprints en curso» / «Hay un cardio en curso» («Ver sprints» / «Ver cardio» → `/cardio-sesion/:id`), «No se puede grabar la ruta», «No hay GPS» («Seguir sin GPS» → `/cardio-sesion/:id`; «Cancelar» descarta la sesión).
 
 #### Rutinas · `/rutinas`
 - **Llega desde**: pestaña; «Crear una rutina» de Hoy; «Sin rutinas todavía» del Perfil (`navigate`); fallback de `useSaveGuard` sin historial (⇄).
@@ -329,7 +329,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - **Serie**: ⋮ «Editar ejercicio de la rutina» → `/slot/:id` (además «Saltar ejercicio» y «Añadir aproximación», sin navegar).
   - **Descanso**: sin navegación propia; al acabar (`endRest`, que marca el inicio de la serie siguiente), vista serie o lista. Si la serie recién hecha batió la mejor del ejercicio (1.4.10), su fila lleva la etiqueta «Récord».
   - Si la sesión ya no está `in_progress` → `<Redirect>` a `/workout/resumen/:id`.
-- **Atrás**: desde serie, descanso o calentamiento vuelve a la lista (`usePreventRemove`; con el calentamiento, la lista muestra abajo `WarmupBar` y elegir un ejercicio lo pone como siguiente y vuelve al calentamiento); desde la lista sale. En una sesión suelta sin series, Atrás la descarta.
+- **Atrás**: desde serie, descanso o calentamiento vuelve a la lista (`usePreventRemove`; con el calentamiento, la lista muestra abajo `WarmupBar` y elegir un ejercicio lo pone como siguiente y vuelve al calentamiento); desde la lista sale. En una sesión suelta sin series, Atrás la descarta y sale **en el mismo render** (`repeat`, que suelta el botón de atrás y repite la acción; en dos renders, la cabecera se actualizaba con su pantalla ya quitándose y react-native-screens cerraba la app, 1.5.0).
 - **Capas**: hojas de corrección de serie, aproximación y «Cambiar peso»/«Cambiar lastre»; diálogos «¿Terminar ya?», «¿Descartar el entreno?»; Snackbar con «Deshacer» (serie borrada, ejercicio saltado) y, sin acción, «Nuevo récord · 42,5 kg · antes 40 kg» al hacer una serie que bate la mejor del ejercicio (1.4.10).
 
 #### Resumen · `/workout/resumen/:sessionId`
@@ -353,7 +353,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - Terminada (caminata, Fases, sprints): una foto de la tira → `/foto/:id`.
   - Sprints terminados: compartir → `/compartir/cardio/:id`.
   - Recién terminada: «Compartir» (caminata, sprints) y «Listo» ⤒.
-  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒); en sprints también «Terminar ahora»; en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
+  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒; con un sprint en marcha o en la cuenta, `SprintLive` suelta el botón de atrás en ese mismo render, `allowLeaving`); en sprints también «Terminar ahora» y «Recta…» (diálogo de texto con los metros de la recta, también en una sesión terminada, 1.5.0); en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
 - **Capas**: «¿Terminar y guardar?» y, al guardar una caminata que mejora el tiempo de su ruta o es la más larga de su actividad, el Snackbar «Nuevo récord en esta ruta · 52:10 · antes 54:20» o «Nuevo récord de distancia · …» (1.4.10); «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
 
 #### Mapa · `/ruta/:id`
@@ -404,11 +404,11 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Cardio semanal / día · `/cardio`
 - **Llega desde**: Rutinas («Editar cardio» → semana; un día → `?dia=N`); Hoy «Añadir cardio».
-- **Lleva a**: actividad → `/cardio/actividad/:id`; «Añadir actividad» → `/cardio/actividad/nueva?dia=N`. Con `?dia=N`, las rutinas del día son casillas que guardan al momento.
+- **Lleva a**: actividad → `/cardio/actividad/:id`; «Añadir actividad» → `/cardio/actividad/nueva?dia=N`, o `?dia=sin` desde la sección «Sin día» (tras el domingo, 1.5.0). Con `?dia=N`, las rutinas del día son casillas que guardan al momento.
 
 #### Actividad · `/cardio/actividad/:id`
 - **Llega desde**: Cardio semanal o de un día.
-- **Lleva a**: «Añadir»/«Guardar» ↩; ⋮ «Quitar actividad» ↩ con Snackbar «Deshacer».
+- **Lleva a**: «Añadir»/«Guardar» ↩; ⋮ «Quitar actividad» ↩ con Snackbar «Deshacer». En una de Sprints: cuántos, «Cuenta previa», el descanso y «Recta» (un campo de texto en metros; vacío, «La mide el GPS»), 1.5.0.
 
 #### Músculos · `/musculos`
 - **Llega desde**: Rutinas y Perfil («Series por músculo»).
@@ -928,6 +928,7 @@ erDiagram
   cardio_activity {
     INTEGER id PK
     INTEGER weekday
+    INTEGER no_day "1 = sin día"
     TEXT name
     TEXT target
     TEXT intensity
@@ -1067,6 +1068,7 @@ erDiagram
 | 11 | 1.4.7 | `routine.warmup`; `workout_session.warmup_started_at`, `warmup_ended_at` y `set_started_at`; `set_log.started_at` y `rest_seconds`; `settings.muscle_map_mode` |
 | 12 | 1.4.8 | Tabla `route`; `cardio_session.route_id` (`ON DELETE SET NULL`), `route_relation` y `route_declined`; índice `cardio_session(route_id)` |
 | 13 | 1.4.9 | `cardio_session.follow_route_id` (`ON DELETE SET NULL`) y `follow_state`; `settings.route_alert` |
+| 14 | 1.5.0 | `cardio_activity.no_day` (una actividad «sin día»: `weekday` es `NOT NULL` con `CHECK` y no se puede relajar, así que guarda un 1 de relleno y el repositorio da `null`) |
 
 ### 4.5 Cifrado de la base (SQLCipher)
 
@@ -1233,32 +1235,36 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> ready
-  ready --> waiting: Empezar sprint (salida en 5 s)
-  waiting --> ready: Cancelar (últimos 5 s)
+  ready --> waiting: Empezar sprint (salida tras la cuenta previa)
+  waiting --> ready: Cancelar (durante la cuenta)
   waiting --> waiting: más o menos 30 s, Saltar descanso
   waiting --> running: llega la salida (pitido)
   running --> ready: Parar antes de 3 s (salida anulada)
-  running --> waiting: Parar (descanso hasta la siguiente salida)
+  running --> waiting: Parar, en la pantalla o con un botón (descanso hasta la siguiente salida)
+  running --> ready: Parar con un botón, leído cuando el descanso ya habría pasado
   running --> done: Parar el último
   done --> waiting: Otro sprint
   done --> [*]: Terminar
 ```
 
 1. «Iniciar» → `startCardioSession` (plan de sprints, `laps = '[]'`) → GPS a 1 punto/s (`SPRINT_GPS`, notificación «Sprints») + `syncSprint`. Sin GPS, la sesión se queda y Hoy pregunta «Seguir sin GPS» (solo tiempo) o «Cancelar» (la descarta).
-2. **Estado**: todo sale de `cardio_session.laps` y la hora (`sprintState` en [sprint.ts](src/domain/sprint.ts)): `ready`, `waiting` (descanso o cuenta atrás; los últimos 5 s vibra a 3, 2 y 1), `running` (más de 60 s → «¿Se te olvidó parar?» / «Quitar este sprint»), `done`.
+2. **Estado**: todo sale de `cardio_session.laps` y la hora (`sprintState` en [sprint.ts](src/domain/sprint.ts)): `ready`, `waiting` (descanso o cuenta atrás: los últimos segundos de la cuenta previa del plan, `leadMs`, 5 por defecto; vibra a 3, 2 y 1), `running` (más de 60 s → «¿Se te olvidó parar?» / «Quitar este sprint»), `done`.
 3. **Acciones** ([sprintSession.ts](src/services/sprintSession.ts)): leen, aplican una transición pura y escriben con `setSprintLaps` (bloqueo optimista: un doble toque escribe una vez), y luego `syncSprint`. «Parar» toma la hora del toque; antes de 0,6 s se ignora; antes de 3 s, «Salida anulada» con «Deshacer». Tocar la última fila → ⋮ «Quitar el sprint N» (con «Deshacer»).
-4. **`syncSprint`**: si hay una salida pendiente, `scheduleSprintBeep(goAt)` y cuenta atrás nativa («Descanso» o «Preparados»); si no, los cancela. Se llama tras cada acción, al volver la app a primer plano y al arrancar.
+4. **`syncSprint`**: si hay una salida pendiente, `scheduleSprintBeep(goAt)`, cuenta atrás nativa («Descanso» o «Preparados») y `startSprintRunning(goAt, …)`, que deja preparada la notificación del sprint en marcha («Sprint 3 de 6 · Toca Parar al llegar», con «Parar») para que sustituya a la cuenta atrás en el pitido sin esperar al JS, y arma los botones de volumen desde la salida; corriendo, la muestra; si no hay nada, lo cancela todo. Se llama tras cada acción, al volver la app a primer plano y al arrancar.
+4b. **Parar con un botón** (1.5.0): con el sprint corriendo, un botón de volumen (`RestTimerPackage`, por `ReactActivityHandler.onKeyDown`; solo llega con la app delante) o el «Parar» de la notificación (`SprintStopReceiver`) llaman a `SprintStop.record`: ignora la pulsación antes de 3 s de la salida y la segunda del mismo sprint, guarda la hora de la pulsación (`SharedPreferences`), vibra y avisa al JS (`onSprintStop`). `applyButtonStop` ([sprintSession.ts](src/services/sprintSession.ts)) la recoge con `takeSprintStop()` (al llegar el evento, al volver a la app y al arrancar) y la aplica con `stopSprint(db, id, at, true)`: `stopLap` con `button` ignora antes de 3 s en vez de anular la salida y, si el descanso ya habría terminado o estaría en su cuenta, no deja salida pendiente.
 5. **Pantalla sobre el bloqueo**: mientras está enfocada, `setShowWhenLocked(true)` (botón de encendido → «Parar» sin PIN). Atrás no sale mientras corre o en la cuenta atrás.
 6. **Terminar** (o ⋮ «Terminar ahora», con «¿Terminar con N de M sprints?») → `finishSprints`: cierra el sprint abierto, espera hasta 5 s a los puntos posteriores a la última parada, `stopSprintTracking` (pitido, GPS, cuenta atrás, pase de bloqueo), mide cada sprint (`measureLaps`) y `finishSprintSession` guarda `laps` medidos, `lap_fixes`, borra los puntos y escribe `cardio_log`.
 
 **Si se mata la app**: la alarma de respaldo (2 s antes de la salida) levanta el proceso y el receptor toca el pitido; al arrancar, `restoreCardioInProgress` → `ensureCardioRunning` (sin pedir permisos) → GPS + `syncSprint`. El sprint sigue corriendo desde su salida.
 
-### 5.7 Marcar cardio y «Hacer otro cardio»
+### 5.7 Marcar cardio, repetirlo y «Hacer otro cardio»
 
-- **Marcar** (círculo ✓ de Hoy): `setCardioDone(fecha, actividad, hecho)` → *upsert* en `cardio_log` (`UNIQUE(date, activity_id)`); desmarcar deja `done = 0`.
-- **Para hoy / Hecho**: el cardio del día (`cardio_activity.weekday`) sin registro va arriba; el hecho baja a «Hecho», junto al de otros días hecho hoy (`doneOnOtherDays`).
-- **Hacer otro cardio** (si no hay cardio en curso): hoja con `cardioPool` ([cardioPool.ts](src/domain/cardioPool.ts)): el cardio de otros días agrupado por `cardioKey` (nombre, objetivo e intensidad normalizados, cómo se registra y plan), sin los grupos que tocan hoy o ya están hechos hoy; lo representa la de menor id. Tocar: «Marcar» se marca; el resto se inicia como en Hoy, con las mismas exclusiones.
-- Terminar una sesión grabada escribe su `cardio_log` con el resultado y `session_id`; borrarla borra también su registro.
+- **Marcar** (círculo ✓ de Hoy y de la hoja): `setCardioDone(fecha, actividad, hecho)` → *upsert* en `cardio_log` (`UNIQUE(date, activity_id)`); desmarcar deja `done = 0`. Vale para cualquier actividad: una de GPS, Fases o Sprints marcada así queda sin resultado ni sesión («Sin grabar»), fuera de récords, rutas y mapa de calor.
+- **Para hoy**: el cardio del día (`cardio_activity.weekday`) sin registro. Las actividades «sin día» (`weekday` null) nunca salen aquí ni en el recordatorio.
+- **Hecho** (1.5.0): una fila por sesión terminada hoy (`cardioSessionsOn`) y, aparte, las actividades con registro del día que no apunta a ninguna de esas sesiones (solo marcadas), con su ✓. Lo de otros días y lo «sin día» hecho hoy entra igual.
+- **Hacer otro cardio** (si no hay cardio en curso): hoja con `cardioPool` ([cardioPool.ts](src/domain/cardioPool.ts)): todo el cardio agrupado por `cardioKey` (nombre, objetivo e intensidad normalizados, cómo se registra y plan; de unos sprints, solo cuántos y el descanso), sin los grupos con una actividad de hoy todavía pendiente ni los de Marcar ya hechos; primero lo hecho hoy, luego lo «sin día», luego lo de otros días. Lo representa la actividad hecha hoy, si no la «sin día», si no la de menor id. Tocar la fila: «Marcar» se marca; el resto se inicia como en Hoy. Tocar el círculo: hecha sin grabar.
+- **Repetir**: iniciar otra vez una actividad ya hecha crea otra `cardio_session`; `cardio_log` sigue con una fila por día y actividad, con el resultado y la sesión de la última.
+- Terminar una sesión grabada escribe su `cardio_log` con el resultado y `session_id`; borrarla borra también su registro, salvo que la actividad tenga otra sesión terminada ese día: entonces el registro pasa a la última que queda.
 
 ### 5.8 Editar rutinas, slots, ejercicios y cardio
 
@@ -1402,11 +1408,17 @@ API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptio
 | `scheduleSprintBeep(goAt)` | `SprintBeep.schedule` | Pitido a `goAt`: a menos de 60 s, un hilo con prioridad de audio y *wake lock* espera, abre la salida con silencio 0,8 s antes y toca 2 kHz × 250 ms (`AudioTrack` estático, uso alarma) y vibra; mide la latencia real (`AudioTimestamp`, `logcat` `[sprint] pitido N ms`) y la aprende; alarma de respaldo 2 s antes. Idempotente | `sprintSession` |
 | `cancelSprintBeep()` | `SprintBeep.cancel` | Anula la salida armada y su alarma | `sprintSession`, `notifications` |
 | `setShowWhenLocked(on)` | `Activity.setShowWhenLocked` | La pantalla de sprints sobre el bloqueo | `sprintSession` |
+| `startSprintRunning(startAt, title, body, minMs)` | `RestTimerService.startSprintRunning` + `SprintStop.arm` | El sprint que sale en `startAt` (ahora, o cuando acabe la cuenta atrás hasta su pitido): notificación con el crono hacia arriba y la acción «Parar», en lugar de la actividad en curso; desde la salida, los botones de volumen lo paran. Una pulsación antes de `minMs` se ignora | `sprintSession` |
+| `stopSprintRunning()` | `RestTimerService.stopSprintRunning` + `SprintStop.disarm` | Quita esa notificación y suelta los botones de volumen | `sprintSession` |
+| `takeSprintStop()` | `SprintStop.take` | La parada pulsada y aún no aplicada (`{at, source}`), una sola vez | `sprintSession` |
+| `onSprintButtonStop(listener)` | evento `onSprintStop` | Avisa de una parada con un botón mientras el JS está vivo | `SprintLive` |
 | `pbkdf2Sha256(password, salt, iterations)` | `Pbkdf2.sha256` (`AsyncFunction`) | Clave de las copias, fuera del hilo de JS | `services/backupCipher` |
 | `canDrawOverlays()` | `Settings.canDrawOverlays` | Permiso de la burbuja | `restTimer`, `notifications` |
 | `isIgnoringBatteryOptimizations()` | `PowerManager` | Si la app está fuera de la optimización de batería (`null` si no se sabe) | `notifications` |
 
 `OnActivityEntersForeground/Background` le dice al servicio si la app está delante (la burbuja solo sale detrás).
+
+`RestTimerPackage` (1.5.0) es un `Package` de Expo, que el autolinking encuentra por su nombre: registra un `ReactActivityHandler` cuyos `onKeyDown`/`onKeyUp` reciben las teclas de la actividad. Mientras `SprintStop.capturing()` (hay un sprint corriendo), consume las de volumen y registra la parada con la hora del evento; el resto del tiempo no las toca. No hace falta parchear `MainActivity` ni un plugin de configuración.
 
 ### 6.4 Permisos
 

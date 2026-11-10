@@ -1,4 +1,4 @@
-import { formatCountdown, formatSpeedKmh, formatSprintTime } from './format';
+import { formatCountdown, formatSpeedKmh, formatSprintTime, NBSP } from './format';
 import { distanceM } from './gps';
 
 /**
@@ -10,14 +10,21 @@ export interface SprintPlan {
   kind: 'sprint';
   sprints: number;
   restSec: number;
+  /** Seconds of count before each beep (1.5.0): from «Empezar sprint» or skipping the rest, and the last ones of every rest. */
+  leadSec: number;
+  /** Metres of the straight, when the athlete knows them (1.5.0): shown next to what the GPS measures, never to correct it. */
+  straightM: number | null;
 }
 
-export const DEFAULT_SPRINT_PLAN: SprintPlan = { kind: 'sprint', sprints: 6, restSec: 90 };
+export const DEFAULT_SPRINT_PLAN: SprintPlan = { kind: 'sprint', sprints: 6, restSec: 90, leadSec: 5, straightM: null };
 export const SPRINTS_RANGE = [1, 20] as const;
 export const REST_RANGE_S = [30, 600] as const;
+/** The count before the beep: 5 s as always, up to 30 to leave the phone and get set. */
+export const LEAD_RANGE_S = [5, 30] as const;
+export const STRAIGHT_RANGE_M = [10, 400] as const;
 
-/** From «Empezar sprint» (or skipping the rest) to the beep. */
-export const LEAD_MS = 5_000;
+/** From «Empezar sprint» (or skipping the rest) to the beep, and the count shown before every beep. */
+export const leadMs = (plan: SprintPlan) => plan.leadSec * 1000;
 /** «Parar» is ignored this long after the beep: a second tap of the one that started it. */
 export const ARM_MS = 600;
 /** «Parar» before this is a false start: the sprint does not count. */
@@ -87,13 +94,21 @@ export function parseSprintPlan(json: string | null): SprintPlan | null {
     return null;
   }
   if (p?.kind !== 'sprint' || !isNumber(p.sprints) || !isNumber(p.restSec)) return null;
-  return { kind: 'sprint', sprints: clamp(p.sprints, SPRINTS_RANGE), restSec: clamp(p.restSec, REST_RANGE_S) };
+  return {
+    kind: 'sprint',
+    sprints: clamp(p.sprints, SPRINTS_RANGE),
+    restSec: clamp(p.restSec, REST_RANGE_S),
+    // Plans stored before the 1.5.0 have neither: the count of always and no straight.
+    leadSec: isNumber(p.leadSec) ? clamp(p.leadSec, LEAD_RANGE_S) : DEFAULT_SPRINT_PLAN.leadSec,
+    straightM: isNumber(p.straightM) && p.straightM > 0 ? clamp(p.straightM, STRAIGHT_RANGE_M) : null,
+  };
 }
 
 const sprintsCount = (n: number) => `${n} ${n === 1 ? 'sprint' : 'sprints'}`;
 
-/** «6 sprints · descanso 1:30» */
-export const describeSprintPlan = (p: SprintPlan) => `${sprintsCount(p.sprints)} · descanso ${formatCountdown(p.restSec * 1000)}`;
+/** «6 sprints · descanso 1:30», and «· recta 60 m» when it is known. */
+export const describeSprintPlan = (p: SprintPlan) =>
+  `${sprintsCount(p.sprints)} · descanso ${formatCountdown(p.restSec * 1000)}${p.straightM !== null ? ` · recta ${p.straightM}${NBSP}m` : ''}`;
 
 /** «Sprint 4 de 6», or «Sprint 7» for one beyond the plan. */
 export const sprintLabel = (n: number, p: SprintPlan) => (n <= p.sprints ? `Sprint ${n} de ${p.sprints}` : `Sprint ${n}`);
@@ -156,11 +171,12 @@ export function sprintState(plan: SprintPlan, laps: Lap[], now: number): SprintS
   return { kind: 'ready', number: closed.length + 1 };
 }
 
-/** Ready → a start in 5 s; during a rest → the start moves to 5 s from now. */
+/** Ready → a start after the count; during a rest → the start moves to a count from now, only if that is sooner. */
 export function goNow(plan: SprintPlan, laps: Lap[], now: number): Lap[] | null {
   const state = sprintState(plan, laps, now);
-  if (state.kind === 'ready') return [...laps, pendingLap(now + LEAD_MS)];
-  if (state.kind === 'waiting' && state.goAt - now > LEAD_MS) return [...laps.slice(0, -1), pendingLap(now + LEAD_MS)];
+  const lead = leadMs(plan);
+  if (state.kind === 'ready') return [...laps, pendingLap(now + lead)];
+  if (state.kind === 'waiting' && state.goAt - now > lead) return [...laps.slice(0, -1), pendingLap(now + lead)];
   return null;
 }
 
@@ -174,29 +190,37 @@ export type StopOutcome =
   | { kind: 'false-start'; laps: Lap[] }
   | { kind: 'stopped'; laps: Lap[]; number: number; timeMs: number; last: boolean };
 
-/** «Parar» at `at`: too soon is ignored, before 3 s it is a false start, otherwise the sprint closes. */
-export function stopLap(plan: SprintPlan, laps: Lap[], at: number): StopOutcome {
+/**
+ * «Parar» at `at`: too soon is ignored, before 3 s it is a false start, otherwise the sprint closes.
+ * With a `button` (a volume key or the notification, 1.5.0) a stop before 3 s is ignored instead: a
+ * squeeze of the phone on the way out must not take the sprint away unseen. `now` is when the stop
+ * is applied: a button's press may be read late, and if by then the rest would already be over (or
+ * inside its count), no start is left pending and the athlete starts the next one.
+ */
+export function stopLap(plan: SprintPlan, laps: Lap[], at: number, { now = at, button = false }: { now?: number; button?: boolean } = {}): StopOutcome {
   const state = sprintState(plan, laps, at);
   if (state.kind !== 'running') return { kind: 'ignored' };
   const timeMs = at - state.startAt;
   if (timeMs < ARM_MS) return { kind: 'ignored' };
-  if (timeMs < FALSE_START_MS) return { kind: 'false-start', laps: laps.slice(0, -1) };
+  if (timeMs < FALSE_START_MS) return button ? { kind: 'ignored' } : { kind: 'false-start', laps: laps.slice(0, -1) };
   const closed = [...laps.slice(0, -1), { ...laps[laps.length - 1], stopAt: at }];
   const last = state.number >= plan.sprints;
+  const restEnd = at + plan.restSec * 1000;
   return {
     kind: 'stopped',
-    laps: last ? closed : [...closed, pendingLap(at + plan.restSec * 1000)],
+    laps: last || restEnd < now + leadMs(plan) ? closed : [...closed, pendingLap(restEnd)],
     number: state.number,
     timeMs,
     last,
   };
 }
 
-/** ±30 s during a rest; never closer than the 5 s count. */
+/** ±30 s during a rest; never closer than the count before the beep. */
 export function shiftRest(plan: SprintPlan, laps: Lap[], deltaSec: number, now: number): Lap[] | null {
   const state = sprintState(plan, laps, now);
-  if (state.kind !== 'waiting' || state.goAt - now <= LEAD_MS) return null;
-  return [...laps.slice(0, -1), pendingLap(Math.max(state.goAt + deltaSec * 1000, now + LEAD_MS))];
+  const lead = leadMs(plan);
+  if (state.kind !== 'waiting' || state.goAt - now <= lead) return null;
+  return [...laps.slice(0, -1), pendingLap(Math.max(state.goAt + deltaSec * 1000, now + lead))];
 }
 
 /** Removes the last finished sprint (not while one runs); with none left, the pending start goes too. */
@@ -214,11 +238,11 @@ export function dropOpen(plan: SprintPlan, laps: Lap[], now: number): Lap[] | nu
   return sprintState(plan, laps, now).kind === 'running' ? laps.slice(0, -1) : null;
 }
 
-/** After the planned sprints, one more: after the usual rest, or in 5 s if that is already over. */
+/** After the planned sprints, one more: after the usual rest, or after the count if that is already over. */
 export function extraSprint(plan: SprintPlan, laps: Lap[], now: number): Lap[] | null {
   if (sprintState(plan, laps, now).kind !== 'done') return null;
   const lastStop = closedOf(laps).at(-1)?.stopAt ?? now;
-  return [...laps, pendingLap(Math.max(lastStop + plan.restSec * 1000, now + LEAD_MS))];
+  return [...laps, pendingLap(Math.max(lastStop + plan.restSec * 1000, now + leadMs(plan)))];
 }
 
 /** On finishing: a sprint running long enough closes now; a shorter one or a pending start goes. */
@@ -395,6 +419,41 @@ export function sprintSummary(rows: LapRow[]): SprintSummary {
     anyWeak: rows.some((r) => r.quality === 'weak'),
     anyGps: rows.some((r) => r.quality === 'good' || r.quality === 'weak'),
   };
+}
+
+/** Sprints with a good GPS the straight needs to be compared with: with fewer, one odd reading would be the answer. */
+export const COMPARISON_MIN_SPRINTS = 3;
+
+/** The straight the athlete wrote down next to what the GPS measured (1.5.0): nothing is corrected. */
+export interface StraightComparison {
+  straightM: number;
+  /** The median of the sprints with a good GPS, in whole metres, and how many they were; null with too few. */
+  gps: { medianM: number; diffM: number; count: number } | null;
+}
+
+/**
+ * «Si lo sé, que lo estime también, pero así compara»: the length written down and the median of
+ * what the GPS measured in the sprints it measured well. Worked out when read, never stored, so a
+ * better measurement later (1.5.1) changes it by itself. Null without a straight.
+ */
+export function straightComparison(rows: readonly Pick<LapRow, 'distanceM' | 'quality'>[], straightM: number | null): StraightComparison | null {
+  if (straightM === null) return null;
+  const good = rows
+    .filter((r) => r.quality === 'good' && r.distanceM !== null)
+    .map((r) => r.distanceM!)
+    .sort((a, b) => a - b);
+  if (good.length < COMPARISON_MIN_SPRINTS) return { straightM, gps: null };
+  const mid = good.length >> 1;
+  const medianM = Math.round(good.length % 2 === 1 ? good[mid] : (good[mid - 1] + good[mid]) / 2);
+  return { straightM, gps: { medianM, diffM: medianM - straightM, count: good.length } };
+}
+
+/** Under the GPS figure: «2 m menos · 5 sprints», «3 m más · 4 sprints», «Igual · 6 sprints»; or why there is none. */
+export function comparisonCaption(comparison: StraightComparison): string {
+  const { gps } = comparison;
+  if (!gps) return 'Pocos sprints con buen GPS para comparar';
+  const difference = gps.diffM === 0 ? 'Igual' : `${Math.abs(gps.diffM)}${NBSP}m ${gps.diffM < 0 ? 'menos' : 'más'}`;
+  return `${difference} · ${sprintsCount(gps.count)}`;
 }
 
 /** For Hoy and the history: «6 sprints · máx. 30,6 km/h», or «6 sprints · mejor 11,8 s» without GPS. */

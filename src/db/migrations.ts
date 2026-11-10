@@ -361,6 +361,39 @@ export const MIGRATIONS: string[] = [
   // NOT NULL with a CHECK and SQLite cannot relax a column, so a flag says it has none (the column
   // then holds a 1 that means nothing; the repository gives null).
   `ALTER TABLE cardio_activity ADD COLUMN no_day INTEGER NOT NULL DEFAULT 0;`,
+  // Dieta (1.5.1): the plans of a day the user defines («planes de día»), the meals of a date that
+  // follow another plan than its weekday's, and what is ticked as eaten (a copy of what the plan
+  // said, so changing the plan later does not change the past). A food of a plan keeps a weekday
+  // that means nothing, as in cardio «sin día»: `plan_id` says whose it is.
+  `
+  CREATE TABLE diet_plan (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    position INTEGER NOT NULL DEFAULT 0
+  );
+  ALTER TABLE diet_item ADD COLUMN plan_id INTEGER REFERENCES diet_plan(id) ON DELETE CASCADE;
+  CREATE INDEX idx_diet_item_plan ON diet_item(plan_id);
+  CREATE TABLE diet_day_meal (
+    date TEXT NOT NULL,
+    meal TEXT NOT NULL,
+    weekday INTEGER CHECK (weekday BETWEEN 1 AND 7),
+    plan_id INTEGER REFERENCES diet_plan(id) ON DELETE CASCADE,
+    PRIMARY KEY (date, meal),
+    CHECK ((weekday IS NULL) <> (plan_id IS NULL))
+  );
+  CREATE TABLE diet_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    date TEXT NOT NULL,
+    meal TEXT NOT NULL,
+    food_id INTEGER NOT NULL REFERENCES food(id),
+    grams REAL NOT NULL,
+    item_id INTEGER REFERENCES diet_item(id) ON DELETE SET NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX idx_diet_log_date ON diet_log(date);
+  CREATE INDEX idx_diet_log_item ON diet_log(item_id);
+  ALTER TABLE settings ADD COLUMN diet_in_today INTEGER NOT NULL DEFAULT 1;
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

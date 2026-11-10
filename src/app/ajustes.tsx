@@ -145,6 +145,17 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
 
       <WeightRulesSection rules={settings} ownIncrements={data.ownIncrements} onChange={save} />
 
+      <Section label="Dieta">
+        <ListGroup>
+          <SettingSwitch
+            label="Comidas en Hoy"
+            subtitle="Lo que llevas marcado de la dieta"
+            value={settings.dietInToday}
+            onValueChange={(dietInToday) => save({ dietInToday })}
+          />
+        </ListGroup>
+      </Section>
+
       <Section label="Recordatorio diario">
         <ListGroup>
           <SettingSwitch

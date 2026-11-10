@@ -23,7 +23,7 @@ import { useDb, useLoader } from '@/hooks/data';
 import { usePathHeat } from '@/hooks/pathHeat';
 import { colors, radius, spacing } from '@/theme';
 
-/** From long ago (grey) to the most walked: one red, only here (PLAN.md §12). */
+/** From long ago (grey) to the most walked, in the accent (PLAN.md §12). */
 const TRAIL = [colors.trail0, colors.trail1, colors.trail2, colors.trail3, colors.trail4] as const;
 /** Width of a path of each level, in dp. */
 const WIDTHS = [2, 3, 4, 5.5, 7] as const;
@@ -41,8 +41,8 @@ function toPath(line: HeatLine): HeatPath {
 }
 
 /**
- * Mapa de calor (PLAN.md §6.8, 1.4.10), from Mis rutas: the paths of every walk with GPS, redder
- * the more they are walked. «Últimos 30 días» fades what is left alone back to grey; «Siempre»
+ * Mapa de calor (PLAN.md §6.8, 1.4.10), from Mis rutas: the paths of every walk with GPS, with more
+ * colour the more they are walked. «Últimos 30 días» fades what is left alone back to grey; «Siempre»
  * counts every walk. Tapping a path reads its walks.
  */
 export default function HeatMapScreen() {
@@ -150,7 +150,7 @@ export default function HeatMapScreen() {
               <View style={styles.hintLayer} pointerEvents="none">
                 <View style={styles.hint}>
                   <AppText variant="bodySm" style={{ textAlign: 'center' }}>
-                    Los caminos que repites se van poniendo rojos.
+                    Cuanto más repites un camino, más color coge.
                   </AppText>
                 </View>
               </View>

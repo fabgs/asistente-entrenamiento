@@ -1,3 +1,4 @@
+import { weekdaySource } from '@/domain/diet';
 import type { IsoWeekday } from '@/domain/types';
 import type { Db } from '../db';
 import { DEMO_SEED } from '../demoSeed';
@@ -17,6 +18,8 @@ async function seededDb(): Promise<Db> {
   return db;
 }
 
+const TODAY = '2026-11-03';
+
 const day = async (db: Db, weekday: IsoWeekday) => (await listDietItems(db)).filter((i) => i.weekday === weekday);
 const shape = (items: Awaited<ReturnType<typeof day>>) => items.map((i) => [i.id, i.meal, i.foodName, i.grams]);
 
@@ -26,8 +29,8 @@ describe('undo in the diet plan', () => {
     const before = await day(db, 2);
     const middle = before[1];
 
-    const removed = await removeDietItem(db, middle.id);
-    expect(removed).toMatchObject({ id: middle.id, weekday: 2, meal: middle.meal, grams: middle.grams });
+    const removed = await removeDietItem(db, middle.id, TODAY);
+    expect(removed!.items).toMatchObject([{ id: middle.id, weekday: 2, planId: null, meal: middle.meal, grams: middle.grams }]);
     expect((await day(db, 2)).some((i) => i.id === middle.id)).toBe(false);
 
     await restoreDietItem(db, removed!);
@@ -36,7 +39,7 @@ describe('undo in the diet plan', () => {
 
   it('returns null when the item no longer exists', async () => {
     const db = await seededDb();
-    expect(await removeDietItem(db, 99_999)).toBeNull();
+    expect(await removeDietItem(db, 99_999, TODAY)).toBeNull();
   });
 
   it('undoes copying a day over others', async () => {
@@ -45,8 +48,8 @@ describe('undo in the diet plan', () => {
     const thursday = await day(db, 4);
     const sunday = await day(db, 7);
 
-    const replaced = await copyDietDay(db, 1, [4, 7]);
-    expect(replaced).toHaveLength(thursday.length + sunday.length);
+    const replaced = await copyDietDay(db, weekdaySource(1), [4, 7], TODAY);
+    expect(replaced.items).toHaveLength(thursday.length + sunday.length);
     expect((await day(db, 4)).map((i) => i.foodName)).toEqual((await day(db, 1)).map((i) => i.foodName));
 
     await restoreDietDays(db, [4, 7], replaced);
@@ -58,7 +61,7 @@ describe('undo in the diet plan', () => {
   it('copies nothing onto the same day', async () => {
     const db = await seededDb();
     const monday = await day(db, 1);
-    expect(await copyDietDay(db, 1, [1])).toEqual([]);
+    expect(await copyDietDay(db, weekdaySource(1), [1], TODAY)).toEqual({ items: [], ticks: [] });
     expect(shape(await day(db, 1))).toEqual(shape(monday));
   });
 });

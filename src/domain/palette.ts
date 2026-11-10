@@ -128,16 +128,10 @@ const DARK = {
   heat3: '#A78BFA',
   heat4: '#C4B5FD',
   /**
-   * Mapa de calor (1.4.10): the paths walked, from long ago (trail0, grey) to the most walked
-   * (trail4). One red hue, only on that map and its legend: never a text or a button. On the dark
-   * map it gains light with the heat and ends in a vivid red (a lighter top level read as salmon:
-   * less red, not more); the width of the line tells the levels apart too.
+   * Mapa de calor (1.4.10): the grey of a path walked long ago and the outline of the others. Their
+   * colour comes from the accent (`trailRamp`).
    */
   trail0: '#3D4450',
-  trail1: '#8C433F',
-  trail2: '#B3463F',
-  trail3: '#DA4A40',
-  trail4: '#FF5447',
   trailCasing: 'rgba(14, 17, 22, 0.78)',
   /** The share image: white text and lines with a soft shadow (sticker), and its separators. */
   onImage: '#FFFFFF',
@@ -186,10 +180,6 @@ const LIGHT: Neutrals = {
   heat3: '#6D28D9',
   heat4: '#4C1D95',
   trail0: '#7A828E',
-  trail1: '#E8877F',
-  trail2: '#D9483F',
-  trail3: '#B3201F',
-  trail4: '#7A0F14',
   trailCasing: 'rgba(17, 20, 24, 0.55)',
   onImage: '#FFFFFF',
   imageShadow: 'rgba(0, 0, 0, 0.45)',
@@ -207,6 +197,27 @@ export interface Palette extends Neutrals {
   primaryTintOnMap: string;
   /** Series colour for charts: readable on `card`. */
   chart: string;
+  /** Mapa de calor: the paths walked once (trail1) to the most walked (trail4), in the accent. */
+  trail1: string;
+  trail2: string;
+  trail3: string;
+  trail4: string;
+}
+
+/**
+ * The paths of the heat map above the grey, in the accent (1.5.1; a red until then, the only place
+ * that had it): on the dark map they gain light with the heat, from the grey up to the accent
+ * itself; on the light one they lose it, from the bright accent down to a dark one. The width of
+ * the line tells the levels apart too.
+ */
+function trailRamp(tone: Accent, dark: boolean, grey: string): Pick<Palette, 'trail1' | 'trail2' | 'trail3' | 'trail4'> {
+  if (dark) return { trail1: mix(grey, tone.dark, 0.4), trail2: mix(grey, tone.dark, 0.6), trail3: mix(grey, tone.dark, 0.8), trail4: tone.dark };
+  return {
+    trail1: mix(tone.dark, tone.light, 0.15),
+    trail2: mix(tone.dark, tone.light, 0.6),
+    trail3: tone.light,
+    trail4: mix(tone.light, '#000000', 0.5),
+  };
 }
 
 /**
@@ -232,6 +243,7 @@ export function buildColors({ mode, accent }: ThemePreference): Palette {
     primaryTint: withAlpha(primary, dark ? 0.14 : 0.12),
     primaryTintOnMap: withAlpha(primary, dark ? 0.2 : 0.18),
     chart: dark ? tone.chartDark : primary,
+    ...trailRamp(tone, dark, neutrals.trail0),
   };
 }
 

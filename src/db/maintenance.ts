@@ -30,7 +30,11 @@ export const BACKUP_TABLES = [
   'photo',
   'weight_change',
   'food',
+  // Before the foods of its plans, and those before what was ticked of them.
+  'diet_plan',
   'diet_item',
+  'diet_day_meal',
+  'diet_log',
 ] as const;
 
 type Row = Record<string, SqlValue>;

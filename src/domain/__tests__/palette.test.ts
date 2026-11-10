@@ -82,9 +82,12 @@ describe('the colours of the app', () => {
     });
 
     it('tells the walked paths apart level by level', () => {
-      // Lighter with heat on the dark map (up to a vivid red, not a salmon), darker on the light one.
+      // In the accent: lighter with heat on the dark map (up to the accent itself), darker on the light one.
       const lum = [c.trail1, c.trail2, c.trail3, c.trail4].map((t) => contrast(t, theme.mode === 'dark' ? '#000000' : '#FFFFFF'));
       for (let i = 1; i < lum.length; i++) expect(lum[i] / lum[i - 1]).toBeGreaterThanOrEqual(1.25);
+      // A path walked once is not the grey of one walked long ago.
+      expect(contrast(c.trail1, c.trail0)).toBeGreaterThanOrEqual(1.3);
+      expect(theme.mode === 'dark' ? c.trail4 : c.trail3).toBe(c.primary);
     });
   });
 

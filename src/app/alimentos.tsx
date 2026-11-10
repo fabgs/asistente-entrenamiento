@@ -17,7 +17,7 @@ import {
   Section,
 } from '@/components/ui';
 import { addDietItem, listFoods, type Food } from '@/db/repositories/diet';
-import type { Meal } from '@/db/seedTypes';
+import { planSource, weekdaySource, type DietSource, type Meal } from '@/domain/diet';
 import { formatNumber, NBSP, normalizeForSearch } from '@/domain/format';
 import { kcalOf, macrosFor } from '@/domain/nutrition';
 import type { IsoWeekday } from '@/domain/types';
@@ -40,11 +40,18 @@ function initialOf(food: Food): string {
   return /[A-ZÑ]/.test(first) ? first : '#';
 }
 
-/** Food catalog. With `pickDay` and `pickMeal`, choosing a food adds it to that meal of the plan. */
+/**
+ * Food catalog. With `pickMeal` and where it goes (`pickDay`, a weekday, or `pickPlan`, a plan of the
+ * user's, 1.5.1), choosing a food adds it to that meal of the plan.
+ */
 export default function FoodsScreen() {
-  const params = useLocalSearchParams<{ pickDay?: string; pickMeal?: Meal }>();
-  const pick =
-    params.pickDay && params.pickMeal ? { day: Number(params.pickDay) as IsoWeekday, meal: params.pickMeal } : null;
+  const params = useLocalSearchParams<{ pickDay?: string; pickPlan?: string; pickMeal?: Meal }>();
+  const to: DietSource | null = params.pickPlan
+    ? planSource(Number(params.pickPlan))
+    : params.pickDay
+      ? weekdaySource(Number(params.pickDay) as IsoWeekday)
+      : null;
+  const pick = to && params.pickMeal ? { to, meal: params.pickMeal } : null;
   const [query, setQuery] = useState('');
   const [chosen, setChosen] = useState<Food | null>(null);
   const { data } = useLoader((db) => listFoods(db));
@@ -133,7 +140,7 @@ export default function FoodsScreen() {
                 setChosen(null);
                 router.back();
               }}
-              day={pick.day}
+              to={pick.to}
               meal={pick.meal}
             />
           ) : null}
@@ -143,7 +150,7 @@ export default function FoodsScreen() {
   );
 }
 
-function AddToMeal({ food, day, meal, onAdded }: { food: Food; day: IsoWeekday; meal: Meal; onAdded: () => void }) {
+function AddToMeal({ food, to, meal, onAdded }: { food: Food; to: DietSource; meal: Meal; onAdded: () => void }) {
   const db = useDb();
   const [grams, setGrams] = useState(100);
   const [adding, setAdding] = useState(false);
@@ -151,7 +158,7 @@ function AddToMeal({ food, day, meal, onAdded }: { food: Food; day: IsoWeekday; 
 
   const add = async () => {
     setAdding(true);
-    await addDietItem(db, day, meal, food.id, grams);
+    await addDietItem(db, to, meal, food.id, grams);
     onAdded();
   };
 

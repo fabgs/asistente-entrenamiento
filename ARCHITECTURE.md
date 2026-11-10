@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.5.0** (`versionCode` 23, [app.json](app.json)) |
-| Esquema de la BD | **14** (`PRAGMA user_version`, 14 migraciones) |
-| Revisado | 2026-11-10, versión 1.5.0 (descarga tras estancarse; cardio «sin día», repetir el mismo cardio en el día y marcar sin grabar desde «Hacer otro cardio»; sprints con cuenta previa, recta y parada con un botón de volumen o desde la notificación) |
+| Versión de la app | **1.5.1** (`versionCode` 24, [app.json](app.json)) |
+| Esquema de la BD | **15** (`PRAGMA user_version`, 15 migraciones) |
+| Revisado | 2026-11-10, versión 1.5.1 (dieta: vistas Hoy y Planes, planes de día, cambiar el plan de hoy, lista de comprobación y su fila en Hoy; mapa de calor en el acento y «© OpenStreetMap» centrado) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -139,7 +139,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio` (cada día y, al final, las «sin día»: `weekday` null, columna `no_day`), `cardioLogOn`, `setCardioDone`, `addCardio` (a un día o sin día), `updateCardio`, `archiveCardio`, `unarchiveCardio` |
 | [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `setSprintStraight` (la recta de una sesión, 1.5.0), `cardioSessionsOn` (las sesiones terminadas un día, una fila de «Hecho» cada una), `discardCardioSession` (si la actividad tiene otra sesión ese día, el registro pasa a ella) |
-| [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays` |
+| [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item`, `diet_plan`, `diet_day_meal`, `diet_log` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays`; planes de día (1.5.1): `listDietPlans`, `createDietPlan`, `renameDietPlan`, `deleteDietPlan`, `dietPlanNameTaken`; el día: `dietDayOverrides`/`setDietDayOverrides`, `dietLogOn`, `setEaten`, `eatenByDate`, `loadDietDay` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
 | [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount`, `routeRecordOf` (¿mejoró el mejor tiempo de su ruta?, 1.4.10) |
 | [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `listRoutePhotos` (las de todas las caminatas de una ruta), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
@@ -159,6 +159,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [workoutMachine.ts](src/domain/workoutMachine.ts) | `setsDone`, `nextPendingSlot`, `nextStep`, `slotToOpen`, `looseSlotIds` |
 | [warmup.ts](src/domain/warmup.ts) | Propuesta de aproximaciones (50 % × 10, 70 % × 5, 85 % × 3 o las de la última vez) |
 | [nutrition.ts](src/domain/nutrition.ts) | Edad, TMB, gasto, objetivos, macros, desviación (PLAN §4–5) |
+| [diet.ts](src/domain/diet.ts) | La dieta de un día (1.5.1): de qué plan sale cada comida (`DietSource`, `mealSources`, `overridesOf`), cambiar el plan sin tocar lo marcado (`switchDayPlan`, `dayPlan`), el día frente a su plan (`dayProgress`) y sus textos (`dietLine`, `mealsLine`, `keptMealsLine`, `eatenLine`) |
 | [bodyProfile.ts](src/domain/bodyProfile.ts) | Objetivo Perder/Mantener/Ganar ↔ `deficit_kcal`, niveles de actividad, qué falta del perfil |
 | [schedule.ts](src/domain/schedule.ts) | Días ISO, fechas locales, `buildDailyMessage`, `isoToExpoWeekday`, frase de ánimo |
 | [muscles.ts](src/domain/muscles.ts) | 18 músculos, series por músculo (1 / 0,5), niveles, `CATALOG_MUSCLES`, búsqueda por músculo, patrón de movimiento; «Últimos días»: `lastWorkedPerMuscle`, `recencyLevel`, `calendarDaysBetween`, `formatDaysAgo` |
@@ -230,6 +231,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
 | [PhotoPager.tsx](src/components/PhotoPager.tsx) | Visor de fotos con páginas y zoom (pellizco, doble toque, arrastre) en un solo juego de gestos de `react-native-gesture-handler` 3 y Reanimated |
 | [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Tabla y detalle de sprints; pantalla en directo |
+| [Diet.tsx](src/components/Diet.tsx) | Piezas de la pestaña Dieta (1.5.1): rejillas `PlanTotals` (frente a objetivos) y `EatenTotals` (lo comido frente al plan), `FoodRow` (editar) y `TickRow` (marcar), `MealTickHeader`, `GramsEditor`, `CopyDays` |
 | [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda (`HeatLegend`, también la del mapa de calor, con su rampa); hoja de músculos |
 | [WeightSheet.tsx](src/components/WeightSheet.tsx) | Hoja de un pesaje |
 | [DataSettings.tsx](src/components/DataSettings.tsx) | Secciones de Ajustes: copia de seguridad y modo pruebas |
@@ -253,7 +255,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [(tabs)/index.tsx](src/app/(tabs)/index.tsx) | `/` | Fecha larga («Martes, 3 de noviembre») | **Hoy**: lo que toca, lo hecho y «hacer otra cosa» |
 | [(tabs)/rutinas.tsx](src/app/(tabs)/rutinas.tsx) | `/rutinas` | Rutinas | Semana, rutinas con pesos y sugerencias, accesos a editores |
 | [(tabs)/historial.tsx](src/app/(tabs)/historial.tsx) | `/historial` | Historial | Entrenos · Ejercicios · Cardio, por meses; en Cardio, la fila «Mis rutas» |
-| [(tabs)/dieta.tsx](src/app/(tabs)/dieta.tsx) | `/dieta` | Dieta | Plan semanal y totales frente a objetivos |
+| [(tabs)/dieta.tsx](src/app/(tabs)/dieta.tsx) | `/dieta` | Dieta | «Hoy»: lo de hoy para marcarlo y cambiar su plan. «Planes»: los siete días y los planes de día, con totales frente a objetivos |
 | [(tabs)/perfil.tsx](src/app/(tabs)/perfil.tsx) | `/perfil` | Perfil | Músculos (esta semana o últimos días), Récords, peso, objetivos, mis datos |
 | [workout/[sessionId].tsx](src/app/workout/[sessionId].tsx) | `/workout/:sessionId` | Nombre de la rutina o «Ejercicio suelto» («Entrenando» mientras carga) | Modo entrenamiento: lista · serie · descanso |
 | [workout/resumen/[sessionId].tsx](src/app/workout/resumen/[sessionId].tsx) | `/workout/resumen/:sessionId` · `?nuevo=1` recién terminado | Vacío (título editable en la página) o «Corregir series» | Resumen, sugerencias, corregir o borrar |
@@ -263,7 +265,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [ruta/[id].tsx](src/app/ruta/[id].tsx) | `/ruta/:cardioSessionId` · `?modo=3d` | Sin cabecera | Mapa a pantalla completa con gráfica |
 | [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | La fila «Mapa de calor» y las caminatas guardadas como ruta, la última hecha arriba; «Importar GPX» |
 | [mis-rutas/[id].tsx](src/app/mis-rutas/[id].tsx) | `/mis-rutas/:routeId` | Vacío (el nombre va en la página) | Una ruta: mapa con las fotos, mejor y última, gráfica de los tiempos y cada vez; «Seguir esta ruta» |
-| [mapa-calor.tsx](src/app/mapa-calor.tsx) | `/mapa-calor` | Mapa de calor | Los caminos de todas las caminatas, más rojos cuanto más se andan: «Últimos 30 días» o «Siempre» |
+| [mapa-calor.tsx](src/app/mapa-calor.tsx) | `/mapa-calor` | Mapa de calor | Los caminos de todas las caminatas, con más color (el acento) cuanto más se andan: «Últimos 30 días» o «Siempre» |
 | [compartir/[tipo]/[id].tsx](src/app/compartir/[tipo]/[id].tsx) | `/compartir/cardio/:id` · `/compartir/entreno/:id` | Compartir | Imagen para compartir (historia o cuadrado) |
 | [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página, con zoom |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
@@ -276,7 +278,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [records.tsx](src/app/records.tsx) | `/records` · `?otros=1` | «Récords» u «Otros ejercicios» | Totales, por año, mejor serie de cada ejercicio, tiempos y caminatas |
 | [objetivos.tsx](src/app/objetivos.tsx) | `/objetivos` | Objetivos del día | Calorías y macros, objetivo, actividad y proteína, grasa y agua por kilo |
 | [pesos.tsx](src/app/pesos.tsx) | `/pesos` | Pesajes | Todos los pesajes, por meses, de 30 en 30 |
-| [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
+| [alimentos.tsx](src/app/alimentos.tsx) | `/alimentos` · `?pickDay=1..7&pickMeal=desayuno` (o comida, merienda, cena) · `?pickPlan=:id&pickMeal=…` (un plan de día, 1.5.1) | «Alimentos» o «Añadir a la comida»… | Catálogo de alimentos o selector para una comida |
 | [alimento/[id].tsx](src/app/alimento/[id].tsx) | `/alimento/:id` · `/alimento/nuevo?nombre=` | «Alimento» o «Nuevo alimento» | Editor de alimento |
 | [ajustes.tsx](src/app/ajustes.tsx) | `/ajustes` | Ajustes | Entrenamiento, sugerencias de peso, recordatorio, permisos, apariencia (tema y color), copia, modo pruebas (GitHub y modo pruebas, solo con las opciones de administrador) |
 | [cifrado.tsx](src/app/cifrado.tsx) | `/cifrado` | «Cifrar las copias» o «Cambiar la contraseña» | Contraseña de las copias |
@@ -299,6 +301,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
   - Para hoy · `RoutineCard`: «Empezar rutina» / «Continuar entreno» → `/workout/:id`; el chevron despliega ejercicios y sugerencias («Aplicar las N», sin navegar).
   - «Completa tu perfil» → `/perfil`.
   - Hecho: fila de entreno → `/workout/resumen/:id`; una fila por sesión de cardio terminada hoy → `/cardio-sesion/:id` (1.5.0: repetir una actividad son dos filas); lo que solo se marcó, con su ✓ para desmarcarlo («Sin grabar» si es de GPS, Fases o Sprints).
+  - Fila «Dieta» (1.5.1; las comidas del día, si el plan de hoy tiene algo y «Comidas en Hoy» está activo) → `/dieta` (`navigate`).
   - «Hacer otro cardio» → hoja; «Entrenar otra rutina» → hoja; «Hacer un ejercicio suelto» → `/ejercicio-suelto`.
 - **Capas**: hoja «Entrenar otra rutina» (elegir → `/workout/:id`); hoja «Hacer otro cardio» (lo hecho hoy, lo «sin día» y lo de otros días; tocar la fila: Marcar = marca y el resto → `/cardio-sesion/:id`; tocar su círculo: hecha sin grabar, 1.5.0); diálogos «Hay un entreno en curso» («Ver entreno» → `/workout/:id`), «Hay sprints en curso» / «Hay un cardio en curso» («Ver sprints» / «Ver cardio» → `/cardio-sesion/:id`), «No se puede grabar la ruta», «No hay GPS» («Seguir sin GPS» → `/cardio-sesion/:id`; «Cancelar» descarta la sesión).
 
@@ -312,9 +315,10 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Lleva a**: segmentado Entrenos · Ejercicios · Cardio (se recuerda mientras la app está abierta). Entreno → `/workout/resumen/:id`; ejercicio → `/progreso/:id`; cardio con sesión → `/cardio-sesion/:id` (el cardio solo marcado no navega); en Cardio, desde la primera caminata con GPS, la fila «Mis rutas» → `/mis-rutas`; vacío: «Ir a Hoy» → `/` (`navigate`).
 
 #### Dieta · `/dieta`
-- **Llega desde**: pestaña.
-- **Lleva a**: ⋮ «Objetivos del día» → `/objetivos`, «Catálogo de alimentos» → `/alimentos`; «Completa tu perfil para ver objetivos» → `/perfil`; «Añadir alimento» de una comida → `/alimentos?pickDay=N&pickMeal=…`.
-- **Capas**: ⋮ también «Copiar el <día> a…» (si el día tiene alimentos) → hoja de días; tocar un alimento → hoja de gramos con «Guardar» y «Quitar» (Snackbar «Deshacer»).
+- **Llega desde**: pestaña; fila «Dieta» de Hoy (1.5.1).
+- **Vistas** (1.5.1, segmentado «Hoy · Planes»; abre en Hoy): **Hoy** no navega: la fila del plan del día abre la hoja «Plan de hoy», y cada alimento y cada cabecera de comida marcan o desmarcan (`setEaten`). **Planes** es el editor: `DayPicker` y los chips de los planes de día.
+- **Lleva a**: ⋮ «Objetivos del día» → `/objetivos`, «Catálogo de alimentos» → `/alimentos`; en Planes, «Completa tu perfil para ver objetivos» → `/perfil` y «Añadir alimento» de una comida → `/alimentos?pickDay=N&pickMeal=…` (o `?pickPlan=:id` con un plan de día a la vista).
+- **Capas**: hoja «Plan de hoy» (el día de la semana, los planes de día y «Como otro día»; elegir cambia el plan de hoy, Snackbar «Deshacer»). En Planes: ⋮ «Copiar el <día> a…» o «Copiar a un día…» (si el plan tiene alimentos) → hoja de días, y con un plan de día «Cambiar nombre» (diálogo de texto) y «Borrar plan» (diálogo); chip «+ Plan de día» → hoja «Nuevo plan de día»; tocar un alimento → hoja de gramos con «Guardar» y «Quitar» (Snackbar «Deshacer»). El ⋮ es un botón fijo de la cabecera que llama a la última versión del menú por una ref, porque sus acciones cambian con la vista y el plan elegidos.
 
 #### Perfil · `/perfil`
 - **Llega desde**: pestaña; «Completa tu perfil» de Hoy, Dieta y Objetivos.
@@ -368,7 +372,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 #### Mapa de calor · `/mapa-calor`
 - **Llega desde**: Mis rutas (primera fila).
 - **Lleva a**: nada (Atrás ↩). Dentro: el mapa interactivo con los caminos, «ver todo» y norte; abajo, el segmentado «Últimos 30 días · Siempre» (se recuerda, `app_meta('heat-map-mode')`) y una línea con la leyenda o la lectura del camino tocado (tocar fuera la quita); «Reintentar» sin conexión.
-- **Capas**: ninguna. La pista de la primera vez («Los caminos que repites se van poniendo rojos.») va sobre el mapa hasta el primer toque. Sin caminatas con GPS, «Sin caminatas todavía».
+- **Capas**: ninguna. La pista de la primera vez («Cuanto más repites un camino, más color coge.») va sobre el mapa hasta el primer toque. Sin caminatas con GPS, «Sin caminatas todavía».
 
 #### Ruta · `/mis-rutas/:id`
 - **Llega desde**: Mis rutas (también tras importar un GPX); la fila de la ruta y el «Ver» de «Ruta guardada» en el detalle de una caminata.
@@ -429,7 +433,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Lleva a**: ninguna ruta; tocar un pesaje → `WeightSheet` (corregir o borrar con «Deshacer»).
 
 #### Alimentos · `/alimentos`
-- **Llega desde**: ⋮ de Dieta (catálogo); «Añadir alimento» de una comida (selector, `?pickDay&pickMeal`).
+- **Llega desde**: ⋮ de Dieta (catálogo); «Añadir alimento» de una comida en Planes (selector, `?pickDay&pickMeal` o `?pickPlan&pickMeal`).
 - **Lleva a**: catálogo: fila → `/alimento/:id`; «+» o «Crear alimento» → `/alimento/nuevo` (con `?nombre=`). Selector: fila → hoja de gramos → «Añadir» y ↩ a Dieta.
 
 #### Alimento · `/alimento/:id`
@@ -440,6 +444,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Llega desde**: engranaje del Perfil; etiqueta «Pruebas» de Hoy.
 - **Lleva a**: «Cifrar las copias» / «Copias cifradas» → `/cifrado`; modo pruebas: «Reiniciar datos ahora» y «Cargar datos de prueba (Excel)» ⤒; «Añadir caminata de prueba» / «Añadir sprints de prueba» → `/cardio-sesion/:id`; «Catálogo de componentes» → `/dev/componentes` (estas tres y «Cargar datos de prueba», solo en desarrollo). Las filas de permisos piden el permiso o abren el ajuste de Android correspondiente (`expo-intent-launcher`).
 - **Opciones de administrador** (1.4.5): la copia en GitHub y el modo pruebas solo se ven con ellas (el modo pruebas, también mientras esté activo); siete toques en «Entreno vX» del pie las muestran u ocultan; desde el tercero el pie dice cuántos faltan (un Snackbar taparía la versión) y al séptimo sale el Snackbar ([secretTaps.ts](src/domain/secretTaps.ts), `app_meta('admin')`).
+- **Dieta** (1.5.1): el interruptor «Comidas en Hoy» (`settings.diet_in_today`) pone o quita la fila «Dieta» de la pestaña Hoy.
 - **Apariencia** (1.4.10): la fila «Tema y color · Oscuro · Verde» abre una hoja con «Oscuro · Claro», cuatro colores, una mini vista previa y «Aplicar», que reinicia el JavaScript y vuelve a Ajustes (§5.15); con un entreno o un cardio en curso no deja aplicar.
 - **Capas**: hoja «Apariencia»; hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
 
@@ -511,6 +516,7 @@ flowchart LR
   HOY --> CW
   HOY --> PER
   HOY --> AJ
+  HOY --> DIE
   SUE --> WO
   WO --> SUE
   WO --> RES
@@ -710,6 +716,7 @@ flowchart TD
   PRO["Progreso<br/>/progreso/:id"]
   HOY -->|"Completa tu perfil"| PER
   HOY -->|"etiqueta Pruebas"| AJ
+  HOY -->|"fila Dieta (navigate)"| DIE
   PER -->|"engranaje"| AJ
   PER -->|"Objetivos del día"| OBJ
   PER -->|"Todos los pesajes (más de 3)"| PES
@@ -719,7 +726,7 @@ flowchart TD
   REC -->|"fila de un ejercicio"| PRO
   DIE -->|"⋮ Objetivos del día"| OBJ
   DIE -->|"⋮ Catálogo de alimentos"| ALS
-  DIE -->|"Añadir alimento ?pickDay&pickMeal"| ALS
+  DIE -->|"Añadir alimento ?pickDay o ?pickPlan, &pickMeal"| ALS
   DIE -->|"Completa tu perfil"| PER
   OBJ -->|"Completa tu perfil"| PER
   ALS -->|"fila (catálogo)"| AL
@@ -790,6 +797,10 @@ erDiagram
   route |o--o{ cardio_session : "seguida (follow_route_id)"
   workout_session |o--o{ photo : "fotos"
   food ||--o{ diet_item : "alimento"
+  diet_plan |o--o{ diet_item : "plan de día (NULL = día de la semana)"
+  diet_plan |o--o{ diet_day_meal : "comida de una fecha"
+  food ||--o{ diet_log : "comido"
+  diet_item |o--o{ diet_log : "marcado (NULL = ya no está en el plan)"
 
   profile {
     INTEGER id PK "siempre 1"
@@ -1016,11 +1027,32 @@ erDiagram
   }
   diet_item {
     INTEGER id PK
-    INTEGER weekday
+    INTEGER weekday "relleno si es de un plan de día"
+    INTEGER plan_id FK "NULL = del día de la semana"
     TEXT meal "desayuno comida merienda cena"
     INTEGER food_id FK
     REAL grams
     INTEGER position
+  }
+  diet_plan {
+    INTEGER id PK
+    TEXT name
+    INTEGER position
+  }
+  diet_day_meal {
+    TEXT date PK
+    TEXT meal PK
+    INTEGER weekday "o plan_id: uno de los dos"
+    INTEGER plan_id FK
+  }
+  diet_log {
+    INTEGER id PK
+    TEXT date
+    TEXT meal
+    INTEGER food_id FK
+    REAL grams
+    INTEGER item_id FK "ON DELETE SET NULL"
+    INTEGER created_at
   }
 ```
 
@@ -1045,9 +1077,10 @@ erDiagram
 | `route` | Una caminata guardada como ruta (Mis rutas, 1.4.8) | Su propia copia de la línea (`path`, con sus tramos), la distancia y el desnivel: borrar la caminata de la que salió no la cambia. No guarda de qué caminata salió ni el mejor tiempo: se calcula con sus caminatas al leer. |
 | `cardio_point` | Puntos GPS de la sesión en curso | Se borran al terminar. No van en la copia. |
 | `photo` | Fotos de una sesión de cardio o de un entreno (exactamente uno, con `CHECK`) | `file` es el nombre de su copia reducida en `Documents/photos/`; la fila va en la copia, la imagen no. `taken_at` y `lat`/`lon` (su sitio en la ruta) cuando se saben. Borrar la sesión borra las filas (también en el repositorio, sin depender de `foreign_keys`) y la pantalla borra los ficheros (`deletingPhotosOf`). |
-| `food` / `diet_item` | Alimentos (macros por 100 g) y plan semanal | Borrar un alimento lo archiva: sigue en los días que lo usan. |
+| `food` / `diet_item` | Alimentos (macros por 100 g) y lo que se come en cada plan | Borrar un alimento lo archiva: sigue en los días que lo usan. Un alimento de un plan de día (`plan_id`) guarda en `weekday` un 1 de relleno; el repositorio da `weekday = null`. |
+| `diet_plan` / `diet_day_meal` / `diet_log` (1.5.1) | Planes de día del usuario; las comidas de una fecha que siguen otro plan que el de su día; lo marcado como comido | Sin fila en `diet_day_meal`, una comida sigue el día de la semana de su fecha. `diet_log` copia comida, alimento y gramos al marcar: el plan puede cambiar después, lo comido no. Las marcas de **hoy** sí siguen al plan (gramos) y se van con el alimento que sale de él. |
 
-Índices: `set_log(session_id)`, `set_log(slot_id, completed_at)`, `set_log(exercise_id, completed_at)`, `workout_session(status)`, `workout_session(date)`, `weight_change(slot_id, status)`, `diet_item(weekday)`, `cardio_log(date)`, `cardio_point(session_id, t)`, `cardio_session(status)`, `cardio_session(route_id)`, `photo(cardio_session_id)`, `photo(workout_session_id)`.
+Índices: `set_log(session_id)`, `set_log(slot_id, completed_at)`, `set_log(exercise_id, completed_at)`, `workout_session(status)`, `workout_session(date)`, `weight_change(slot_id, status)`, `diet_item(weekday)`, `diet_item(plan_id)`, `diet_log(date)`, `diet_log(item_id)`, `cardio_log(date)`, `cardio_point(session_id, t)`, `cardio_session(status)`, `cardio_session(route_id)`, `photo(cardio_session_id)`, `photo(workout_session_id)`.
 
 ### 4.4 Migraciones
 
@@ -1069,6 +1102,7 @@ erDiagram
 | 12 | 1.4.8 | Tabla `route`; `cardio_session.route_id` (`ON DELETE SET NULL`), `route_relation` y `route_declined`; índice `cardio_session(route_id)` |
 | 13 | 1.4.9 | `cardio_session.follow_route_id` (`ON DELETE SET NULL`) y `follow_state`; `settings.route_alert` |
 | 14 | 1.5.0 | `cardio_activity.no_day` (una actividad «sin día»: `weekday` es `NOT NULL` con `CHECK` y no se puede relajar, así que guarda un 1 de relleno y el repositorio da `null`) |
+| 15 | 1.5.1 | Tablas `diet_plan`, `diet_day_meal` y `diet_log`; `diet_item.plan_id` (`ON DELETE CASCADE`; con él, `weekday` es relleno); `settings.diet_in_today`; índices `diet_item(plan_id)`, `diet_log(date)` y `diet_log(item_id)` |
 
 ### 4.5 Cifrado de la base (SQLCipher)
 
@@ -1096,7 +1130,7 @@ Además, el módulo nativo usa `SharedPreferences`: posición de la burbuja (`re
 
 ### 4.7 Copia de seguridad: qué entra y cómo se restaura
 
-- **Entra** (`BACKUP_TABLES`, en orden de claves ajenas): `profile`, `settings`, `weight_log`, `exercise`, `exercise_muscle`, `routine`, `routine_weekday`, `routine_slot`, `cardio_activity`, `route` (antes de las caminatas que la apuntan), `cardio_session`, `cardio_log`, `workout_session`, `set_log`, `photo`, `weight_change`, `food`, `diet_item`.
+- **Entra** (`BACKUP_TABLES`, en orden de claves ajenas): `profile`, `settings`, `weight_log`, `exercise`, `exercise_muscle`, `routine`, `routine_weekday`, `routine_slot`, `cardio_activity`, `route` (antes de las caminatas que la apuntan), `cardio_session`, `cardio_log`, `workout_session`, `set_log`, `photo`, `weight_change`, `food`, `diet_plan` (antes de sus alimentos), `diet_item`, `diet_day_meal`, `diet_log`.
 - **No entra**: `cardio_point` (puntos de una caminata en curso), `app_meta`, las imágenes de las fotos (`Documents/photos/`: solo sus filas), todo el almacén seguro (clave de la BD, clave de las copias, token) y las `SharedPreferences` nativas.
 - **Fotos**: borrar los datos (modo pruebas, restaurar) no borra las imágenes, así que restaurar la copia en el mismo móvil las recupera. En otro móvil las filas llegan sin imagen y no se muestran (`isOnPhone`). Las imágenes que ya no tiene ninguna fila (fotos de pruebas) se quedan en la carpeta.
 - **Formato**: `{ app: 'entreno', schemaVersion, exportedAt, tables }`. Cifrada: `{ app, format: 'entreno-cifrada-1', kdf: { name: 'pbkdf2-sha256', iterations, salt }, cipher: 'AES-256-GCM', data }` (`data` = base64 de IV · texto cifrado · etiqueta).
@@ -1286,10 +1320,13 @@ Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alime
 
 ### 5.9 Dieta
 
-1. Pestaña Dieta: día (`DayPicker`), segmentado Día · Media semanal y rejilla de totales frente a objetivos (`deviation`: verde ±5 %, ámbar ±10 %, rojo fuera). Objetivos con `loadNutritionTargets` (perfil + último peso); sin datos, «Completa tu perfil para ver objetivos».
-2. Cuatro comidas; tocar un alimento → hoja de gramos (`updateDietItemGrams`) o «Quitar» (`removeDietItem`, «Deshacer» → `restoreDietItem`).
-3. «Añadir alimento» → `/alimentos?pickDay&pickMeal` → hoja de gramos → `addDietItem` → ↩.
-4. ⋮ «Copiar el <día> a…» → hoja de días → `copyDietDay` (reemplaza esos días) con «Deshacer» (`restoreDietDays`).
+0. La pestaña abre en **Hoy** (1.5.1): `loadDietDay` (alimentos de todos los planes, planes de día, lo que la fecha dice de sus comidas y lo marcado) → `mealSources` → `dayProgress`. Tocar un alimento o la cabecera de una comida → `setEaten` (una copia en `diet_log`, o su borrado). La fila del plan → hoja «Plan de hoy» → `switchDayPlan` (las comidas con marcas no cambian) → `setDietDayOverrides` con «Deshacer». Lo de abajo es la vista **Planes**.
+1. Día (`DayPicker`) o plan de día (chips), segmentado Día · Media semanal y rejilla de totales frente a objetivos (`deviation`: verde ±5 %, ámbar ±10 %, rojo fuera). Objetivos con `loadNutritionTargets` (perfil + último peso); sin datos, «Completa tu perfil para ver objetivos».
+2. Cuatro comidas; tocar un alimento → hoja de gramos (`updateDietItemGrams`, que también cambia lo marcado hoy) o «Quitar» (`removeDietItem`, que se lleva su marca de hoy; «Deshacer» → `restoreDietItem` con ella).
+3. «Añadir alimento» → `/alimentos?pickDay&pickMeal` (o `?pickPlan`) → hoja de gramos → `addDietItem` → ↩.
+4. ⋮ «Copiar el <día> a…» o, de un plan de día, «Copiar a un día…» → hoja de días → `copyDietDay` (reemplaza esos días) con «Deshacer» (`restoreDietDays`).
+5. Planes de día (1.5.1): chip «+ Plan de día» → `createDietPlan` (vacío o copia del plan a la vista); ⋮ «Cambiar nombre» → `renameDietPlan`; «Borrar plan» → `deleteDietPlan` (sus alimentos y las comidas que lo seguían se van con él; lo marcado otros días se queda).
+6. Pestaña Hoy: `loadDietDay` → `dietLine` para la fila «Dieta» (no se carga con `settings.diet_in_today` apagado).
 5. Catálogo: búsqueda sin tildes, grupos por inicial; editor con macros por 100 g (no pueden sumar más de 100 g), kcal calculadas, nombre único; borrar archiva.
 
 ### 5.10 Perfil, músculos, récords y objetivos

@@ -64,7 +64,7 @@ function buildHtml(initial: {
 <link rel="stylesheet" href="${MAPLIBRE}/maplibre-gl.css" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous">
 <style>
 html,body,#map{margin:0;padding:0;width:100%;height:100%;background:${colors.bg};overflow:hidden}
-.maplibregl-ctrl-attrib{background:${colors.overlay}!important;color:${colors.muted};font:10px sans-serif}
+.maplibregl-ctrl-attrib{background:${colors.overlay}!important;color:${colors.muted}!important;font:10px/20px sans-serif}
 .maplibregl-ctrl-attrib a{color:${colors.muted}}
 .maplibregl-ctrl-attrib-button{filter:invert(${isDark ? 1 : 0})}
 .km{box-sizing:border-box;width:20px;height:20px;border-radius:10px;border:2px solid ${colors.text};background:${colors.bg};

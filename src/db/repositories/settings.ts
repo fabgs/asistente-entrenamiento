@@ -36,6 +36,8 @@ export interface Settings {
   muscleMapMode: MuscleMapMode;
   /** Alert when leaving a route being followed (1.4.9): the switch of «Seguir una ruta» and of the walk's menu. */
   routeAlert: boolean;
+  /** The row of the day's meals in Hoy (1.5.1). */
+  dietInToday: boolean;
 }
 
 interface SettingsRow {
@@ -59,6 +61,7 @@ interface SettingsRow {
   cardio_live_panel: string;
   muscle_map_mode: string;
   route_alert: number;
+  diet_in_today: number;
 }
 
 export async function getSettings(db: Db): Promise<Settings> {
@@ -91,6 +94,7 @@ export async function getSettings(db: Db): Promise<Settings> {
     cardioLivePanel: LIVE_PANELS.find((p) => p === row.cardio_live_panel) ?? 'map',
     muscleMapMode: row.muscle_map_mode === 'days' ? 'days' : 'week',
     routeAlert: bool(row.route_alert),
+    dietInToday: bool(row.diet_in_today),
   };
 }
 
@@ -116,6 +120,7 @@ export async function updateSettings(db: Db, patch: Partial<Settings>): Promise<
     cardioLivePanel: 'cardio_live_panel',
     muscleMapMode: 'muscle_map_mode',
     routeAlert: 'route_alert',
+    dietInToday: 'diet_in_today',
   };
   for (const [key, value] of Object.entries(patch) as [keyof Settings, Settings[keyof Settings]][]) {
     const sqlValue = typeof value === 'boolean' ? int(value) : value;

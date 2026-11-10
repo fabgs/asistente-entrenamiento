@@ -23,6 +23,7 @@ import {
 } from '@/components/ui';
 import { cardioLogOn, listCardio, setCardioDone, type CardioActivity } from '@/db/repositories/cardio';
 import { cardioSessionsOn, getActiveCardioSession, getCardioSession, type DoneCardioSession } from '@/db/repositories/cardioSessions';
+import { loadDietDay } from '@/db/repositories/diet';
 import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { listRoutines, listSlots, type Routine, type Slot } from '@/db/repositories/routines';
 import {
@@ -38,6 +39,7 @@ import { getProfile, getSettings, latestWeight, toProgressionSettings } from '@/
 import { listOpenChanges } from '@/db/repositories/weightChanges';
 import { sharesLockCountdown, trackingDetails } from '@/domain/cardioPlan';
 import { cardioPool, poolLine, type PoolEntry } from '@/domain/cardioPool';
+import { dayProgress, dietLine, mealSources } from '@/domain/diet';
 import { formatDuration, formatLongDate, formatShortDate, workoutTitle } from '@/domain/format';
 import { allDoneMessage, isoWeekdayOf, localDateString, weekdaysLabel } from '@/domain/schedule';
 import { useDb, useLoader } from '@/hooks/data';
@@ -94,6 +96,8 @@ export default function TodayScreen() {
       devMode: settings.devMode,
       routeAlert: settings.routeAlert,
       routeCount: await routeCount(db),
+      // The meals of the day (1.5.1), unless Ajustes hides them.
+      diet: settings.dietInToday ? await loadDietDay(db, date) : null,
     };
   });
 
@@ -293,6 +297,10 @@ export default function TodayScreen() {
   const showPoolRow = pool.length > 0 && !data.activeCardio;
   const showRoutineRow = data.others.length > 0 && !data.active;
   const showLooseRow = hasSlots && !data.active;
+  const dietDay = data.diet ? dayProgress(data.diet.items, mealSources(data.weekday, data.diet.overrides), data.diet.eaten) : null;
+  // Null with nothing planned today: no row.
+  const dietText = dietDay ? dietLine(dietDay) : null;
+  const dietDone = !!dietDay && dietDay.mealsDone === dietDay.meals.length;
 
   const profileRow =
     missingProfile.length > 0 ? (
@@ -409,6 +417,17 @@ export default function TodayScreen() {
             ))}
           </ListGroup>
         </Section>
+      ) : null}
+
+      {dietText ? (
+        <ListGroup>
+          <ListRow
+            onPress={() => router.navigate('/dieta')}
+            left={<Icon name={dietDone ? 'check-circle' : 'silverware-fork-knife'} size={22} color={dietDone ? colors.primary : colors.muted} />}
+            title={<AppText variant="rowTitle" style={dietDone ? { color: colors.muted } : undefined}>Dieta</AppText>}
+            subtitle={dietText}
+          />
+        </ListGroup>
       ) : null}
 
       {showPoolRow || showRoutineRow || showLooseRow ? (

@@ -6,6 +6,7 @@ import type {
   RepTarget,
   RepUnit,
 } from '@/domain/types';
+import type { Meal } from '@/domain/diet';
 import type { Sex } from '@/domain/nutrition';
 
 /** Shape of data/seed/seed.json (PLAN.md §3). */
@@ -43,7 +44,7 @@ export interface SeedData {
   dietPlan: { weekday: IsoWeekday; meal: Meal; food: string; grams: number }[];
 }
 
-export type Meal = 'desayuno' | 'comida' | 'merienda' | 'cena';
+export type { Meal };
 
 export interface SeedRoutine {
   name: string;

@@ -1,3 +1,4 @@
+import { weekdaySource } from '@/domain/diet';
 import type { Db } from '../db';
 import {
   addDietItem,
@@ -20,6 +21,8 @@ async function seededDb(): Promise<Db> {
   await importSeed(db, SEED, new Date(2026, 10, 2));
   return db;
 }
+
+const TODAY = '2026-11-02';
 
 const day = async (db: Db, weekday: number) => (await listDietItems(db)).filter((i) => i.weekday === weekday);
 
@@ -54,10 +57,10 @@ describe('weekly plan', () => {
     const db = await seededDb();
     const before = (await day(db, 3)).length;
     const food = (await listFoods(db))[0];
-    const id = await addDietItem(db, 3, 'cena', food.id, 150);
+    const id = await addDietItem(db, weekdaySource(3), 'cena', food.id, 150);
     expect((await day(db, 3)).at(-1)).toMatchObject({ id, meal: 'cena', grams: 150 });
 
-    await updateDietItemGrams(db, id, 200);
+    await updateDietItemGrams(db, id, 200, TODAY);
     expect((await day(db, 3)).find((i) => i.id === id)?.grams).toBe(200);
 
     await deleteDietItem(db, id);
@@ -67,7 +70,7 @@ describe('weekly plan', () => {
   it('copies a day over other days, keeping the source as is', async () => {
     const db = await seededDb();
     const monday = await day(db, 1);
-    await copyDietDay(db, 1, [2, 1, 6]);
+    await copyDietDay(db, weekdaySource(1), [2, 1, 6], TODAY);
 
     const shape = (items: Awaited<ReturnType<typeof day>>) => items.map((i) => [i.meal, i.foodName, i.grams]);
     expect(shape(await day(db, 2))).toEqual(shape(monday));

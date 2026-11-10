@@ -434,7 +434,7 @@ export interface StraightComparison {
 /**
  * «Si lo sé, que lo estime también, pero así compara»: the length written down and the median of
  * what the GPS measured in the sprints it measured well. Worked out when read, never stored, so a
- * better measurement later (1.5.1) changes it by itself. Null without a straight.
+ * better measurement later (1.5.2) changes it by itself. Null without a straight.
  */
 export function straightComparison(rows: readonly Pick<LapRow, 'distanceM' | 'quality'>[], straightM: number | null): StraightComparison | null {
   if (straightM === null) return null;

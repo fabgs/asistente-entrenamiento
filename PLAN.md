@@ -983,7 +983,7 @@ Requisito: la prueba al aire libre con distancias medidas (§14), para ajustar c
 **Cuentas y servidor** (propuesta en §16), después de la 1.5.2. Más adelante: widget de Hoy y Health Connect (N: juntos, para recompilar una vez), registro de comidas y lista de la compra, agenda de estudio, iOS.
 
 #### Pendientes sin versión
-- [ ] Prueba de sprints al aire libre (el usuario, un día de sprints; desbloquea la fase 29).
+- [ ] Prueba de sprints al aire libre (el usuario, un día de sprints; desbloquea la fase 30).
 - [ ] Revisar con una fuente los músculos de los 22 ejercicios (fase 19): enseñar las diferencias antes de cambiar nada.
 - [ ] Decidir si el recordatorio diario pasa a `alarmClock` (§15).
 - [ ] Revisión de accesibilidad: una pasada con TalkBack (la fuente al 130 % ya se prueba en cada fase).

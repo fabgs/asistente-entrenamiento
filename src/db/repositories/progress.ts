@@ -2,7 +2,7 @@ import { formatCardioResult } from '@/domain/format';
 import { activeMs } from '@/domain/gps';
 import type { RepUnit } from '@/domain/types';
 import type { ExerciseSession } from '@/domain/progress';
-import { decodeLaps, formatSprintResult, lapRows, sprintSummary } from '@/domain/sprint';
+import { decodeLaps, formatSprintResult, lapRows, parseSprintPlan, sprintSummary } from '@/domain/sprint';
 import { exerciseRestAcross, PROGRESS_REST_SESSIONS, type TimedSet } from '@/domain/workoutTimes';
 import { bool, type Db } from '../db';
 import { listFinishedSessions, type SessionSummaryRow } from './sessions';
@@ -147,8 +147,8 @@ export interface CardioEntry {
   distanceM: number | null;
   /** Time without the pauses. */
   activeMs: number | null;
-  /** A sprints session: how many, the top speed and the best time. */
-  sprint: { count: number; topSpeedMs: number | null; bestTimeMs: number | null } | null;
+  /** A sprints session: how many, the best time and its straight (1.5.2: no longer the top speed of the GPS). */
+  sprint: { count: number; bestTimeMs: number | null; straightM: number | null } | null;
 }
 
 export interface CardioDay {
@@ -174,8 +174,9 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
     distance_m: number | null;
     route: string | null;
     laps: string | null;
+    plan: string | null;
   }>(
-    `SELECT id, date, name, title, tracking, started_at, finished_at, paused_ms, distance_m, route, laps FROM cardio_session
+    `SELECT id, date, name, title, tracking, started_at, finished_at, paused_ms, distance_m, route, laps, plan FROM cardio_session
      WHERE status = 'finished' ORDER BY started_at`,
   );
   const checked = await db.getAllAsync<{ id: number; date: string; name: string; value: string | null }>(
@@ -212,19 +213,20 @@ export async function cardioHistory(db: Db): Promise<CardioDay[]> {
     );
     const laps = s.tracking === 'sprint' ? decodeLaps(s.laps) : null;
     const summary = laps ? sprintSummary(lapRows(laps)) : null;
+    const straightM = laps ? (parseSprintPlan(s.plan)?.straightM ?? null) : null;
     add({
       key: `s${s.id}`,
       date: s.date,
       name: s.title ?? s.name,
       activity: s.name,
       kind: s.tracking,
-      value: laps ? formatSprintResult(laps) : formatCardioResult(s.distance_m, active),
+      value: laps ? formatSprintResult(laps, straightM) : formatCardioResult(s.distance_m, active),
       sessionId: s.id,
       route: s.route,
       startedAt: s.started_at,
       distanceM: s.distance_m,
       activeMs: active,
-      sprint: summary && { count: summary.count, topSpeedMs: summary.topSpeedMs, bestTimeMs: summary.bestTimeMs },
+      sprint: summary && { count: summary.count, bestTimeMs: summary.bestTimeMs, straightM },
     });
   }
   return [...days.values()].sort((a, b) => b.date.localeCompare(a.date));

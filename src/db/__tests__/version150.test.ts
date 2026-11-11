@@ -12,6 +12,7 @@ import {
   finishCardioSession,
   finishSprintSession,
   getCardioSession,
+  NO_STRAIGHT,
   setSprintStraight,
   startCardioSession,
   type NewPoint,
@@ -165,26 +166,24 @@ describe('the same cardio twice in a day', () => {
 });
 
 describe('the straight of a sprints session', () => {
-  it('is kept in the copy of the plan of the session, also once finished, and taken away with null', async () => {
+  it('is kept in the copy of the plan of the session, also once finished, and taken away', async () => {
     const db = await seededDb();
     const sprints = byName(await listCardio(db), 'Sprints + Bouncing', 3);
     const id = await startCardioSession(db, sprints, T0);
     expect((await getCardioSession(db, id))!.sprint).toEqual(DEFAULT_SPRINT_PLAN);
 
-    await setSprintStraight(db, id, 60);
+    await setSprintStraight(db, id, { straightM: 60, straightEnds: null });
     expect((await getCardioSession(db, id))!.sprint).toEqual({ ...DEFAULT_SPRINT_PLAN, straightM: 60 });
-    // The activity is not touched: it is of this session.
-    expect((await getCardio(db, sprints.id))!.sprint).toEqual(DEFAULT_SPRINT_PLAN);
 
     await finishSprintSession(db, id, T0 + 600_000, [], null);
-    await setSprintStraight(db, id, 80);
+    await setSprintStraight(db, id, { straightM: 80, straightEnds: null });
     expect((await getCardioSession(db, id))!.sprint!.straightM).toBe(80);
-    await setSprintStraight(db, id, null);
+    await setSprintStraight(db, id, NO_STRAIGHT);
     expect((await getCardioSession(db, id))!.sprint!.straightM).toBeNull();
 
     // Not a sprints session: nothing to write.
     const walkId = await walked(db, byName(await listCardio(db), 'Caminar', 1), DAY, 60);
-    await setSprintStraight(db, walkId, 60);
+    await setSprintStraight(db, walkId, { straightM: 60, straightEnds: null });
     expect((await getCardioSession(db, walkId))!.sprint).toBeNull();
   });
 });

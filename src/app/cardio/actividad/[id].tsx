@@ -119,13 +119,15 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
   const [tracking, setTracking] = useState<CardioTracking>(activity?.tracking ?? 'check');
   const [plan, setPlan] = useState<CardioPlan>(activity?.plan ?? DEFAULT_PLANS.liss);
   const [sprint, setSprint] = useState<SprintPlan>(activity?.sprint ?? DEFAULT_SPRINT_PLAN);
-  // The straight is typed: it may be empty (the GPS measures it) or, for a moment, out of range.
+  // The straight is typed here (it is marked on the map from the sprints): it may be empty or, for a moment, out of range.
   const [straight, setStraight] = useState(activity?.sprint?.straightM != null ? String(activity.sprint.straightM) : '');
   const [straightError, setStraightError] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const typedStraight = parseStraight(straight);
+  // The ends marked on the map (1.5.2) stay while the metres are theirs; another number is another straight.
+  const straightEnds = typedStraight !== null && typedStraight === activity?.sprint?.straightM ? activity.sprint.straightEnds : null;
   const fields = {
     name: name.trim(),
     target: target.trim() || null,
@@ -133,7 +135,7 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
     notes: notes.trim() || null,
     tracking,
     plan: tracking === 'timer' ? plan : null,
-    sprint: tracking === 'sprint' ? { ...sprint, straightM: typedStraight } : null,
+    sprint: tracking === 'sprint' ? { ...sprint, straightM: typedStraight, straightEnds } : null,
   };
   const dirty = activity
     ? !sameCardioFields(fields, cardioFieldsOf(activity))
@@ -291,9 +293,9 @@ function ActivityForm({ activity, weekday }: { activity: CardioActivity | null; 
             }}
             keyboard="number"
             suffix="m"
-            placeholder="La mide el GPS"
+            placeholder="Sin marcar"
             maxLength={3}
-            help="Si sabes cuánto mide, apúntala. El GPS la mide igual y verás las dos."
+            help="Se marca en el mapa, desde los sprints."
             error={straightError ? `Entre ${STRAIGHT_RANGE_M[0]} y ${STRAIGHT_RANGE_M[1]}${NBSP}m` : undefined}
           />
         </>

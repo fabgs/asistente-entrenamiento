@@ -17,6 +17,11 @@ const toHex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).pad
 
 /** A raw key (x'…'): SQLCipher uses it as is, without deriving one from a password on every open. */
 export const keyPragma = (key: string) => `PRAGMA key = "x'${key}'"`;
+/**
+ * Two connections write to the database (the app's and the GPS task's, every second during the
+ * sprints): one that finds the other writing waits up to 5 s instead of losing its write.
+ */
+export const BUSY_TIMEOUT = 'PRAGMA busy_timeout = 5000';
 
 const dbFile = (name: string) => new File(Paths.document, 'SQLite', name);
 
@@ -110,5 +115,7 @@ export async function openDatabaseInBackground(): Promise<SQLite.SQLiteDatabase>
   const key = await prepareDatabase();
   const db = await SQLite.openDatabaseAsync(DATABASE, { useNewConnection: true });
   if (key) await db.execAsync(keyPragma(key));
+  // The app's own connection writes too (a tap, the laps): wait for it instead of failing with «database is locked».
+  await db.execAsync(BUSY_TIMEOUT);
   return db;
 }

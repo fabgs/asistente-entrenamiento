@@ -28,7 +28,7 @@ import {
 import { allExerciseMuscles } from '@/db/repositories/muscles';
 import { routeCount } from '@/db/repositories/routes';
 import type { SessionSummaryRow } from '@/db/repositories/sessions';
-import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatSpeedKmh, formatTimeOfDay, workoutTitle } from '@/domain/format';
+import { formatClock, formatDuration, formatKg, formatMetres, formatShortDate, formatSprintTime, formatTimeOfDay, NBSP, workoutTitle } from '@/domain/format';
 import { decodeRoute } from '@/domain/gps';
 import type { ExerciseMuscles } from '@/domain/muscles';
 import { capitalize, countOf, formatDayMonth, formatMonth, groupByMonth, splitUnit } from '@/domain/progress';
@@ -275,8 +275,16 @@ function CardioRow({ entry }: { entry: CardioEntry }) {
       }
       right={
         entry.sprint ? (
-          entry.sprint.topSpeedMs !== null ? (
-            <TextFigure text={formatSpeedKmh(entry.sprint.topSpeedMs)} caption={countOf(entry.sprint.count, 'sprint', 'sprints')} />
+          // The best time, which is what counts; under it, how many (and over how many metres).
+          entry.sprint.bestTimeMs !== null ? (
+            <TextFigure
+              text={formatSprintTime(entry.sprint.bestTimeMs)}
+              caption={
+                entry.sprint.straightM !== null
+                  ? `${entry.sprint.count} × ${entry.sprint.straightM}${NBSP}m`
+                  : countOf(entry.sprint.count, 'sprint', 'sprints')
+              }
+            />
           ) : (
             countOf(entry.sprint.count, 'sprint', 'sprints')
           )

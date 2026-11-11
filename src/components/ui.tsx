@@ -802,11 +802,12 @@ export function BottomBar({
     fade.setValue(0.4);
     Animated.timing(fade, { toValue: 1, duration: 600, useNativeDriver: true }).start();
   }, [actionKey, fade]);
-  useEffect(() => () => setBottomBarHeight(0), []);
+  const [owner] = useState(() => ({}));
+  useEffect(() => () => setBottomBarHeight(owner, null), [owner]);
 
   return (
     <Animated.View
-      onLayout={(e) => setBottomBarHeight(e.nativeEvent.layout.height)}
+      onLayout={(e) => setBottomBarHeight(owner, e.nativeEvent.layout.height)}
       pointerEvents={guarded ? 'none' : 'auto'}
       style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md), opacity: fade }, style]}>
       {children}

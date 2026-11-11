@@ -20,6 +20,10 @@ interface RestTimerNative {
   stopSprintRunning?: () => void;
   takeSprintStop?: () => SprintButtonStop | null;
   addListener?: (event: 'onSprintStop', listener: (stop: SprintButtonStop) => void) => { remove(): void };
+  /** Missing in native builds older than 1.5.2. */
+  startSprintGnss?: () => boolean;
+  stopSprintGnss?: () => void;
+  takeSprintGnss?: () => number[][] | null;
 }
 
 /** A sprint stopped without the screen: with a volume button or the notification's «Parar». */
@@ -94,6 +98,49 @@ export function takeSprintStop(): SprintButtonStop | null {
 export function onSprintButtonStop(listener: () => void): () => void {
   const sub = native?.addListener?.('onSprintStop', listener);
   return () => sub?.remove();
+}
+
+/** A fix straight from the GPS chip (1.5.2); see `SprintGnss.kt`. */
+export interface GnssFix {
+  /** The instant of the fix on the clock of the taps, epoch ms. */
+  t: number;
+  lat: number;
+  lon: number;
+  accuracy: number | null;
+  /** Doppler speed, m/s. */
+  speed: number | null;
+  /** How far to trust that speed, m/s (68 %). */
+  speedAccuracy: number | null;
+  /** How far the fix's own (GPS) time runs behind the clock of the taps, ms. */
+  clockLagMs: number;
+}
+
+/**
+ * Listens to the GPS chip itself for the sprints (the fused location of expo-location smooths them
+ * away). False when it cannot: no native module, no precise location permission or no GPS.
+ */
+export function startSprintGnss(): boolean {
+  return native?.startSprintGnss?.() ?? false;
+}
+
+export function stopSprintGnss(): void {
+  native?.stopSprintGnss?.();
+}
+
+/** The fixes kept since the last call, oldest first; null when it is not listening (a new process: start it again). */
+export function takeSprintGnss(): GnssFix[] | null {
+  const rows = native?.takeSprintGnss?.();
+  if (!rows) return null;
+  const known = (v: number) => (v < 0 ? null : v);
+  return rows.map(([t, lat, lon, accuracy, speed, speedAccuracy, clockLagMs]) => ({
+    t: Math.round(t),
+    lat,
+    lon,
+    accuracy: known(accuracy),
+    speed: known(speed),
+    speedAccuracy: known(speedAccuracy),
+    clockLagMs: Math.round(clockLagMs),
+  }));
 }
 
 /**

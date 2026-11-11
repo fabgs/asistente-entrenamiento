@@ -1,5 +1,5 @@
-import { formatCountdown, formatSpeedKmh, formatSprintTime, NBSP } from './format';
-import { distanceM } from './gps';
+import { formatCountdown, formatSprintTime, NBSP } from './format';
+import { distanceM, type LatLon } from './gps';
 
 /**
  * Sprints (PLAN.md §6.8): a beep starts each sprint and the athlete taps «Parar» when they stop.
@@ -12,11 +12,22 @@ export interface SprintPlan {
   restSec: number;
   /** Seconds of count before each beep (1.5.0): from «Empezar sprint» or skipping the rest, and the last ones of every rest. */
   leadSec: number;
-  /** Metres of the straight, when the athlete knows them (1.5.0): shown next to what the GPS measures, never to correct it. */
+  /**
+   * Metres of the straight every sprint is run on, when the athlete knows them (1.5.0). Since the
+   * 1.5.2 they are what the session's speeds come from: a straight and a time are worth more than
+   * the GPS of a phone over 30 m.
+   */
   straightM: number | null;
+  /** Its two ends, when it was marked on the map (1.5.2): `straightM` is then the metres between them. */
+  straightEnds: StraightEnds | null;
 }
 
-export const DEFAULT_SPRINT_PLAN: SprintPlan = { kind: 'sprint', sprints: 6, restSec: 90, leadSec: 5, straightM: null };
+export interface StraightEnds {
+  start: LatLon;
+  end: LatLon;
+}
+
+export const DEFAULT_SPRINT_PLAN: SprintPlan = { kind: 'sprint', sprints: 6, restSec: 90, leadSec: 5, straightM: null, straightEnds: null };
 export const SPRINTS_RANGE = [1, 20] as const;
 export const REST_RANGE_S = [30, 600] as const;
 /** The count before the beep: 5 s as always, up to 30 to leave the phone and get set. */
@@ -55,6 +66,13 @@ export interface SprintFix {
   speed: number | null;
   /** When the background task stored it (diagnosis of clock skew and delays). */
   receivedAt: number | null;
+  /**
+   * Straight from the GPS chip (1.5.2). Without it, the fix is Android's fused location, which
+   * smooths for someone walking: in a sprint its speed stays near 2 m/s and it runs 2–3 s behind.
+   */
+  gnss?: boolean;
+  /** How far the chip trusts its Doppler speed, m/s. */
+  speedAccuracy?: number | null;
 }
 
 export interface SprintMeasure {
@@ -76,12 +94,47 @@ export const MAX_GAP_MS = 2_500;
 export const MAX_POSITIONAL_SHARE = 0.3;
 export const TOP_SPEED_TAIL_MS = 1_000;
 export const SETTLE_TIMEOUT_MS = 5_000;
-/** How late the fix times run behind the clock of the taps; calibrated on a measured track. */
-export const GPS_LAG_MS = 0;
+/** Fixes kept before the beep of each sprint, and after its stop: the curve of a phone runs late and the tail shows how much. */
 export const LAP_FIXES_MARGIN_MS = 3_000;
+export const LAP_FIXES_TAIL_MS = 8_000;
 export const STALE_FIX_MS = 4_000;
+/** A sample this far above (or below) both its neighbours is a glitch, not a stride. */
+export const SPIKE_MS = 2.5;
+/** The speed that says the athlete is off, and how long after the beep a real start takes to reach it. */
+export const ONSET_SPEED_MS = 1.5;
+export const ONSET_MS = 600;
+/** The most the curve is taken to run behind the beep; beyond it, the athlete just started late. */
+export const MAX_CURVE_LAG_MS = 1_500;
+/** The speed curve and the positions must tell the same distance: within 5 m or a quarter. */
+export const MISMATCH_M = 5;
+export const MISMATCH_SHARE = 0.25;
 
 const isNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+function parsePlace(v: unknown): LatLon | null {
+  const p = v as { lat?: unknown; lon?: unknown } | null;
+  return p && isNumber(p.lat) && isNumber(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180 ? { lat: p.lat, lon: p.lon } : null;
+}
+
+function parseEnds(v: unknown): StraightEnds | null {
+  const ends = v as { start?: unknown; end?: unknown } | null;
+  const start = parsePlace(ends?.start);
+  const end = parsePlace(ends?.end);
+  return start && end ? { start, end } : null;
+}
+
+const SIX_DECIMALS = 1e6;
+const place = (p: LatLon): LatLon => ({ lat: Math.round(p.lat * SIX_DECIMALS) / SIX_DECIMALS, lon: Math.round(p.lon * SIX_DECIMALS) / SIX_DECIMALS });
+
+/**
+ * A straight marked on the map: its ends (to 0,1 m) and the whole metres between them, or null when
+ * they are closer or farther than a straight can be.
+ */
+export function markedStraight(start: LatLon, end: LatLon): Pick<SprintPlan, 'straightM' | 'straightEnds'> | null {
+  const ends = { start: place(start), end: place(end) };
+  const metres = Math.round(distanceM(ends.start, ends.end));
+  return metres >= STRAIGHT_RANGE_M[0] && metres <= STRAIGHT_RANGE_M[1] ? { straightM: metres, straightEnds: ends } : null;
+}
 const clamp = (v: number, [min, max]: readonly [number, number]) => Math.min(max, Math.max(min, Math.round(v)));
 
 /** The stored plan, or null if it is not a sprint plan. Out-of-range numbers are brought into range. */
@@ -94,13 +147,16 @@ export function parseSprintPlan(json: string | null): SprintPlan | null {
     return null;
   }
   if (p?.kind !== 'sprint' || !isNumber(p.sprints) || !isNumber(p.restSec)) return null;
+  const straightM = isNumber(p.straightM) && p.straightM > 0 ? clamp(p.straightM, STRAIGHT_RANGE_M) : null;
   return {
     kind: 'sprint',
     sprints: clamp(p.sprints, SPRINTS_RANGE),
     restSec: clamp(p.restSec, REST_RANGE_S),
     // Plans stored before the 1.5.0 have neither: the count of always and no straight.
     leadSec: isNumber(p.leadSec) ? clamp(p.leadSec, LEAD_RANGE_S) : DEFAULT_SPRINT_PLAN.leadSec,
-    straightM: isNumber(p.straightM) && p.straightM > 0 ? clamp(p.straightM, STRAIGHT_RANGE_M) : null,
+    straightM,
+    // The ends only mean something with their metres.
+    straightEnds: straightM === null ? null : parseEnds(p.straightEnds),
   };
 }
 
@@ -260,8 +316,6 @@ interface Speeded {
   positional: boolean;
 }
 
-const median3 = (a: number, b: number, c: number) => Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
-
 /** Fixes sorted, without repeated times, inaccurate ones or isolated jumps. */
 function cleanFixes(fixes: SprintFix[]): SprintFix[] {
   const sorted = [...fixes].sort((a, b) => a.t - b.t);
@@ -274,7 +328,22 @@ function cleanFixes(fixes: SprintFix[]): SprintFix[] {
   });
 }
 
-/** Speed of each fix (Doppler when it is believable, from the positions otherwise), then a median of 3. */
+/**
+ * The fixes to measure a sprint with: the chip's when they cover it, otherwise the fused ones
+ * (a build without the native module, or the chip's listener lost with its process).
+ */
+function pickSource(fixes: SprintFix[], a: number, b: number): { fixes: SprintFix[]; gnss: boolean } {
+  const gnss = fixes.filter((f) => f.gnss);
+  const inside = gnss.filter((f) => f.t > a && f.t < b).length;
+  if (inside >= 3 && (b - a) / inside <= MAX_GAP_MS) return { fixes: gnss, gnss: true };
+  return { fixes: fixes.filter((f) => !f.gnss), gnss: false };
+}
+
+/**
+ * Speed of each fix: Doppler when it is believable, from the positions otherwise. A sample far
+ * above or below both neighbours is brought to the nearer one; a median would also shave the top
+ * of a short sprint, whose peak is a single fix.
+ */
 function speedSeries(points: SprintFix[]): Speeded[] {
   const raw = points
     .map((p, i) => {
@@ -288,9 +357,17 @@ function speedSeries(points: SprintFix[]): Speeded[] {
     })
     .filter((p) => p.v <= MAX_HUMAN_SPEED_MS);
   return raw.map((p, i) => {
-    const prev = raw[i - 1];
-    const next = raw[i + 1];
-    const m = prev && next ? median3(prev.v, p.v, next.v) : prev || next ? Math.min(p.v, (prev ?? next).v) : p.v;
+    const prev = raw[i - 1]?.v;
+    const next = raw[i + 1]?.v;
+    let m = p.v;
+    if (prev !== undefined && next !== undefined) {
+      const high = Math.max(prev, next);
+      const low = Math.min(prev, next);
+      m = p.v > high + SPIKE_MS ? high : p.v < low - SPIKE_MS ? low : p.v;
+    } else if (prev !== undefined || next !== undefined) {
+      // The first and the last fix have one neighbour: nothing says a drop is a glitch, only a jump.
+      m = Math.min(p.v, (prev ?? next)! + SPIKE_MS);
+    }
     return { t: p.t, m, accuracy: p.accuracy, positional: p.positional };
   });
 }
@@ -305,14 +382,50 @@ function medianOf(values: number[]): number {
 }
 
 /**
+ * How far the speed curve runs behind the beep: a start takes about `ONSET_MS` to show, and a curve
+ * that takes off later than that is the receiver's filter (or the athlete, late: so it is capped).
+ * Nothing when the athlete was already moving at the beep.
+ */
+function curveLag(series: Speeded[], startAt: number, stopAt: number): number {
+  const from = series.filter((p) => p.t <= startAt).at(-1);
+  if (from && from.m >= ONSET_SPEED_MS) return 0;
+  const window = series.filter((p) => p.t >= (from?.t ?? startAt) && p.t <= stopAt);
+  for (let i = 1; i < window.length; i++) {
+    const a = window[i - 1];
+    const b = window[i];
+    if (a.m < ONSET_SPEED_MS && b.m >= ONSET_SPEED_MS) {
+      const onset = a.t + ((ONSET_SPEED_MS - a.m) / (b.m - a.m)) * (b.t - a.t);
+      return Math.min(MAX_CURVE_LAG_MS, Math.max(0, onset - startAt - ONSET_MS));
+    }
+  }
+  return 0;
+}
+
+/** Where the athlete was at `t`, between the two fixes around it; null outside them. */
+function positionAt(points: SprintFix[], t: number): { lat: number; lon: number } | null {
+  const after = points.findIndex((p) => p.t >= t);
+  if (after < 0) return null;
+  const b = points[after];
+  if (b.t === t || after === 0) return b.t - t <= MAX_GAP_MS ? b : null;
+  const a = points[after - 1];
+  const k = (t - a.t) / (b.t - a.t);
+  return { lat: a.lat + (b.lat - a.lat) * k, lon: a.lon + (b.lon - a.lon) * k };
+}
+
+/**
  * Distance and top speed of one sprint, from the beep (`startAt`) to «Parar» (`stopAt`). The speed
  * curve is integrated with trapezoids and cut where it drops below walking after its peak, so the
- * steps after braking do not add. `quality` says how far to trust it (PLAN.md §6.8).
+ * steps after braking do not add. A curve that takes off late is read that much later (`curveLag`).
+ * `quality` says how far to trust it (PLAN.md §6.8): never more than weak from the fused location,
+ * nor when the positions tell another distance than the speeds.
  */
-export function measureSprint(fixes: SprintFix[], startAt: number, stopAt: number, now: number, lagMs = GPS_LAG_MS): SprintMeasure {
-  const series = speedSeries(cleanFixes(fixes));
-  const a = startAt + lagMs;
-  const b = stopAt + lagMs;
+export function measureSprint(fixes: SprintFix[], startAt: number, stopAt: number, now: number): SprintMeasure {
+  const source = pickSource(fixes, startAt, stopAt);
+  const points = cleanFixes(source.fixes);
+  const series = speedSeries(points);
+  const lag = curveLag(series, startAt, stopAt);
+  const a = startAt + lag;
+  const b = stopAt + lag;
   const before = series.filter((p) => p.t <= a).at(-1);
   const inside = series.filter((p) => p.t > a && p.t < b);
   const after = series.find((p) => p.t >= b);
@@ -322,6 +435,7 @@ export function measureSprint(fixes: SprintFix[], startAt: number, stopAt: numbe
   const top = Math.max(...series.filter((p) => p.t >= a && p.t <= b + TOP_SPEED_TAIL_MS).map((p) => p.m));
   let distance = 0;
   let topSpeed: number | null = null;
+  let mismatch = false;
   if (top >= BURST_MS) {
     topSpeed = top;
     // The first fix at the top speed of the sprint, and the first one after it back to walking.
@@ -339,11 +453,20 @@ export function measureSprint(fixes: SprintFix[], startAt: number, stopAt: numbe
       const to = curve[i].t <= end ? curve[i] : { t: end, m: lerp(from, curve[i], end) };
       distance += ((from.m + to.m) / 2) * ((to.t - from.t) / 1000);
     }
+    // A sprint is a straight line: from where it started to where it ended must be about as far.
+    const from = positionAt(points, a);
+    const to = positionAt(points, end);
+    if (from && to) {
+      const straight = distanceM(from, to);
+      mismatch = Math.abs(distance - straight) > Math.max(MISMATCH_M, MISMATCH_SHARE * Math.max(distance, straight));
+    }
   }
 
   const times = [before?.t ?? a, ...inside.map((p) => p.t), after?.t ?? b];
   const gap = times.some((t, i) => i > 0 && t - times[i - 1] > MAX_GAP_MS);
   const weak =
+    !source.gnss ||
+    mismatch ||
     medianOf(inside.map((p) => p.accuracy)) > GOOD_ACCURACY_M ||
     gap ||
     inside.filter((p) => p.positional).length > MAX_POSITIONAL_SHARE * inside.length ||
@@ -421,66 +544,96 @@ export function sprintSummary(rows: LapRow[]): SprintSummary {
   };
 }
 
-/** Sprints with a good GPS the straight needs to be compared with: with fewer, one odd reading would be the answer. */
-export const COMPARISON_MIN_SPRINTS = 3;
+/** Speed over the straight: its metres by the time from the beep to «Parar» (1.5.2). */
+export const straightSpeedMs = (straightM: number, timeMs: number): number => straightM / (timeMs / 1000);
 
-/** The straight the athlete wrote down next to what the GPS measured (1.5.0): nothing is corrected. */
-export interface StraightComparison {
-  straightM: number;
-  /** The median of the sprints with a good GPS, in whole metres, and how many they were; null with too few. */
-  gps: { medianM: number; diffM: number; count: number } | null;
+/** The best time of some sprints and, with a straight, the speed it means; null without sprints. */
+export function bestSprint(rows: readonly LapRow[], straightM: number | null): { number: number; timeMs: number; speedMs: number | null } | null {
+  const { bestTimeIndex } = sprintSummary([...rows]);
+  if (bestTimeIndex === null) return null;
+  const best = rows[bestTimeIndex];
+  return { number: best.number, timeMs: best.timeMs, speedMs: straightM === null ? null : straightSpeedMs(straightM, best.timeMs) };
 }
 
 /**
- * «Si lo sé, que lo estime también, pero así compara»: the length written down and the median of
- * what the GPS measured in the sprints it measured well. Worked out when read, never stored, so a
- * better measurement later (1.5.2) changes it by itself. Null without a straight.
+ * The top speed the GPS gave in a session, to say apart from the figures that count: null when
+ * there is none or it is below the speed of the best sprint over the straight (then it is plainly
+ * wrong: no one runs a straight faster on average than at their fastest).
  */
-export function straightComparison(rows: readonly Pick<LapRow, 'distanceM' | 'quality'>[], straightM: number | null): StraightComparison | null {
-  if (straightM === null) return null;
-  const good = rows
-    .filter((r) => r.quality === 'good' && r.distanceM !== null)
-    .map((r) => r.distanceM!)
-    .sort((a, b) => a - b);
-  if (good.length < COMPARISON_MIN_SPRINTS) return { straightM, gps: null };
-  const mid = good.length >> 1;
-  const medianM = Math.round(good.length % 2 === 1 ? good[mid] : (good[mid - 1] + good[mid]) / 2);
-  return { straightM, gps: { medianM, diffM: medianM - straightM, count: good.length } };
+export function gpsTopSpeed(rows: readonly LapRow[], straightM: number | null): { speedMs: number; weak: boolean } | null {
+  const { fastestIndex } = sprintSummary([...rows]);
+  if (fastestIndex === null) return null;
+  const fastest = rows[fastestIndex];
+  const best = bestSprint(rows, straightM);
+  if (best?.speedMs != null && fastest.topSpeedMs! < best.speedMs) return null;
+  return { speedMs: fastest.topSpeedMs!, weak: fastest.quality !== 'good' };
 }
 
-/** Under the GPS figure: «2 m menos · 5 sprints», «3 m más · 4 sprints», «Igual · 6 sprints»; or why there is none. */
-export function comparisonCaption(comparison: StraightComparison): string {
-  const { gps } = comparison;
-  if (!gps) return 'Pocos sprints con buen GPS para comparar';
-  const difference = gps.diffM === 0 ? 'Igual' : `${Math.abs(gps.diffM)}${NBSP}m ${gps.diffM < 0 ? 'menos' : 'más'}`;
-  return `${difference} · ${sprintsCount(gps.count)}`;
+/** How far from both ends of the straight a fix must be to say it was marked somewhere else. */
+export const ELSEWHERE_M = 150;
+
+/** Whether the athlete is (by a good fix) nowhere near the straight marked: another day's place. */
+export function straightElsewhere(ends: StraightEnds | null, fix: (LatLon & { accuracy: number | null }) | null): boolean {
+  if (!ends || !fix || fix.accuracy === null || fix.accuracy > SPRINT_MAX_ACCURACY_M) return false;
+  return distanceM(fix, ends.start) > ELSEWHERE_M && distanceM(fix, ends.end) > ELSEWHERE_M;
 }
 
-/** For Hoy and the history: «6 sprints · máx. 30,6 km/h», or «6 sprints · mejor 11,8 s» without GPS. */
-export function formatSprintResult(laps: Lap[]): string {
+/**
+ * The path of each sprint on the map, from the beep to «Parar», only with fixes of the chip
+ * (the fused ones ran 2–3 s behind and would draw another place). A sprint with fewer than two
+ * has none.
+ */
+export function sprintTraces(laps: Lap[], lapFixes: SprintFix[][]): LatLon[][] {
+  return closedOf(laps)
+    .map((lap, i) =>
+      (lapFixes[i] ?? [])
+        .filter((f) => f.gnss && f.accuracy !== null && f.accuracy <= SPRINT_MAX_ACCURACY_M && f.t >= lap.startAt && f.t <= lap.stopAt!)
+        .map(({ lat, lon }) => ({ lat, lon })),
+    )
+    .filter((trace) => trace.length >= 2);
+}
+
+/** Where some sprints were run: the middle (median) of their usable fixes, to open a map there. */
+export function sprintsPlace(lapFixes: SprintFix[][]): LatLon | null {
+  const usable = lapFixes.flat().filter((f) => f.accuracy !== null && f.accuracy <= SPRINT_MAX_ACCURACY_M);
+  if (usable.length === 0) return null;
+  return { lat: medianOf(usable.map((f) => f.lat)), lon: medianOf(usable.map((f) => f.lon)) };
+}
+
+/**
+ * For Hoy and the history: «6 × 36 m · mejor 7,0 s» with a straight, «6 sprints · mejor 7,0 s»
+ * without. Never what the GPS measured (until the 1.5.2, «máx. 30,6 km/h»): over 30 m it is rough.
+ */
+export function formatSprintResult(laps: Lap[], straightM: number | null = null): string {
   const summary = sprintSummary(lapRows(laps));
-  const count = sprintsCount(summary.count);
-  if (summary.topSpeedMs !== null) return `${count} · máx. ${formatSpeedKmh(summary.topSpeedMs)}`;
-  if (summary.bestTimeMs !== null) return `${count} · mejor ${formatSprintTime(summary.bestTimeMs)}`;
-  return count;
+  const count = straightM === null ? sprintsCount(summary.count) : `${summary.count} × ${straightM}${NBSP}m`;
+  return summary.bestTimeMs === null ? count : `${count} · mejor ${formatSprintTime(summary.bestTimeMs)}`;
 }
 
-/** The fixes around each finished sprint, compact, so a session can be measured again later. */
+/**
+ * The fixes around each finished sprint, compact, so a session can be measured again later:
+ * `[ms from the beep, lat·1e6, lon·1e6, accuracy·10, speed·100, ms it arrived late]`, and for the
+ * chip's fixes (1.5.2) two more, `1` and the accuracy of the speed·100.
+ */
 export function encodeLapFixes(laps: Lap[], fixes: SprintFix[]): string {
   return JSON.stringify(
     laps
       .filter((l) => l.stopAt !== null)
       .map((l) =>
         fixes
-          .filter((f) => f.t >= l.startAt - LAP_FIXES_MARGIN_MS && f.t <= l.stopAt! + LAP_FIXES_MARGIN_MS)
-          .map((f) => [
-            f.t - l.startAt,
-            Math.round(f.lat * 1e6),
-            Math.round(f.lon * 1e6),
-            f.accuracy === null ? null : Math.round(f.accuracy * 10),
-            f.speed === null ? null : Math.round(f.speed * 100),
-            f.receivedAt === null ? null : f.receivedAt - f.t,
-          ]),
+          .filter((f) => f.t >= l.startAt - LAP_FIXES_MARGIN_MS && f.t <= l.stopAt! + LAP_FIXES_TAIL_MS)
+          .map((f) => {
+            const row = [
+              f.t - l.startAt,
+              Math.round(f.lat * 1e6),
+              Math.round(f.lon * 1e6),
+              f.accuracy === null ? null : Math.round(f.accuracy * 10),
+              f.speed === null ? null : Math.round(f.speed * 100),
+              f.receivedAt === null ? null : f.receivedAt - f.t,
+            ];
+            // The chip's fixes say so, with how far it trusts the speed; the fused ones stay as before the 1.5.2.
+            return f.gnss ? [...row, 1, f.speedAccuracy == null ? null : Math.round(f.speedAccuracy * 100)] : row;
+          }),
       ),
   );
 }
@@ -508,6 +661,7 @@ export function decodeLapFixes(json: string | null, laps: Lap[]): SprintFix[][] 
           accuracy: isNumber(r[3]) ? r[3] / 10 : null,
           speed: isNumber(r[4]) ? r[4] / 100 : null,
           receivedAt: isNumber(r[5]) ? t + r[5] : null,
+          ...(r[6] === 1 ? { gnss: true, speedAccuracy: isNumber(r[7]) ? r[7] / 100 : null } : {}),
         };
       });
   });

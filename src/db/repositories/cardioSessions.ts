@@ -24,6 +24,7 @@ import {
 import { localDateString } from '@/domain/schedule';
 import {
   DEFAULT_SPRINT_PLAN,
+  decodeLapFixes,
   decodeLaps,
   encodeLaps,
   formatSprintResult,
@@ -175,6 +176,9 @@ export interface NewPoint {
   altitude: number | null;
   /** When the task stored it (diagnosis of clock skew); null in older callers. */
   receivedAt?: number | null;
+  /** Straight from the GPS chip, for the sprints (1.5.2), with how far it trusts its speed. */
+  gnss?: boolean;
+  speedAccuracy?: number | null;
 }
 
 /** What a batch of fixes did to a route being followed, for the GPS task to alert. */
@@ -203,9 +207,10 @@ export async function storeTrackPoints(
   db: Db,
   points: NewPoint[],
   now = Date.now(),
-): Promise<{ stored: number; follow: FollowResult | null }> {
+): Promise<{ stored: number; follow: FollowResult | null; sprint: boolean }> {
   const session = await db.getFirstAsync<{
     id: number;
+    tracking: string;
     segment: number;
     started_at: number;
     follow_route_id: number | null;
@@ -215,14 +220,14 @@ export async function storeTrackPoints(
     route_created: number | null;
     route_alert: number | null;
   }>(
-    `SELECT s.id, s.segment, s.started_at, s.follow_route_id, s.follow_state,
+    `SELECT s.id, s.tracking, s.segment, s.started_at, s.follow_route_id, s.follow_state,
             r.path, r.name AS route_name, r.created_at AS route_created,
             (SELECT route_alert FROM settings WHERE id = 1) AS route_alert
      FROM cardio_session s LEFT JOIN route r ON r.id = s.follow_route_id
      WHERE s.status = 'in_progress' AND s.tracking IN ('gps', 'sprint') AND s.paused_at IS NULL
      ORDER BY s.started_at DESC LIMIT 1`,
   );
-  if (!session) return { stored: 0, follow: null };
+  if (!session) return { stored: 0, follow: null, sprint: false };
   // Android may deliver a cached fix from before the start.
   const fresh = points.filter((p) => p.t >= session.started_at - 5_000);
   let follow: FollowResult | null = null;
@@ -239,8 +244,8 @@ export async function storeTrackPoints(
   }
   for (const p of fresh) {
     await db.runAsync(
-      `INSERT INTO cardio_point (session_id, segment, t, lat, lon, accuracy, speed, altitude, received_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO cardio_point (session_id, segment, t, lat, lon, accuracy, speed, altitude, received_at, source, speed_accuracy)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       session.id,
       session.segment,
       p.t,
@@ -250,6 +255,8 @@ export async function storeTrackPoints(
       p.speed,
       p.altitude,
       p.receivedAt ?? null,
+      p.gnss ? 1 : 0,
+      p.speedAccuracy ?? null,
     );
   }
   if (followJson !== null) {
@@ -261,7 +268,7 @@ export async function storeTrackPoints(
       session.follow_route_id,
     );
   }
-  return { stored: fresh.length, follow };
+  return { stored: fresh.length, follow, sprint: session.tracking === 'sprint' };
 }
 
 /** Stores fixes (see `storeTrackPoints`): how many, none when nothing is being recorded. */
@@ -353,20 +360,36 @@ export async function setSprintLaps(db: Db, id: number, expected: string | null,
   return result.changes === 1;
 }
 
-/** Fixes of a session between two instants, with their Doppler speed. */
+/** Fixes of a session between two instants, with their Doppler speed: the fused ones and the chip's (1.5.2). */
 export async function listSprintFixes(db: Db, id: number, from: number, to: number): Promise<SprintFix[]> {
-  return db.getAllAsync<SprintFix>(
-    `SELECT t, lat, lon, accuracy, speed, received_at AS receivedAt FROM cardio_point
+  const rows = await db.getAllAsync<Omit<SprintFix, 'gnss'> & { source: number }>(
+    `SELECT t, lat, lon, accuracy, speed, received_at AS receivedAt, source, speed_accuracy AS speedAccuracy FROM cardio_point
      WHERE session_id = ? AND t BETWEEN ? AND ? ORDER BY t, id`,
     id,
     from,
     to,
   );
+  return rows.map(({ source, ...fix }) => ({ ...fix, gnss: source === 1 }));
 }
 
-export async function lastTrackPoint(db: Db, id: number): Promise<{ t: number; accuracy: number | null; receivedAt: number | null } | null> {
+/** The fixes kept around each finished sprint of a session (`lap_fixes`), one list per sprint. */
+export async function sprintLapFixes(db: Db, id: number): Promise<SprintFix[][]> {
+  const row = await db.getFirstAsync<{ laps: string | null; lap_fixes: string | null }>('SELECT laps, lap_fixes FROM cardio_session WHERE id = ?', id);
+  return row ? decodeLapFixes(row.lap_fixes, decodeLaps(row.laps)) : [];
+}
+
+export interface LastFix {
+  t: number;
+  lat: number;
+  lon: number;
+  accuracy: number | null;
+  receivedAt: number | null;
+}
+
+/** The latest fix of a session: what the GPS can do right now, and where the athlete is. */
+export async function lastTrackPoint(db: Db, id: number): Promise<LastFix | null> {
   return db.getFirstAsync(
-    'SELECT t, accuracy, received_at AS receivedAt FROM cardio_point WHERE session_id = ? ORDER BY t DESC, id DESC LIMIT 1',
+    'SELECT t, lat, lon, accuracy, received_at AS receivedAt FROM cardio_point WHERE session_id = ? ORDER BY t DESC, id DESC LIMIT 1',
     id,
   );
 }
@@ -398,21 +421,69 @@ export async function finishSprintSession(db: Db, id: number, finishedAt: number
       session.date,
       session.activityId,
       session.name,
-      formatSprintResult(laps),
+      formatSprintResult(laps, session.sprint?.straightM ?? null),
       id,
     );
   });
 }
 
+/** The straight of some sprints: its metres and, when it was marked on the map, its two ends. */
+export type Straight = Pick<SprintPlan, 'straightM' | 'straightEnds'>;
+
+export const NO_STRAIGHT: Straight = { straightM: null, straightEnds: null };
+
 /**
- * The straight of a sprints session (1.5.0), in the copy of the plan it keeps: written down before
- * running or afterwards, once measured on a map. Null takes it away. Nothing else changes: the
- * comparison with the GPS is worked out when the session is read.
+ * The straight of a sprints session (PLAN.md §6.8), in the copy of the plan it keeps: marked on the
+ * map or written down, before running or afterwards. Its speeds are worked out when it is read;
+ * only the line of a finished session in the day's log is written again. If the session is the
+ * latest of its activity, the activity takes the straight too, for the next day (an old session
+ * must not change today's). True when the activity changed.
  */
-export async function setSprintStraight(db: Db, id: number, straightM: number | null): Promise<void> {
+export async function setSprintStraight(db: Db, id: number, straight: Straight): Promise<boolean> {
   const session = await getCardioSession(db, id);
-  if (!session?.sprint) return;
-  await db.runAsync('UPDATE cardio_session SET plan = ? WHERE id = ?', JSON.stringify({ ...session.sprint, straightM }), id);
+  if (!session?.sprint) return false;
+  let activityChanged = false;
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE cardio_session SET plan = ? WHERE id = ?', JSON.stringify({ ...session.sprint, ...straight }), id);
+    if (session.status === 'finished') {
+      await db.runAsync('UPDATE cardio_log SET value = ? WHERE session_id = ?', formatSprintResult(session.laps, straight.straightM), id);
+    }
+    if (session.activityId === null) return;
+    const later = await db.getFirstAsync<{ id: number }>(
+      'SELECT id FROM cardio_session WHERE activity_id = ? AND id <> ? AND started_at > ? LIMIT 1',
+      session.activityId,
+      id,
+      session.startedAt,
+    );
+    if (later) return;
+    activityChanged = await patchActivitySprint(db, session.activityId, straight);
+  });
+  return activityChanged;
+}
+
+/**
+ * How many sprints, the rest and the count of a session in progress, changed on its first screen
+ * (1.5.2): in its copy of the plan and in the activity, so they stay for the next day. Not below the
+ * sprints already done.
+ */
+export async function setSprintNumbers(db: Db, id: number, numbers: Pick<SprintPlan, 'sprints' | 'restSec' | 'leadSec'>): Promise<void> {
+  const session = await getCardioSession(db, id);
+  if (!session?.sprint || session.status !== 'in_progress') return;
+  const done = session.laps.filter((l) => l.stopAt !== null).length;
+  const next = { sprints: Math.max(numbers.sprints, done + 1), restSec: numbers.restSec, leadSec: numbers.leadSec };
+  await db.withTransactionAsync(async () => {
+    await db.runAsync('UPDATE cardio_session SET plan = ? WHERE id = ?', JSON.stringify({ ...session.sprint, ...next }), id);
+    if (session.activityId !== null) await patchActivitySprint(db, session.activityId, next);
+  });
+}
+
+/** Changes part of the sprints plan of an activity, if it still is one of sprints. True when it wrote. */
+async function patchActivitySprint(db: Db, activityId: number, patch: Partial<SprintPlan>): Promise<boolean> {
+  const activity = await db.getFirstAsync<{ tracking: string; plan: string | null }>('SELECT tracking, plan FROM cardio_activity WHERE id = ?', activityId);
+  if (activity?.tracking !== 'sprint') return false;
+  const plan = parseSprintPlan(activity.plan) ?? DEFAULT_SPRINT_PLAN;
+  await db.runAsync('UPDATE cardio_activity SET plan = ? WHERE id = ?', JSON.stringify({ ...plan, ...patch }), activityId);
+  return true;
 }
 
 /** An empty title goes back to the activity name. */
@@ -420,10 +491,10 @@ export async function setCardioTitle(db: Db, id: number, title: string): Promise
   await db.runAsync('UPDATE cardio_session SET title = ? WHERE id = ?', title.trim() || null, id);
 }
 
-/** What a finished session says in Hoy and in the history: «5,14 km · 59 min», «30 min», «6 sprints · máx. …». */
+/** What a finished session says in Hoy and in the history: «5,14 km · 59 min», «30 min», «6 × 36 m · mejor 7,0 s». */
 const resultOf = (session: CardioSession): string =>
   session.tracking === 'sprint'
-    ? formatSprintResult(session.laps)
+    ? formatSprintResult(session.laps, session.sprint?.straightM ?? null)
     : formatCardioResult(session.distanceM, activeMs(session, session.finishedAt ?? session.startedAt));
 
 /** A session finished on a day, as a row of «Hecho»: the same activity done twice is two of them (1.5.0). */

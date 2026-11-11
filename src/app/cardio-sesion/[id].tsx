@@ -34,7 +34,7 @@ import {
   Tag,
   type IconName,
 } from '@/components/ui';
-import { setCardioTitle, setSprintStraight, type CardioSession } from '@/db/repositories/cardioSessions';
+import { setCardioTitle, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen, type Hint } from '@/db/repositories/hints';
 import type { Photo, PhotoOwner } from '@/db/repositories/photos';
 import {
@@ -66,9 +66,10 @@ import type { FollowState } from '@/domain/routeFollow';
 import { defaultRouteName, recentFirst } from '@/domain/routes';
 import { localDateString, parseLocalDate } from '@/domain/schedule';
 import type { TrackMetric } from '@/domain/trackChart';
-import { sprintGps, STRAIGHT_RANGE_M } from '@/domain/sprint';
+import { sprintGps } from '@/domain/sprint';
 import { walkSnapshot, type WalkMetric, type WalkSnapshot } from '@/domain/walkStats';
 import { useDb, useNow } from '@/hooks/data';
+import { useOnDataChanged } from '@/hooks/editing';
 import { useCardioSession, useFollowedRoute, type SprintLive as SprintLiveData } from '@/hooks/walk';
 import { maybeAutoBackup } from '@/services/backup';
 import {
@@ -116,6 +117,8 @@ export default function CardioSessionScreen() {
   const sessionId = Number(id);
   const db = useDb();
   const { data, reload } = useCardioSession(sessionId);
+  // The «Deshacer» of a straight just marked (its Snackbar outlives the screen that showed it).
+  useOnDataChanged(reload);
   const [justFinished, setJustFinished] = useState(false);
   // «Seguir una ruta…» from the menu of a walk being recorded.
   const [followSheet, setFollowSheet] = useState<RouteListItem[] | null>(null);
@@ -297,26 +300,6 @@ export default function CardioSessionScreen() {
       console.warn('Could not export the GPX', e);
       showSnackbar('No se pudo exportar el GPX');
     });
-  /** «Recta…»: the metres of the straight, also for sprints already done (measured later on a map). Empty takes it away. */
-  const editStraight = async () => {
-    const current = session.sprint?.straightM ?? null;
-    const text = await showPrompt('Recta', {
-      value: current === null ? '' : String(current),
-      message: 'Si sabes cuánto mide, apúntala. El GPS la mide igual y verás las dos.',
-      placeholder: 'La mide el GPS',
-      keyboard: 'number',
-      suffix: 'm',
-      maxLength: 3,
-    });
-    if (text === null) return;
-    const metres = text.trim() === '' ? null : Number(text.trim());
-    if (metres !== null && !(Number.isInteger(metres) && metres >= STRAIGHT_RANGE_M[0] && metres <= STRAIGHT_RANGE_M[1])) {
-      showSnackbar(`Entre ${STRAIGHT_RANGE_M[0]} y ${STRAIGHT_RANGE_M[1]}${NBSP}m`);
-      return;
-    }
-    await setSprintStraight(db, session.id, metres);
-    reload();
-  };
   const menu = () => {
     const at = Date.now();
     // «Terminar ahora» once there is something to keep: a sprint done or one running.
@@ -326,7 +309,6 @@ export default function CardioSessionScreen() {
         ? [{ text: 'Terminar ahora', icon: 'flag-checkered' as const, onPress: () => askFinishSprints(session, at, () => finish()) }]
         : []),
       ...followItems,
-      ...(isSprint ? [{ text: 'Recta…', icon: 'ruler' as const, onPress: editStraight }] : []),
       ...(canSaveRoute ? [{ text: 'Guardar como ruta', icon: 'map-marker-path' as const, onPress: saveRoute }] : []),
       ...(routeLink ? [{ text: 'Quitar de la ruta', icon: 'link-variant-off' as const, onPress: () => leaveRoute(routeLink) }] : []),
       ...(canExport ? [{ text: 'Exportar GPX', icon: 'file-export-outline' as const, onPress: exportGpx }] : []),
@@ -415,6 +397,7 @@ export default function CardioSessionScreen() {
           session={session}
           prefs={prefs}
           photos={data.photos}
+          sprintTraces={data.sprintTraces}
           route={
             data.route ? <WalkRouteBlock key={data.route.kind} info={data.route} onYes={answerRoute.yes} onNo={answerRoute.no} /> : null
           }
@@ -960,6 +943,7 @@ function FinishedView({
   session,
   prefs,
   photos,
+  sprintTraces,
   route,
   onAddPhoto,
   onRename,
@@ -968,6 +952,8 @@ function FinishedView({
   session: CardioSession;
   prefs: WalkPrefs;
   photos: Photo[];
+  /** The path of each sprint by the GPS chip, for the map of its straight. */
+  sprintTraces: LatLon[][];
   /** The walk's saved route or the question about one: between its figures and its map. */
   route: ReactNode;
   onAddPhoto: () => void;
@@ -1005,7 +991,15 @@ function FinishedView({
         </>
       ) : session.tracking === 'sprint' ? (
         <>
-          <SprintDetails laps={session.laps} totalMs={activeMs(session, end)} straightM={session.sprint?.straightM ?? null} />
+          {session.sprint ? (
+            <SprintDetails
+              laps={session.laps}
+              plan={session.sprint}
+              totalMs={activeMs(session, end)}
+              traces={sprintTraces}
+              onStraight={() => router.push(`/recta/${session.id}`)}
+            />
+          ) : null}
           {photoSection}
         </>
       ) : (

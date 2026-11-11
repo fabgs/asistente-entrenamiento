@@ -1,13 +1,26 @@
 import * as Haptics from 'expo-haptics';
-import { useFocusEffect, usePreventRemove } from 'expo-router';
-import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { router, useFocusEffect, usePreventRemove } from 'expo-router';
+import { useCallback, useEffect, useImperativeHandle, useRef, useState, type ReactNode, type Ref } from 'react';
 import { AppState, Pressable, StyleSheet, useWindowDimensions, View } from 'react-native';
-import type { CardioSession } from '@/db/repositories/cardioSessions';
+import { setSprintNumbers, type CardioSession } from '@/db/repositories/cardioSessions';
 import { markHintSeen } from '@/db/repositories/hints';
 import { formatClock, formatCountdown, formatSprintTime, NBSP } from '@/domain/format';
 import { splitUnit } from '@/domain/progress';
-import { lapRows, leadMs, sprintGps, sprintLabel, sprintState, type LapRow, type SprintState } from '@/domain/sprint';
+import {
+  LEAD_RANGE_S,
+  lapRows,
+  leadMs,
+  REST_RANGE_S,
+  sprintLabel,
+  SPRINTS_RANGE,
+  sprintState,
+  straightElsewhere,
+  type LapRow,
+  type SprintPlan,
+  type SprintState,
+} from '@/domain/sprint';
 import { useDb, useNow } from '@/hooks/data';
+import { reschedule, useSavedAtOnce } from '@/hooks/editing';
 import type { SprintLive as Live } from '@/hooks/walk';
 import {
   addExtraSprint,
@@ -27,9 +40,11 @@ import {
 import { colors, radius, spacing } from '@/theme';
 import { onSprintButtonStop } from '../../modules/rest-timer';
 import { showActions, showDialog, showSnackbar } from './Dialog';
+import { FormRow } from './FormRow';
 import { Ring } from './Ring';
-import { sprintMetres, sprintSpeed, SprintStats, SprintTable, StraightStats } from './Sprint';
-import { AppText, BottomBar, Button, Card, Icon, ListGroup, ListRow, RowIcon, Screen, Tag, Value } from './ui';
+import { Sheet } from './Sheet';
+import { sprintMetres, SprintNotes, sprintSpeed, SprintStats, SprintTable, straightSpeed, StraightCard } from './Sprint';
+import { AppText, BottomBar, Button, Card, Icon, ListGroup, ListRow, NumberRow, RowIcon, Screen, Tag, Value, type IconName } from './ui';
 
 const RING_SIZE = 264;
 /** Dividers of rows with an icon start at the text: 16 + the 40 dp RowIcon + 16. */
@@ -204,7 +219,28 @@ export function SprintLive({
       },
     ]);
   const lastRow = rows.at(-1);
-  const table = rows.length > 0 ? <SprintTable rows={rows} onPickLast={lastRow ? () => removeLast(lastRow) : undefined} /> : null;
+  const table =
+    rows.length > 0 ? <SprintTable rows={rows} straightM={plan.straightM} onPickLast={lastRow ? () => removeLast(lastRow) : undefined} /> : null;
+  // The straight: its map and its metres, and the way to mark it (1.5.2).
+  const [planOpen, setPlanOpen] = useState(false);
+  // The numbers of the plan, changed from the first screen: shown at once and written one after another.
+  const [numbers, setNumbers] = useSavedAtOnce<Pick<SprintPlan, 'sprints' | 'restSec' | 'leadSec'>>(
+    { sprints: plan.sprints, restSec: plan.restSec, leadSec: plan.leadSec },
+    async (next) => {
+      await setSprintNumbers(db, session.id, next);
+      reschedule(db);
+      await reload();
+    },
+  );
+  const straight = (mapHeight: number, rows?: ReactNode) => (
+    <StraightCard
+      plan={plan}
+      mapHeight={mapHeight}
+      onPress={() => router.push(`/recta/${session.id}`)}
+      elsewhere={straightElsewhere(plan.straightEnds, live.lastFix)}>
+      {rows}
+    </StraightCard>
+  );
 
   const [saving, setSaving] = useState(false);
   const finish = async () => {
@@ -216,7 +252,6 @@ export function SprintLive({
     }
   };
 
-  const gps = sprintGps(live.lastFix, live.gpsOn, now);
   const hint =
     hintSeen && volumeHintSeen ? null : (
       <Card>
@@ -285,6 +320,7 @@ export function SprintLive({
         now={now}
         nextLabel={sprintLabel(state.number, plan)}
         last={lastRow}
+        straightM={plan.straightM}
         onPickLast={lastRow ? () => removeLast(lastRow) : undefined}
         onShift={(delta) => run(() => shiftSprintRest(db, session.id, delta))()}
         onSkip={run(() => goSprint(db, session.id))}
@@ -302,15 +338,16 @@ export function SprintLive({
           </BottomBar>
         }>
         <AppText variant="title">{state.count} sprints hechos</AppText>
-        <SprintStats rows={rows} />
+        <SprintStats rows={rows} straightM={plan.straightM} />
+        {straight(104)}
         {table}
-        <StraightStats rows={rows} straightM={plan.straightM} />
+        <SprintNotes rows={rows} straightM={plan.straightM} />
       </Screen>
     );
   }
 
-  // Ready.
-  const noGps = gps.state === 'off' || gps.state === 'searching' || gps.state === 'unusable';
+  // Ready: what is about to happen, drawn, and what can be set here (PLAN.md §6.8, 1.5.2).
+  const done = rows.length;
   return (
     <Screen
       footer={
@@ -325,27 +362,91 @@ export function SprintLive({
               style={styles.flex}
             />
           ) : null}
-          <Button size="xl" icon="play" title="Empezar sprint" onPress={run(() => goSprint(db, session.id))} disabled={saving} style={{ flex: 2 }} />
+          <Button
+            size="xl"
+            icon="timer-outline"
+            title={`Salida en ${plan.leadSec}${NBSP}s`}
+            onPress={run(() => goSprint(db, session.id))}
+            disabled={saving}
+            style={{ flex: 2 }}
+          />
         </BottomBar>
       }>
-      <View style={{ gap: spacing.xs }}>
-        <AppText variant="bodySm" weight="600" style={styles.muted}>
-          {sprintLabel(state.number, plan)}
-        </AppText>
-        <AppText variant="title">Cuando quieras</AppText>
-        <AppText variant="secondary">
-          Descanso de {formatCountdown(plan.restSec * 1000)} entre sprints. Cada salida es un pitido tras una cuenta de {plan.leadSec}
-          {NBSP}s.
-        </AppText>
-        {noGps ? (
-          <AppText variant="secondary" style={{ color: colors.warning }}>
-            Sin GPS todavía: este sprint solo medirá el tiempo
-          </AppText>
-        ) : null}
-      </View>
-      {hint}
+      <AppText variant="title">{sprintLabel(state.number, plan)}</AppText>
+      <Card style={styles.sequence}>
+        <Step icon="timer-outline" color={colors.warning} value={`${plan.leadSec}${NBSP}s`} word="cuenta" />
+        <Icon name="chevron-right" size={20} color={colors.muted} />
+        <Step icon="volume-high" color={colors.text} value="Pitido" word="sales" />
+        <Icon name="chevron-right" size={20} color={colors.muted} />
+        <Step icon="stop" color={colors.primary} value="Parar" word="al llegar" />
+      </Card>
+      {straight(
+        104,
+        <ListRow
+          onPress={() => setPlanOpen(true)}
+          left={<RowIcon name="tune" />}
+          title={`${plan.sprints} ${plan.sprints === 1 ? 'sprint' : 'sprints'}`}
+          subtitle={
+            // Two lines at a big font: cut, it would hide the count, the very thing this screen is there to say.
+            <AppText variant="secondary" numberOfLines={2}>
+              {`Descanso ${formatCountdown(plan.restSec * 1000)} · cuenta ${plan.leadSec}${NBSP}s`}
+            </AppText>
+          }
+        />,
+      )}
       {table}
+      <Sheet visible={planOpen} title="Plan" onClose={() => setPlanOpen(false)}>
+        <ListGroup style={{ backgroundColor: colors.cardAlt }}>
+          <FormRow>
+            <NumberRow
+              label="Sprints"
+              value={numbers.sprints}
+              onChange={(sprints) => setNumbers({ ...numbers, sprints })}
+              min={Math.max(SPRINTS_RANGE[0], done + 1)}
+              max={SPRINTS_RANGE[1]}
+            />
+          </FormRow>
+          <FormRow>
+            <NumberRow
+              label="Descanso"
+              value={numbers.restSec}
+              onChange={(restSec) => setNumbers({ ...numbers, restSec })}
+              step={15}
+              min={REST_RANGE_S[0]}
+              max={REST_RANGE_S[1]}
+              format={(sec) => formatCountdown(sec * 1000)}
+            />
+          </FormRow>
+          <FormRow>
+            <NumberRow
+              label="Cuenta previa"
+              value={numbers.leadSec}
+              onChange={(leadSec) => setNumbers({ ...numbers, leadSec })}
+              step={5}
+              min={LEAD_RANGE_S[0]}
+              max={LEAD_RANGE_S[1]}
+              format={(sec) => `${sec}${NBSP}s`}
+            />
+          </FormRow>
+        </ListGroup>
+        <AppText variant="caption">Queda también para el próximo día.</AppText>
+      </Sheet>
     </Screen>
+  );
+}
+
+/** One step of what a sprint is, drawn: an icon, what it is and one word. */
+function Step({ icon, color, value, word }: { icon: IconName; color: string; value: string; word: string }) {
+  return (
+    <View style={styles.step} accessible accessibilityLabel={`${value}, ${word}`}>
+      <Icon name={icon} size={24} color={color} />
+      <AppText variant="rowTitle" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {value}
+      </AppText>
+      <AppText variant="caption" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>
+        {word}
+      </AppText>
+    </View>
   );
 }
 
@@ -372,6 +473,7 @@ function RestView({
   now,
   nextLabel,
   last,
+  straightM,
   onPickLast,
   onShift,
   onSkip,
@@ -380,6 +482,8 @@ function RestView({
   now: number;
   nextLabel: string;
   last: LapRow | undefined;
+  /** With a straight, the last sprint says its speed over it; what the GPS measured goes after. */
+  straightM: number | null;
   onPickLast?: () => void;
   onShift: (deltaSeconds: number) => void;
   onSkip: () => void;
@@ -398,11 +502,13 @@ function RestView({
   const measured = last && last.settled && last.quality !== 'none';
   const subtitle = !last
     ? undefined
-    : !last.settled
-      ? 'Midiendo…'
-      : last.quality === 'none'
-        ? 'Sin GPS: solo el tiempo'
-        : `${sprintMetres(last)} · máx. ${sprintSpeed(last)}`;
+    : straightM !== null
+      ? `${straightSpeed(straightM, last.timeMs)}${last.settled && last.quality === 'none' ? '' : ` · GPS ${sprintMetres(last)}`}`
+      : !last.settled
+        ? 'Midiendo…'
+        : last.quality === 'none'
+          ? 'Sin GPS: solo el tiempo'
+          : `${sprintMetres(last)} · máx. ${sprintSpeed(last)}`;
   return (
     <Screen tight footer={footer}>
       <View style={styles.restTop}>
@@ -456,6 +562,8 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', gap: spacing.sm, paddingTop: spacing.xl },
   forgotten: { alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.lg },
   restTop: { alignItems: 'center', gap: spacing.sm },
+  sequence: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingHorizontal: spacing.md },
+  step: { flex: 1, alignItems: 'center', gap: 2 },
   titleRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
   stopPad: {
     flex: 1,

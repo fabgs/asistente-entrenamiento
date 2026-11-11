@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react';
-import { getCardioSession, lastTrackPoint, listSprintFixes, listTrackPoints } from '@/db/repositories/cardioSessions';
+import { getCardioSession, lastTrackPoint, listSprintFixes, listTrackPoints, sprintLapFixes, type LastFix } from '@/db/repositories/cardioSessions';
 import { hintsSeen } from '@/db/repositories/hints';
 import { listPhotos } from '@/db/repositories/photos';
 import { followedRoute, routeCount, walkRoute, type SavedRoute } from '@/db/repositories/routes';
 import { getSettings } from '@/db/repositories/settings';
 import { buildFollowLine, followView, routeAhead, type FollowState } from '@/domain/routeFollow';
 import { routeEnds } from '@/domain/routes';
-import { LAP_FIXES_MARGIN_MS, measureSprint, type SprintMeasure } from '@/domain/sprint';
-import { isGpsRecording } from '@/services/gpsTracker';
+import { LAP_FIXES_MARGIN_MS, LAP_FIXES_TAIL_MS, measureSprint, sprintTraces, type SprintMeasure } from '@/domain/sprint';
+import { isGpsRecording, storeSprintGnss } from '@/services/gpsTracker';
 import { isOnPhone } from '@/services/photos';
 import { useLoader } from './data';
 
 /** What the live sprints screen reads besides the session: the GPS and each sprint measured so far. */
 export interface SprintLive {
-  lastFix: { t: number; accuracy: number | null; receivedAt: number | null } | null;
+  lastFix: LastFix | null;
   gpsOn: boolean;
   /** Aligned with the laps; null for the open one. */
   measures: (SprintMeasure | null)[];
@@ -36,6 +36,8 @@ export function useCardioSession(sessionId: number) {
     let sprintLive: SprintLive | null = null;
     if (inProgress && session.tracking === 'sprint') {
       const now = Date.now();
+      // The chip's fixes arrive with each fused batch; this brings the ones since then.
+      await storeSprintGnss();
       const measures: (SprintMeasure | null)[] = [];
       for (const lap of session.laps) {
         if (lap.stopAt === null) {
@@ -45,7 +47,7 @@ export function useCardioSession(sessionId: number) {
         const key = `${lap.startAt}:${lap.stopAt}`;
         let measure = settled.current.get(key);
         if (!measure) {
-          const fixes = await listSprintFixes(db, sessionId, lap.startAt - LAP_FIXES_MARGIN_MS, lap.stopAt + LAP_FIXES_MARGIN_MS);
+          const fixes = await listSprintFixes(db, sessionId, lap.startAt - LAP_FIXES_MARGIN_MS, lap.stopAt + LAP_FIXES_TAIL_MS);
           measure = measureSprint(fixes, lap.startAt, lap.stopAt, now);
           if (measure.settled) settled.current.set(key, measure);
         }
@@ -60,6 +62,9 @@ export function useCardioSession(sessionId: number) {
       settings: await getSettings(db),
       hints: await hintsSeen(db),
       photos: (await listPhotos(db, { kind: 'cardio', id: sessionId })).filter(isOnPhone),
+      // Finished sprints: the path of each one by the GPS chip, over the straight (1.5.2).
+      sprintTraces:
+        session.status === 'finished' && session.tracking === 'sprint' ? sprintTraces(session.laps, await sprintLapFixes(db, sessionId)) : [],
       // A finished walk: its saved route, or the question about the one it seems to repeat.
       route: session.status === 'finished' && session.tracking === 'gps' ? await walkRoute(db, sessionId) : null,
       // The route it follows (1.4.9), and whether there are any to follow.

@@ -38,12 +38,14 @@ import {
   takeSprintStop,
 } from '../../modules/rest-timer';
 import { cancelCardioTimer } from './cardioTimer';
-import { isGpsRecording, stopGpsTracking } from './gpsTracker';
+import { isGpsRecording, startSprintGps, stopGpsTracking, stopSprintGps, storeSprintGnss } from './gpsTracker';
 
 const SETTLE_POLL_MS = 500;
 /** Under «Sprint 3 de 6» in the notification shown while running. */
 const RUNNING_TEXT = 'Toca Parar al llegar';
 const SETTLE_WAIT_MS = 5_000;
+/** The last sprint is measured with fixes up to this long after its stop (a late curve and its tail). */
+const SETTLE_FIX_MS = 2_500;
 
 /** The laps before and after an action, to put back what it did. */
 export type SprintUndo = { from: string; to: string | null };
@@ -55,6 +57,8 @@ export type SprintUndo = { from: string; to: string | null };
 export async function syncSprint(session: CardioSession, now = Date.now()): Promise<void> {
   const plan = session.sprint;
   const state = plan && session.status === 'in_progress' ? sprintState(plan, session.laps, now) : null;
+  // The chip's fixes, whenever the GPS of the sprints is on (also in a process that just started).
+  if (state && (await isGpsRecording())) startSprintGps();
   if (!plan || !state || state.kind === 'ready' || state.kind === 'done') {
     cancelSprintBeep();
     stopSprintRunning();
@@ -172,6 +176,7 @@ export function showOverLockScreen(on: boolean): void {
 export async function stopSprintTracking(session: CardioSession): Promise<void> {
   cancelSprintBeep();
   stopSprintRunning();
+  stopSprintGps();
   await stopGpsTracking();
   await cancelCardioTimer(session.id);
   showOverLockScreen(false);
@@ -191,11 +196,13 @@ export async function finishSprints(db: Db, stale: CardioSession, now = Date.now
   const lastStop = laps.filter((l) => l.stopAt !== null).at(-1)?.stopAt ?? null;
   if (lastStop !== null && (await isGpsRecording())) {
     while (Date.now() < lastStop + SETTLE_WAIT_MS) {
+      await storeSprintGnss();
       const last = await lastTrackPoint(db, session.id);
-      if (last && last.t >= lastStop + 1000) break;
+      if (last && last.t >= lastStop + SETTLE_FIX_MS) break;
       await new Promise((resolve) => setTimeout(resolve, SETTLE_POLL_MS));
     }
   }
+  await storeSprintGnss();
   await stopSprintTracking(session);
   const fixes = await listSprintFixes(db, session.id, session.startedAt - 5000, Date.now() + 60_000);
   const measured = withMeasures(laps, measureLaps(fixes, laps, Infinity));

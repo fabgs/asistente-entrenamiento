@@ -1,6 +1,6 @@
 import type { SprintFix } from '../sprint';
 
-/** A 73 m sprint northwards, one fix a second: start at k = 0 (`T0`), top speed 8 m/s, stopped from k = 12. */
+/** A 73 m sprint northwards, one fix a second from the GPS chip: start at k = 0 (`T0`), top speed 8 m/s, stopped from k = 12. */
 export const T0 = 1_000_000;
 export const LAT0 = 41.3655;
 export const LON0 = 2.1585;
@@ -35,6 +35,7 @@ export const fixAt = (k: number, over: Partial<SprintFix> = {}): SprintFix => ({
   accuracy: 4,
   speed: speedAt(k),
   receivedAt: null,
+  gnss: true,
   ...over,
 });
 
@@ -53,4 +54,5 @@ export const standing = (seconds: number): SprintFix[] =>
     accuracy: 4,
     speed: 0.3,
     receivedAt: null,
+    gnss: true,
   }));

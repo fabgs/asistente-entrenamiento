@@ -3,7 +3,7 @@ import { NBSP } from '../format';
 import {
   cancelGo,
   closeForFinish,
-  comparisonCaption,
+  bestSprint,
   decodeLapFixes,
   decodeLaps,
   DEFAULT_SPRINT_PLAN,
@@ -22,17 +22,25 @@ import {
   sprintLabel,
   sprintState,
   stopLap,
-  straightComparison,
+  gpsTopSpeed,
+  markedStraight,
+  sprintsPlace,
+  sprintTraces,
+  straightElsewhere,
+  straightSpeedMs,
   type Lap,
+  type LapRow,
   type SprintFix,
 } from '../sprint';
 import { distanceM } from '../gps';
-import { eastOf, standing, straight, T0 } from './sprintFixtures';
+import { eastOf, LAT0, LON0, standing, straight, T0 } from './sprintFixtures';
+import { PHONE_FUSED, phoneFused } from './sprintPhone';
+
+const M_PER_DEG_LAT = (6_371_008.8 * Math.PI) / 180;
 
 const STOP = T0 + 11_500;
 const NOW = T0 + 20_000;
-const measure = (fixes: SprintFix[], startAt = T0, stopAt = STOP, now = NOW, lag?: number) =>
-  measureSprint(fixes, startAt, stopAt, now, lag);
+const measure = (fixes: SprintFix[], startAt = T0, stopAt = STOP, now = NOW) => measureSprint(fixes, startAt, stopAt, now);
 const withK = (k: number, over: Partial<SprintFix>) => straight().map((f) => (f.t === T0 + 1000 * k ? { ...f, ...over } : f));
 
 describe('measureSprint', () => {
@@ -97,10 +105,14 @@ describe('measureSprint', () => {
     expect(m.quality).toBe('weak');
   });
 
-  it('10 · corrects a clock skew with the lag', () => {
-    const late = straight().map((f) => ({ ...f, t: f.t + 800 }));
-    expect(measure(late).distanceM).toBeCloseTo(72.02, 2);
-    expect(measure(late, T0, STOP, NOW, 800).distanceM).toBeCloseTo(72.5, 2);
+  it('10 · reads a curve that takes off late that much later, up to 1,5 s', () => {
+    const late = (ms: number) => straight().map((f) => ({ ...f, t: f.t + ms }));
+    expect(measure(late(800)).distanceM).toBeCloseTo(72.5, 2);
+    // Later than that it is the athlete who was late, and «Parar» cuts what is left.
+    expect(measure(late(3000), T0, STOP, T0 + 30_000).distanceM).toBeCloseTo(69.5, 2);
+    // Already moving at the beep (a rolling start): nothing is shifted.
+    const rolling = straight().map((f) => ({ ...f, speed: Math.max(f.speed!, 2) }));
+    expect(measure(rolling, T0 + 2000, STOP).topSpeedMs).toBe(8);
   });
 
   it('11 · interpolates the speed at a start between two fixes', () => {
@@ -136,6 +148,49 @@ describe('measureSprint', () => {
   it('17 · drops a fix 40 m away from both neighbours', () => {
     const fixes = straight().map((f) => (f.t === T0 + 6000 ? eastOf(f, 40) : f));
     expect(measure(fixes).distanceM).toBeCloseTo(72.5, 2);
+  });
+
+  it('18 · keeps the top of a short sprint, whose peak is a single fix', () => {
+    const speeds = [0, 0, 0, 0, 3.5, 5.6, 6.6, 7.4, 3, 0.5, 0, 0];
+    let north = 0;
+    const fixes = speeds.map((speed, i) => {
+      north += i === 0 ? 0 : (speeds[i - 1] + speed) / 2;
+      return { ...straight()[0], t: T0 + 1000 * (i - 3), lat: LAT0 + north / M_PER_DEG_LAT, speed };
+    });
+    const m = measure(fixes, T0, T0 + 6500);
+    expect(m.topSpeedMs).toBe(7.4);
+    expect(m.distanceM).toBeCloseTo(26.35, 2);
+    expect(m.quality).toBe('good');
+  });
+
+  it('19 · measures with the fixes of the chip and leaves the fused ones out', () => {
+    // The fused location of a phone: the same times, half the speed and positions that barely move.
+    const fused = straight().map((f) => ({ ...f, gnss: false, speed: f.speed! / 2, lat: LAT0 + (f.lat - LAT0) / 2 }));
+    const both = measure([...fused, ...straight().map((f) => ({ ...f, t: f.t + 1 }))]);
+    expect(both.distanceM).toBeCloseTo(72.5, 1);
+    expect(both.quality).toBe('good');
+    // Only the fused ones (no native module, or the listener died): measured, never called good.
+    const alone = measure(fused);
+    expect(alone.distanceM).toBeCloseTo(36.25, 1);
+    expect(alone.quality).toBe('weak');
+    // A chip that gave two fixes in the whole sprint does not cover it.
+    const sparse = straight().filter((f) => f.t <= T0 || f.t >= STOP || f.t === T0 + 4000 || f.t === T0 + 8000);
+    expect(measure([...fused, ...sparse]).distanceM).toBeCloseTo(36.25, 1);
+  });
+
+  it('20 · calls it weak when the positions tell another distance than the speeds', () => {
+    const slow = straight().map((f) => ({ ...f, speed: f.speed! * 0.6 }));
+    const m = measure(slow);
+    expect(m.distanceM).toBeCloseTo(43.5, 1);
+    expect(m.quality).toBe('weak');
+  });
+
+  it('21 · the fused location of a real phone on a 30–40 m straight: nothing to trust', () => {
+    const measured = PHONE_FUSED.map((lap, i) => measureSprint(phoneFused(i), T0, T0 + lap.timeMs, T0 + 60_000));
+    expect(measured.map((m) => m.quality)).toEqual(['weak', 'weak', 'weak', 'weak', 'weak', 'weak']);
+    // The same straight six times, and no two alike: from 3 to 33 m.
+    const metres = measured.map((m) => Math.round(m.distanceM!));
+    expect(Math.max(...metres) - Math.min(...metres)).toBeGreaterThan(15);
   });
 });
 
@@ -293,33 +348,100 @@ describe('stopping with a button (1.5.0)', () => {
   });
 });
 
-describe('the straight next to the GPS (1.5.0)', () => {
-  const row = (distanceM: number | null, quality: 'good' | 'weak' | 'none' | null = 'good') => ({ distanceM, quality });
+describe('the straight and the time are what count (1.5.2)', () => {
+  const row = (number: number, timeMs: number, over: Partial<LapRow> = {}): LapRow => ({
+    number,
+    timeMs,
+    distanceM: 17,
+    topSpeedMs: 5.5,
+    quality: 'weak',
+    settled: true,
+    ...over,
+  });
+  // The session of the user on 2026-11-11: the same straight six times.
+  const rows = [row(1, 8700), row(2, 8100), row(3, 8200), row(4, 7600), row(5, 7200), row(6, 7000)];
 
-  it('is nothing without a straight written down', () => {
-    expect(straightComparison([row(58), row(59), row(60)], null)).toBeNull();
+  it('gives the speed of a sprint over the straight: its metres by its time', () => {
+    expect(straightSpeedMs(36, 7000) * 3.6).toBeCloseTo(18.51, 2);
+    expect(straightSpeedMs(60, 12_000)).toBe(5);
   });
 
-  it('compares it with the median of the sprints with a good GPS, from three on', () => {
-    const five = [row(57.4), row(58.2), row(61), row(55), row(58.4)];
-    const comparison = straightComparison(five, 60)!;
-    expect(comparison).toEqual({ straightM: 60, gps: { medianM: 58, diffM: -2, count: 5 } });
-    expect(comparisonCaption(comparison)).toBe(`2${NBSP}m menos · 5 sprints`);
-    // An even number: the middle two.
-    const four = straightComparison([row(62), row(63), row(64), row(70)], 60)!;
-    expect(four.gps).toEqual({ medianM: 64, diffM: 4, count: 4 });
-    expect(comparisonCaption(four)).toBe(`4${NBSP}m más · 4 sprints`);
-    expect(comparisonCaption(straightComparison([row(59.6), row(60.2), row(60.4)], 60)!)).toBe('Igual · 3 sprints');
+  it('says the best time and, with a straight, the speed it means', () => {
+    expect(bestSprint(rows, 36)).toEqual({ number: 6, timeMs: 7000, speedMs: 36 / 7 });
+    expect(bestSprint(rows, null)).toEqual({ number: 6, timeMs: 7000, speedMs: null });
+    expect(bestSprint([], 36)).toBeNull();
   });
 
-  it('leaves out the sprints the GPS measured badly or not at all, and says so with too few', () => {
-    const rows = [row(58), row(59), row(90, 'weak'), row(null, 'none'), row(40, null)];
-    const comparison = straightComparison(rows, 60)!;
-    expect(comparison).toEqual({ straightM: 60, gps: null });
-    expect(comparisonCaption(comparison)).toBe('Pocos sprints con buen GPS para comparar');
-    // One odd reading among good ones does not move the median.
-    expect(straightComparison([row(58), row(59), row(60), row(120)], 60)!.gps!.medianM).toBe(60);
-    expect(straightComparison([], 60)).toEqual({ straightM: 60, gps: null });
+  it('keeps the top speed of the GPS apart, and out when it is below the speed over the straight', () => {
+    // 5,5 m/s (19,8 km/h) is above the 18,5 km/h of the best sprint over 36 m: said, as rough.
+    expect(gpsTopSpeed(rows, 36)).toEqual({ speedMs: 5.5, weak: true });
+    // Over a straight of 50 m the best sprint averaged 25,7 km/h: a top of 19,8 is plainly wrong.
+    expect(gpsTopSpeed(rows, 50)).toBeNull();
+    expect(gpsTopSpeed(rows, null)).toEqual({ speedMs: 5.5, weak: true });
+    expect(gpsTopSpeed([row(1, 7000, { topSpeedMs: 8, quality: 'good' })], 36)).toEqual({ speedMs: 8, weak: false });
+    expect(gpsTopSpeed([row(1, 7000, { topSpeedMs: null, quality: 'none' })], 36)).toBeNull();
+  });
+
+  it('says in Hoy how many, over how many metres and the best time, never what the GPS measured', () => {
+    const laps: Lap[] = [
+      { ...closed(0, 8700), distanceM: 17, topSpeedMs: 2.03, quality: 'weak' },
+      { ...closed(100_000, 107_000), distanceM: 19, topSpeedMs: 4.13, quality: 'weak' },
+    ];
+    expect(formatSprintResult(laps, 36)).toBe(`2 × 36${NBSP}m · mejor 7,0${NBSP}s`);
+    expect(formatSprintResult(laps)).toBe(`2 sprints · mejor 7,0${NBSP}s`);
+    expect(formatSprintResult([], 36)).toBe(`0 × 36${NBSP}m`);
+  });
+
+  it('marks a straight on the map: its two ends and the whole metres between them', () => {
+    const start = { lat: LAT0, lon: LON0 };
+    const end = { lat: LAT0 + 36.4 / M_PER_DEG_LAT, lon: LON0 };
+    const marked = markedStraight(start, end)!;
+    expect(marked.straightM).toBe(36);
+    expect(distanceM(marked.straightEnds!.start, start)).toBeLessThan(0.1);
+    expect(distanceM(marked.straightEnds!.end, end)).toBeLessThan(0.1);
+    // Shorter or longer than a straight can be: nothing to save.
+    expect(markedStraight(start, { lat: LAT0 + 6 / M_PER_DEG_LAT, lon: LON0 })).toBeNull();
+    expect(markedStraight(start, { lat: LAT0 + 450 / M_PER_DEG_LAT, lon: LON0 })).toBeNull();
+  });
+
+  it('keeps the ends in the plan, only with their metres', () => {
+    const marked = markedStraight({ lat: LAT0, lon: LON0 }, { lat: LAT0 + 36 / M_PER_DEG_LAT, lon: LON0 })!;
+    const stored = JSON.stringify({ ...plan, ...marked });
+    expect(parseSprintPlan(stored)).toEqual({ ...plan, ...marked });
+    // A plan from before the 1.5.2, a written straight, ends without metres and ends that are not places.
+    expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"straightM":60}')!.straightEnds).toBeNull();
+    expect(parseSprintPlan(JSON.stringify({ ...plan, straightEnds: marked.straightEnds }))!.straightEnds).toBeNull();
+    expect(parseSprintPlan(JSON.stringify({ ...plan, straightM: 36, straightEnds: { start: { lat: 95, lon: 0 }, end: marked.straightEnds!.end } }))!.straightEnds).toBeNull();
+    expect(parseSprintPlan(JSON.stringify({ ...plan, straightM: 36, straightEnds: [1, 2] }))!.straightEnds).toBeNull();
+  });
+
+  it('knows when the athlete is nowhere near the straight marked', () => {
+    const { straightEnds } = markedStraight({ lat: LAT0, lon: LON0 }, { lat: LAT0 + 36 / M_PER_DEG_LAT, lon: LON0 })!;
+    const at = (metres: number, accuracy: number | null = 4) => ({ lat: LAT0 + metres / M_PER_DEG_LAT, lon: LON0, accuracy });
+    expect(straightElsewhere(straightEnds, at(20))).toBe(false);
+    expect(straightElsewhere(straightEnds, at(180))).toBe(false);
+    expect(straightElsewhere(straightEnds, at(190))).toBe(true);
+    // A poor fix, none, or no ends: nothing to say.
+    expect(straightElsewhere(straightEnds, at(500, 40))).toBe(false);
+    expect(straightElsewhere(straightEnds, at(500, null))).toBe(false);
+    expect(straightElsewhere(straightEnds, null)).toBe(false);
+    expect(straightElsewhere(null, at(500))).toBe(false);
+  });
+
+  it('draws the path of each sprint only with fixes of the chip, from the beep to the stop', () => {
+    const laps = [closed(T0, STOP), closed(T0 + 100_000, T0 + 108_000)];
+    const second = straight().map((f) => ({ ...f, t: f.t + 100_000, gnss: false }));
+    const traces = sprintTraces(laps, [straight(), second]);
+    // The first sprint: its 12 fixes between the beep and the stop. The second only has fused fixes: no path.
+    expect(traces).toHaveLength(1);
+    expect(traces[0]).toHaveLength(12);
+    expect(traces[0][0]).toEqual({ lat: LAT0, lon: LON0 });
+    expect(sprintTraces(laps, [])).toEqual([]);
+    // Where they were run, to open a map there: the middle of every usable fix, whatever its source.
+    const place = sprintsPlace([straight(), second])!;
+    expect(distanceM(place, { lat: LAT0, lon: LON0 })).toBeLessThan(80);
+    expect(sprintsPlace([straight().map((f) => ({ ...f, accuracy: 40 }))])).toBeNull();
+    expect(sprintsPlace([])).toBeNull();
   });
 });
 
@@ -336,7 +458,7 @@ describe('laps and plans as JSON', () => {
     expect(parseSprintPlan(JSON.stringify(plan))).toEqual(plan);
     expect(parseSprintPlan('{"kind":"hiit","sprints":6,"restSec":90}')).toBeNull();
     expect(parseSprintPlan('{"kind":"sprint","sprints":6}')).toBeNull();
-    expect(parseSprintPlan('{"kind":"sprint","sprints":0,"restSec":5}')).toEqual({ kind: 'sprint', sprints: 1, restSec: 30, leadSec: 5, straightM: null });
+    expect(parseSprintPlan('{"kind":"sprint","sprints":0,"restSec":5}')).toEqual({ kind: 'sprint', sprints: 1, restSec: 30, leadSec: 5, straightM: null, straightEnds: null });
     // A plan stored before the 1.5.0 has neither the count nor the straight.
     expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90}')).toEqual(plan);
     expect(parseSprintPlan('{"kind":"sprint","sprints":6,"restSec":90,"leadSec":15,"straightM":60}')).toMatchObject({ leadSec: 15, straightM: 60 });
@@ -357,24 +479,37 @@ describe('laps and plans as JSON', () => {
       { ...closed(0, 12_000), topSpeedMs: 8, quality: 'good' },
       { ...closed(100_000, 111_800), topSpeedMs: 7.5, quality: 'good' },
     ];
-    expect(formatSprintResult(fast)).toBe(`2 sprints · máx. 28,8${NBSP}km/h`);
+    // Since the 1.5.2 the time, however well the GPS measured.
+    expect(formatSprintResult(fast)).toBe(`2 sprints · mejor 11,8${NBSP}s`);
     expect(formatSprintResult([closed(0, 12_000), closed(100_000, 111_800)])).toBe(`2 sprints · mejor 11,8${NBSP}s`);
-    expect(formatSprintResult([{ ...closed(0, 12_000), topSpeedMs: 25 / 3.6, quality: 'good' }])).toBe(`1 sprint · máx. 25${NBSP}km/h`);
+    expect(formatSprintResult([{ ...closed(0, 12_000), topSpeedMs: 25 / 3.6, quality: 'good' }])).toBe(`1 sprint · mejor 12,0${NBSP}s`);
   });
 
   it('keeps the fixes of each sprint within 0,2 m', () => {
     const laps = [closed(T0, STOP)];
     const fixes = straight().map((f) => ({ ...f, receivedAt: f.t + 350 }));
     const [back] = decodeLapFixes(encodeLapFixes(laps, fixes), laps);
-    const kept = fixes.filter((f) => f.t >= T0 - 3000 && f.t <= STOP + 3000);
+    // From 3 s before the beep to 8 s after the stop: the curve of a phone runs late.
+    const kept = fixes.filter((f) => f.t >= T0 - 3000 && f.t <= STOP + 8000);
     expect(back).toHaveLength(kept.length);
     back.forEach((f, i) => {
       expect(f.t).toBe(kept[i].t);
       expect(distanceM(f, kept[i])).toBeLessThanOrEqual(0.2);
       expect(f.speed).toBe(kept[i].speed);
       expect(f.receivedAt).toBe(kept[i].receivedAt);
+      expect(f.gnss).toBe(true);
     });
     expect(decodeLapFixes(null, laps)).toEqual([[]]);
+    // The chip's fixes say so, with how far it trusts the speed; the fused ones are stored as before the 1.5.2.
+    const chip = { ...fixes[5], speedAccuracy: 0.42 };
+    const fused = { ...fixes[6], gnss: false };
+    const stored = JSON.parse(encodeLapFixes(laps, [chip, fused])) as number[][][];
+    expect(stored[0][0]).toHaveLength(8);
+    expect(stored[0][0].slice(6)).toEqual([1, 42]);
+    expect(stored[0][1]).toHaveLength(6);
+    const [[chipBack, fusedBack]] = decodeLapFixes(JSON.stringify(stored), laps);
+    expect(chipBack).toMatchObject({ gnss: true, speedAccuracy: 0.42 });
+    expect(fusedBack.gnss).toBeUndefined();
   });
 });
 

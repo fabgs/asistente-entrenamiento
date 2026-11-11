@@ -4,19 +4,19 @@ import { ActivityIndicator, Image, Linking, Pressable, ScrollView, StyleSheet, u
 import Svg, { Defs, Pattern, Rect } from 'react-native-svg';
 import { showSnackbar } from '@/components/Dialog';
 import { WalkStory, WorkoutStory, type StoryExercise, type StoryFigure, type StoryFormat, type StoryStyle } from '@/components/ShareCard';
-import { sprintMetres, sprintSpeed } from '@/components/Sprint';
+import { straightSpeed } from '@/components/Sprint';
 import { AppText, BottomBar, Button, EmptyState, Loading, Screen, Segmented, TextField } from '@/components/ui';
 import { getCardioSession, setCardioTitle } from '@/db/repositories/cardioSessions';
 import { listPhotos, type Photo } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { getSession, listSets, setSessionTitle } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { formatDuration, formatLoad, formatLongDate, formatMetres, formatNumber, formatSetValues, formatSpeedKmh, formatSprintTime, formatTimeRange, workoutTitle } from '@/domain/format';
+import { formatDuration, formatLoad, formatLongDate, formatNumber, formatSetValues, formatSprintTime, formatTimeRange, NBSP, workoutTitle } from '@/domain/format';
 import type { RepUnit } from '@/domain/types';
 import { activeMs } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
 import { splitUnit, volumeOf } from '@/domain/progress';
-import { lapRows, sprintSummary } from '@/domain/sprint';
+import { bestSprint, lapRows } from '@/domain/sprint';
 import { walkMetric, walkSnapshot } from '@/domain/walkStats';
 import { useDb, useLoader } from '@/hooks/data';
 import { canLoadMapTiles } from '@/services/network';
@@ -88,9 +88,11 @@ export default function ShareScreen() {
       if (!session) return null;
       const subtitle = `${formatLongDate(parseLocalDate(session.date))} · ${formatTimeRange(session.startedAt, session.finishedAt ?? session.startedAt)}`;
       if (session.tracking === 'sprint') {
-        // Like a workout: the figures, then a row per sprint.
+        // Like a workout: the figures, then a row per sprint. Only what counts (1.5.2): the times
+        // and, with a straight, the speed over it; nothing the GPS measured.
         const rows = lapRows(session.laps);
-        const summary = sprintSummary(rows);
+        const straightM = session.sprint?.straightM ?? null;
+        const best = bestSprint(rows, straightM);
         const fig = (label: string, text: string): StoryFigure => ({ label, ...splitUnit(text) });
         return {
           kind: 'sprint' as const,
@@ -98,25 +100,17 @@ export default function ShareScreen() {
           defaultTitle: session.name,
           title: session.title ?? '',
           subtitle,
-          figures:
-            summary.topSpeedMs !== null
-              ? [
-                  { label: 'Sprints', value: String(summary.count) },
-                  fig('Vel. máx.', formatSpeedKmh(summary.topSpeedMs)),
-                  ...(summary.totalDistanceM !== null ? [fig('Metros', formatMetres(summary.totalDistanceM))] : []),
-                ]
-              : [
-                  { label: 'Sprints', value: String(summary.count) },
-                  ...(summary.bestTimeMs !== null ? [fig('Mejor', formatSprintTime(summary.bestTimeMs))] : []),
-                  { label: 'Duración', value: formatDuration(activeMs(session, session.finishedAt ?? session.startedAt)) },
-                ],
+          figures: [
+            straightM !== null ? fig('Sprints', `${rows.length} × ${straightM}${NBSP}m`) : { label: 'Sprints', value: String(rows.length) },
+            ...(best ? [fig('Mejor', formatSprintTime(best.timeMs))] : []),
+            best?.speedMs != null
+              ? fig('Vel. media', straightSpeed(straightM!, best.timeMs))
+              : { label: 'Duración', value: formatDuration(activeMs(session, session.finishedAt ?? session.startedAt)) },
+          ],
           exercises: rows.map(
             (r): StoryExercise => ({
               name: `Sprint ${r.number}`,
-              detail:
-                r.quality === 'none' || r.quality === null
-                  ? formatSprintTime(r.timeMs)
-                  : `${formatSprintTime(r.timeMs)} · ${sprintMetres(r)} · ${sprintSpeed(r)}`,
+              detail: straightM !== null ? `${formatSprintTime(r.timeMs)} · ${straightSpeed(straightM, r.timeMs)}` : formatSprintTime(r.timeMs),
             }),
           ),
         };

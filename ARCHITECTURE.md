@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.5.1** (`versionCode` 24, [app.json](app.json)) |
-| Esquema de la BD | **15** (`PRAGMA user_version`, 15 migraciones) |
-| Revisado | 2026-11-10, versión 1.5.1 (dieta: vistas Hoy y Planes, planes de día, cambiar el plan de hoy, lista de comprobación y su fila en Hoy; mapa de calor en el acento y «© OpenStreetMap» centrado) |
+| Versión de la app | **1.5.2** (`versionCode` 25, [app.json](app.json)) |
+| Esquema de la BD | **16** (`PRAGMA user_version`, 16 migraciones) |
+| Revisado | 2026-11-11, versión 1.5.2 (sprints: el GPS del chip por el módulo nativo, la recta marcada en el mapa en la pantalla nueva `/recta/:id`, «Listo» nuevo con la hoja «Plan», y cifras por tiempo y recta con lo del GPS aparte) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -24,7 +24,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 | Navegación | `expo-router` (rutas en `src/app/`, `typedRoutes`): un `Stack` raíz con las pestañas JS (`expo-router/js-tabs`) dentro |
 | Datos | `expo-sqlite` con **SQLCipher** y SQL escrito a mano; migraciones con `PRAGMA user_version` |
 | Avisos | `expo-notifications` (solo locales: `DATE` con `alarmClock` y `WEEKLY`) + módulo nativo propio `modules/rest-timer` |
-| GPS | `expo-location` + `expo-task-manager` (servicio en primer plano) |
+| GPS | `expo-location` + `expo-task-manager` (servicio en primer plano); en los sprints, además, el GPS del chip con un oyente propio en `modules/rest-timer` (1.5.2) |
 | Secretos | `expo-secure-store` (Keystore): clave de la BD, clave de las copias, token de GitHub |
 | Gráficas y mapas | `react-native-svg` (propias), `react-native-webview` + MapLibre GL JS (mapa 3D), teselas OSM/PNOA |
 | Fotos | `expo-image-picker` (cámara y selector de fotos del sistema), `expo-image-manipulator` (copia reducida a 2160 px), `expo-file-system` (carpeta `Documents/photos/`) |
@@ -37,12 +37,12 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 |---|---|---|
 | [src/app/](src/app/) | Rutas de expo-router (nombres en español). Cada fichero es una pantalla. | Solo UI: lee y escribe a través de repositorios, hooks y servicios. |
 | [src/components/](src/components/) | Sistema de diseño ([ui.tsx](src/components/ui.tsx)), capas ([Dialog.tsx](src/components/Dialog.tsx), [Sheet.tsx](src/components/Sheet.tsx)) y piezas compuestas (tarjetas, gráficas, mapas). | Igual que las pantallas. ESLint prohíbe `Text` de RN, colores literales y tamaños numéricos. |
-| [src/hooks/](src/hooks/) | `useDb`, `useLoader`, `useNow` ([data.ts](src/hooks/data.ts)); escrituras en cola y guardado ([editing.ts](src/hooks/editing.ts)); sesión de cardio en vivo y la ruta seguida ([walk.ts](src/hooks/walk.ts)); el mapa de calor, construido en dos pasos ([pathHeat.ts](src/hooks/pathHeat.ts)). | |
+| [src/hooks/](src/hooks/) | `useDb`, `useLoader`, `useNow` ([data.ts](src/hooks/data.ts)); escrituras en cola y guardado ([editing.ts](src/hooks/editing.ts)); sesión de cardio en vivo y la ruta seguida, y de unos sprints los puntos del chip en cada lectura y, terminados, sus trazas ([walk.ts](src/hooks/walk.ts)); el mapa de calor, construido en dos pasos ([pathHeat.ts](src/hooks/pathHeat.ts)). | |
 | [src/db/](src/db/) | Interfaz `Db` ([db.ts](src/db/db.ts)), [migrations.ts](src/db/migrations.ts), [seed.ts](src/db/seed.ts), copias y borrado ([maintenance.ts](src/db/maintenance.ts)), datos de prueba (`demo*.ts`). | Depende solo de `src/domain` (y de los JSON de `data/seed`). Testeado con `node:sqlite`. |
 | [src/db/repositories/](src/db/repositories/) | Un repositorio por área, con SQL tipado. | Única puerta a SQLite desde la UI. |
 | [src/domain/](src/domain/) | Lógica pura: progresión, máquina del entreno, nutrición, GPS, sprints, músculos, cifrado de copias, formatos. | **TS puro**: sin React Native ni Expo (solo `date-fns`). Siempre con tests. |
 | [src/services/](src/services/) | Notificaciones, temporizadores, GPS, copias, cifrado, fotos, imagen para compartir. | Único sitio que toca `expo-notifications`, `expo-location`, la cámara y el selector de fotos, el módulo nativo y la red. |
-| [modules/rest-timer/](modules/rest-timer/) | Módulo nativo Kotlin: cuenta atrás en la pantalla de bloqueo, «Entreno en curso», burbuja, pitido de los sprints, PBKDF2. | Solo lo llaman los servicios. |
+| [modules/rest-timer/](modules/rest-timer/) | Módulo nativo Kotlin: cuenta atrás en la pantalla de bloqueo, «Entreno en curso», burbuja, pitido de los sprints, parar con un botón, el GPS del chip para los sprints, PBKDF2. | Solo lo llaman los servicios. |
 | [data/seed/](data/seed/) | `catalog.json` (22 ejercicios y alimentos, va en la app) y `seed.json` (datos del Excel, solo pruebas). | |
 | [scripts/](scripts/) | Iconos, simulación de sprints en el emulador, descifrar una copia en el ordenador. | |
 
@@ -136,15 +136,15 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [weightChanges.ts](src/db/repositories/weightChanges.ts) | `weight_change`, `routine_slot.weight_kg` | `listOpenChanges`, `createRecommendation`, `applyChange`, `dismissChange`, `undoChange`, `setSlotWeightManually`, `expireOpenChanges` |
 | [exercises.ts](src/db/repositories/exercises.ts) | `exercise` | `listExercises`, `createExercise` (recupera uno archivado con el mismo nombre), `updateExercise`, `archiveExercise`, `listArchivedExercises`, `isExerciseArchived`, `restoreExercise` |
 | [muscles.ts](src/db/repositories/muscles.ts) | `exercise_muscle` (+ lecturas de `set_log` y `routine_slot`) | `allExerciseMuscles`, `setExerciseMuscles`, `workSetsBetween`, `workSetsOfSession`, `loadMuscleWeek` (también el último día de cada músculo, `lastWorkedDates`), `plannedWeekSets` |
-| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` |
+| [progress.ts](src/db/repositories/progress.ts) | lecturas | `workoutHistory`, `exerciseSessions`, `exercisesWithHistory`, `exerciseWeightChanges`, `exerciseRest` (descanso entre series de las últimas sesiones cronometradas), `exerciseUnit` (reps, segundos o pasos, según sus fichas), `cardioEntries` (de unos sprints, cuántos, el mejor tiempo y la recta; desde la 1.5.2 ya no la velocidad máxima del GPS) |
 | [cardio.ts](src/db/repositories/cardio.ts) | `cardio_activity`, `cardio_log` | `listCardio` (cada día y, al final, las «sin día»: `weekday` null, columna `no_day`), `cardioLogOn`, `setCardioDone`, `addCardio` (a un día o sin día), `updateCardio`, `archiveCardio`, `unarchiveCardio` |
-| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos y mueve el detector de la ruta seguida: devuelve qué avisar), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes`, `finishSprintSession`, `setCardioTitle`, `setSprintStraight` (la recta de una sesión, 1.5.0), `cardioSessionsOn` (las sesiones terminadas un día, una fila de «Hecho» cada una), `discardCardioSession` (si la actividad tiene otra sesión ese día, el registro pasa a ella) |
+| [cardioSessions.ts](src/db/repositories/cardioSessions.ts) | `cardio_session`, `cardio_point`, `cardio_log` (y `cardio_activity.plan` desde los sprints) | `startCardioSession` (con la ruta a seguir), `storeTrackPoints` (guarda los puntos con su origen, `source` y `speed_accuracy`, y mueve el detector de la ruta seguida: devuelve qué avisar y si la sesión es de sprints), `addTrackPoints`, `setFollowRoute`, `pause/resumeCardioSession`, `finishCardioSession`, `setSprintLaps` (bloqueo optimista), `listSprintFixes` (los puntos fusionados y los del chip, con `gnss`), `lastTrackPoint` (el último punto, con su posición), `sprintLapFixes` (los `lap_fixes` de una sesión, una lista por sprint), `finishSprintSession`, `setCardioTitle`, `setSprintStraight(db, id, {straightM, straightEnds})` (la recta: en la sesión, en la línea de su día si está terminada y, si es la última sesión de su actividad, en la actividad; devuelve si la cambió, 1.5.2), `setSprintNumbers` (sprints, descanso y cuenta de una sesión en curso, y de su actividad; nunca menos de los hechos más uno), `cardioSessionsOn` (las sesiones terminadas un día, una fila de «Hecho» cada una), `discardCardioSession` (si la actividad tiene otra sesión ese día, el registro pasa a ella) |
 | [diet.ts](src/db/repositories/diet.ts) | `food`, `diet_item`, `diet_plan`, `diet_day_meal`, `diet_log` | `listFoods`, `createFood`, `updateFood`, `archiveFood`, `listDietItems`, `addDietItem`, `updateDietItemGrams`, `removeDietItem`/`restoreDietItem`, `copyDietDay`/`restoreDietDays`; planes de día (1.5.1): `listDietPlans`, `createDietPlan`, `renameDietPlan`, `deleteDietPlan`, `dietPlanNameTaken`; el día: `dietDayOverrides`/`setDietDayOverrides`, `dietLogOn`, `setEaten`, `eatenByDate`, `loadDietDay` |
 | [settings.ts](src/db/repositories/settings.ts) | `settings`, `profile`, `weight_log` | `getSettings`, `updateSettings`, `getProfile`, `updateProfile`, `listWeights`, `listWeightsPage`, `logWeight`, `deleteWeight`, `loadNutritionTargets` |
 | [routes.ts](src/db/repositories/routes.ts) | `route`, `cardio_session.route_*`, `follow_route_id` | `importGpxRoute` (1.4.9), `followedRoute`, `saveWalkAsRoute` (copia la línea y enlaza las caminatas que la repiten), `linkToRepeatedRoute` (al terminar), `walkRoute` (la fila o la pregunta del detalle de una caminata), `linkWalk`, `unlinkWalk`, `setRouteDeclined`, `routeList`, `routeTimes`, `renameRoute`, `deleteRoute`, `routeCount`, `routeRecordOf` (¿mejoró el mejor tiempo de su ruta?, 1.4.10) |
 | [photos.ts](src/db/repositories/photos.ts) | `photo` | `addPhoto`, `listPhotos` (por orden en que se hicieron), `listRoutePhotos` (las de todas las caminatas de una ruta), `getPhoto`, `deletePhoto`, `photoFilesOf`, `allPhotoFiles` |
 | [records.ts](src/db/repositories/records.ts) | lecturas | `loadRecords` (totales, por año, mejor serie de cada ejercicio, tiempos y caminatas), `workoutCounts` (la fila del Perfil); aviso de récord (1.4.10): `recordSetsOf` (con qué se compara una serie), `sessionRecordExercises` (la etiqueta del resumen), `walkRecordText` (al guardar una caminata) |
-| [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`, `heat-map`) |
+| [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`, `sprint-volume`, `heat-map`) |
 | [pathHeat.ts](src/db/repositories/pathHeat.ts) | `cardio_session` (lectura), `app_meta` (`heat-map-mode`) | `listHeatWalks` (las caminatas con GPS terminadas, la última primero, con su línea codificada), `getHeatMode`, `setHeatMode` |
 | [admin.ts](src/db/repositories/admin.ts) | `app_meta` (`admin`) | `getAdminOptions` (la primera vez, sí si ya hay copia en GitHub o modo pruebas), `setAdminOptions` |
 
@@ -178,8 +178,8 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [gps.ts](src/domain/gps.ts) | Filtrado, distancia, tramos, muestras, parciales, polilínea |
 | [walkStats.ts](src/domain/walkStats.ts) | Cifras del panel de la caminata |
 | [trackChart.ts](src/domain/trackChart.ts) | Series, zoom y escalas de la gráfica de la ruta |
-| [mapView.ts](src/domain/mapView.ts) | Teselas de OSM y encuadre del mapa estático |
-| [sprint.ts](src/domain/sprint.ts) | Estado de los sprints a partir de las vueltas, transiciones y medición GPS; desde la 1.5.0, la cuenta previa del plan (`leadMs`), la parada de un botón y la aplicada tarde (`stopLap`) y la recta frente al GPS (`straightComparison`, `comparisonCaption`) |
+| [mapView.ts](src/domain/mapView.ts) | Teselas de OSM y encuadre del mapa estático (`fitView`; `fitViewExact`, entre niveles de zoom y con `maxScale` para algo tan corto como una recta) |
+| [sprint.ts](src/domain/sprint.ts) | Estado de los sprints a partir de las vueltas y transiciones; la cuenta previa del plan (`leadMs`) y la parada de un botón y la aplicada tarde (`stopLap`), 1.5.0. Medición (`measureSprint`, 1.5.2): elige la fuente (los puntos del chip si cubren el sprint; si no, los fusionados), corrige solo el punto que se aparta de sus dos vecinos (ya no la mediana de 3), lee más tarde una curva que despega tarde (`curveLag`) y deja en «weak» lo fusionado y lo que no cuadra entre posiciones y velocidades. La recta: `markedStraight` (extremos y metros), `straightElsewhere`; las cifras: `straightSpeedMs`, `bestSprint`, `gpsTopSpeed`, `formatSprintResult(laps, straightM)` («6 × 36 m · mejor 7,0 s»); el mapa del detalle: `sprintTraces`, `sprintsPlace`; `encodeLapFixes`/`decodeLapFixes` |
 | [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`, `walkTrackOf`); imágenes sin sesión (`photosWithoutSession`) |
 | [secretTaps.ts](src/domain/secretTaps.ts) | Siete toques en la versión para ver u ocultar las opciones de administrador (`addTap`, `tapOutcome`) |
 | [backupCipher.ts](src/domain/backupCipher.ts) | Formato de copia cifrada, PBKDF2/AES con un «kit» inyectado |
@@ -201,8 +201,8 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [routeAlert.ts](src/services/routeAlert.ts) | Notificación inmediata al salirse de la ruta seguida, el recordatorio y la vuelta (`notifyFollow`), y quitarla (`dismissRouteAlert`) | `gpsTracker`, cardioSession, ruta |
 | [gpx.ts](src/services/gpx.ts) | Elegir un GPX y comprobarlo (`pickGpx`); exportar una caminata o una ruta (`shareWalkGpx`, `shareRouteGpx`) | Mis rutas, ruta, sesión de cardio |
 | [cardioTimer.ts](src/services/cardioTimer.ts) | Alarmas de cambio de fase | cardioSession, sprintSession |
-| [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido, cuenta atrás y la notificación del sprint en marcha; aplicar la parada de un botón (`applyButtonStop`, 1.5.0) | `SprintLive`, cardioSession |
-| [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` (guarda los puntos lote a lote y avisa si te sales de la ruta seguida) y arrancar/parar el GPS | cardioSession, sprintSession, `walk.ts`, `_layout` |
+| [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido, cuenta atrás y la notificación del sprint en marcha; aplicar la parada de un botón (`applyButtonStop`, 1.5.0); arranca y para el oyente del chip con el GPS de los sprints y, al terminar, espera sus puntos hasta 2,5 s tras la última parada (1.5.2) | `SprintLive`, cardioSession |
+| [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` (guarda los puntos lote a lote, avisa si te sales de la ruta seguida y, en unos sprints, trae con cada lote los puntos del chip) y arrancar/parar el GPS; el GPS del chip (1.5.2): `storeSprintGnss` (guarda lo que el oyente dio desde la última vez, o lo arranca si no escuchaba), `startSprintGps`/`stopSprintGps`; `currentPlace` (dónde está el móvil, sin pedir permiso, para abrir un mapa) | cardioSession, sprintSession, `walk.ts`, Recta, `_layout` |
 | [secureDatabase.ts](src/services/secureDatabase.ts) | Clave SQLCipher, cifrar una BD antigua, conexión de la tarea GPS | `_layout`, gpsTracker |
 | [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub, modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
 | [backupCipher.ts](src/services/backupCipher.ts) | Kit nativo (PBKDF2 del módulo + AES-GCM de `expo-crypto`) y la clave guardada | backup |
@@ -226,11 +226,11 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [Ring.tsx](src/components/Ring.tsx) | Anillo del descanso (Reanimated) |
 | [LineChart.tsx](src/components/LineChart.tsx) · [TrackChart.tsx](src/components/TrackChart.tsx) · [MetricBoard.tsx](src/components/MetricBoard.tsx) | Gráfica de progreso/peso; gráfica de la ruta; panel de cifras de la caminata |
 | [Routes.tsx](src/components/Routes.tsx) | Mis rutas: la fila de una ruta (`RouteRow`, con «Importada de un GPX»), en el detalle de una caminata la fila de su ruta o la tarjeta «¿Es una variante de…?» (`WalkRouteBlock`), la hoja «Seguir una ruta» (`FollowRouteSheet`) y la píldora bajo las cifras (`RouteFollowPill`) |
-| [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura, y la de las filas centrada en la columna de los iconos, `RouteRowThumbnail`), con velo solo en el modo oscuro y `palette` para dibujarse siempre en oscuro en la imagen para compartir; MapLibre en un WebView, que también pinta el mapa de calor (`heat`: caminos con su color, ancho y borde, teselas casi sin color y el toque ajustado al camino más cercano) |
+| [RouteMap.tsx](src/components/RouteMap.tsx) · [InteractiveMap.tsx](src/components/InteractiveMap.tsx) | Mapa estático SVG sobre teselas OSM, con una cámara donde se hizo cada foto (y miniatura, y la de las filas centrada en la columna de los iconos, `RouteRowThumbnail`), con velo solo en el modo oscuro y `palette` para dibujarse siempre en oscuro en la imagen para compartir; MapLibre en un WebView, que también pinta el mapa de calor (`heat`: caminos con su color, ancho y borde, teselas casi sin color y el toque ajustado al camino más cercano). Desde la 1.5.2, `RouteMap` dibuja `traces` (líneas finas sobre la ruta: el camino de cada sprint), admite `maxScale` con `exactFit` y un `label` de accesibilidad; `InteractiveMap` tiene el modo `pick` para marcar un sitio: una cruz fija en el centro, el mapa se mueve debajo sin girar, `onCenter` dice dónde está la cruz, una línea la une al extremo ya fijado (`anchor`) y `centerOn` lleva la cámara a un punto |
 | [ShareCard.tsx](src/components/ShareCard.tsx) | Imagen de caminata y de entreno: historia 1080 × 1920 o cuadrado 1080 × 1080 (`FRAMES`), estilos Mapa · Foto · Oscuro · Sin fondo con la ruta en el mismo sitio en los tres primeros (en Mapa, zoom entre niveles con `fitViewExact`); la marca y «© OpenStreetMap» en la última línea |
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
 | [PhotoPager.tsx](src/components/PhotoPager.tsx) | Visor de fotos con páginas y zoom (pellizco, doble toque, arrastre) en un solo juego de gestos de `react-native-gesture-handler` 3 y Reanimated |
-| [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Tabla y detalle de sprints; pantalla en directo |
+| [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Sprints (1.5.2): las cifras (`SprintStats`: el mejor tiempo y, con recta, su velocidad media), la tabla (`SprintTable`: con recta, «# · Tiempo · Media · GPS»; el mejor tiempo en verde y lo del GPS en gris), la tarjeta de la recta (`StraightCard`: su mapa si se marcó y la fila que abre `/recta/:id`), las notas (`SprintNotes`) y el detalle de una sesión terminada (`SprintDetails`, con las trazas de cada sprint); la pantalla en directo: «Listo» (la secuencia dibujada, la tarjeta de la recta, la fila del plan con su hoja «Plan» y «Salida en N s»), cuenta, sprint, descanso y «Hechos» |
 | [Diet.tsx](src/components/Diet.tsx) | Piezas de la pestaña Dieta (1.5.1): rejillas `PlanTotals` (frente a objetivos) y `EatenTotals` (lo comido frente al plan), `FoodRow` (editar) y `TickRow` (marcar), `MealTickHeader`, `GramsEditor`, `CopyDays` |
 | [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda (`HeatLegend`, también la del mapa de calor, con su rampa); hoja de músculos |
 | [WeightSheet.tsx](src/components/WeightSheet.tsx) | Hoja de un pesaje |
@@ -246,7 +246,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 
 ### 2.1 Rutas
 
-33 ficheros en `src/app/`: 2 layouts, 5 pestañas y 26 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
+34 ficheros en `src/app/`: 2 layouts, 5 pestañas y 27 pantallas apiladas en el `Stack` raíz (todas registradas en [_layout.tsx](src/app/_layout.tsx) con su título por defecto; muchas lo cambian al cargar). Los parámetros van en la ruta (`:id`) o en la query (`?clave=valor`).
 
 | Fichero | URL y parámetros | Título | Para qué |
 |---|---|---|---|
@@ -266,6 +266,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [mis-rutas.tsx](src/app/mis-rutas.tsx) | `/mis-rutas` | Mis rutas | La fila «Mapa de calor» y las caminatas guardadas como ruta, la última hecha arriba; «Importar GPX» |
 | [mis-rutas/[id].tsx](src/app/mis-rutas/[id].tsx) | `/mis-rutas/:routeId` | Vacío (el nombre va en la página) | Una ruta: mapa con las fotos, mejor y última, gráfica de los tiempos y cada vez; «Seguir esta ruta» |
 | [mapa-calor.tsx](src/app/mapa-calor.tsx) | `/mapa-calor` | Mapa de calor | Los caminos de todas las caminatas, con más color (el acento) cuanto más se andan: «Últimos 30 días» o «Siempre» |
+| [recta/[id].tsx](src/app/recta/[id].tsx) | `/recta/:cardioSessionId` | Recta | La recta de unos sprints (1.5.2), en curso o terminados: marcarla en el mapa con una cruz fija, o escribir sus metros |
 | [compartir/[tipo]/[id].tsx](src/app/compartir/[tipo]/[id].tsx) | `/compartir/cardio/:id` · `/compartir/entreno/:id` | Compartir | Imagen para compartir (historia o cuadrado) |
 | [foto/[id].tsx](src/app/foto/[id].tsx) | `/foto/:photoId` | «Foto» o «2 de 5» | Las fotos de una sesión, una por página, con zoom |
 | [rutina/[id].tsx](src/app/rutina/[id].tsx) | `/rutina/:id` | Vacío (el nombre va en la página) | Editor de rutina |
@@ -312,7 +313,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Historial · `/historial`
 - **Llega desde**: pestaña.
-- **Lleva a**: segmentado Entrenos · Ejercicios · Cardio (se recuerda mientras la app está abierta). Entreno → `/workout/resumen/:id`; ejercicio → `/progreso/:id`; cardio con sesión → `/cardio-sesion/:id` (el cardio solo marcado no navega); en Cardio, desde la primera caminata con GPS, la fila «Mis rutas» → `/mis-rutas`; vacío: «Ir a Hoy» → `/` (`navigate`).
+- **Lleva a**: segmentado Entrenos · Ejercicios · Cardio (se recuerda mientras la app está abierta). Entreno → `/workout/resumen/:id`; ejercicio → `/progreso/:id`; cardio con sesión → `/cardio-sesion/:id` (el cardio solo marcado no navega); en Cardio, desde la primera caminata con GPS, la fila «Mis rutas» → `/mis-rutas`; vacío: «Ir a Hoy» → `/` (`navigate`). La fila de unos sprints lleva como cifra el mejor tiempo y, debajo, «6 × 36 m» (sin recta, «6 sprints»), 1.5.2.
 
 #### Dieta · `/dieta`
 - **Llega desde**: pestaña; fila «Dieta» de Hoy (1.5.1).
@@ -350,15 +351,16 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Lleva a**: fila de sesión → `/workout/resumen/:sessionId`. Segmentado Peso · Reps · 1RM (se recuerda; 1RM con dos sesiones que lo estimen) y el récord «1RM estimado» encima de los otros; con dos sesiones cronometradas, «Descanso entre series» (`exerciseRest`).
 
 #### Cardio (sesión) · `/cardio-sesion/:id`
-- **Llega desde**: Hoy («Iniciar», «Ver», fila «En curso», fila de cardio hecho, hoja «Hacer otro cardio», diálogos «Ver cardio/sprints» y «Seguir sin GPS»); Historial · Cardio; alarma de fase (`cardio-<id>-*`, `navigate`); Ajustes · Modo pruebas «Añadir caminata/sprints de prueba» (solo desarrollo).
+- **Llega desde**: Hoy («Iniciar», «Ver», fila «En curso», fila de cardio hecho, hoja «Hacer otro cardio», diálogos «Ver cardio/sprints» y «Seguir sin GPS»); Historial · Cardio; Récords (caminatas); Mis rutas → Ruta (cada vez, «Seguir esta ruta»); Recta (↩ al guardar la recta de unos sprints, 1.5.2); alarma de fase (`cardio-<id>-*`, `navigate`) y aviso de la ruta seguida (`route-<id>`); Ajustes · Modo pruebas «Añadir caminata/sprints de prueba» (solo desarrollo).
 - **Lleva a**:
   - Caminata en directo: tocar el mapa o «ampliar» → `/ruta/:id`; la cámara de la cabecera abre la cámara del sistema y la foto se queda en ese punto de la ruta. Siguiendo una ruta, el mapa pinta en gris solo lo que queda de ella (`useFollowedRoute` → `routeAhead`, 1.4.10) y encuadra la ruta entera.
   - Caminata terminada: mapa o «ampliar» → `/ruta/:id`; «3D» → `/ruta/:id?modo=3d`; compartir → `/compartir/cardio/:id`; la fila de su ruta (entre las cifras y el mapa) → `/mis-rutas/:routeId`; el Snackbar «Ruta guardada» → «Ver» → `/mis-rutas/:routeId`.
   - Terminada (caminata, Fases, sprints): una foto de la tira → `/foto/:id`.
-  - Sprints terminados: compartir → `/compartir/cardio/:id`.
+  - Sprints en directo (1.5.2): en «Listo» (sin salida pendiente) y en «Hechos» (el plan completo), la tarjeta de la recta (`StraightCard`: su mini-mapa si está marcada y la fila «Recta · 36 m», o «Marcar la recta» en ámbar) → `/recta/:id`. Ni en la cuenta, ni corriendo, ni en el descanso hay navegación.
+  - Sprints terminados: compartir → `/compartir/cardio/:id`; la tarjeta de la recta (el mapa de 160 dp con la recta y las trazas de cada sprint, o su fila) → `/recta/:id`.
   - Recién terminada: «Compartir» (caminata, sprints) y «Listo» ⤒.
-  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒; con un sprint en marcha o en la cuenta, `SprintLive` suelta el botón de atrás en ese mismo render, `allowLeaving`); en sprints también «Terminar ahora» y «Recta…» (diálogo de texto con los metros de la recta, también en una sesión terminada, 1.5.0); en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
-- **Capas**: «¿Terminar y guardar?» y, al guardar una caminata que mejora el tiempo de su ruta o es la más larga de su actividad, el Snackbar «Nuevo récord en esta ruta · 52:10 · antes 54:20» o «Nuevo récord de distancia · …» (1.4.10); «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
+  - ⋮ «Descartar …» (en curso) o «Borrar …» (terminada) ↩ (o ⤒; con un sprint en marcha o en la cuenta, `SprintLive` suelta el botón de atrás en ese mismo render, `allowLeaving`); en sprints también «Terminar ahora» (el «Recta…» de la 1.5.0 ya no está: la recta se marca desde su tarjeta, 1.5.2); en una caminata terminada, «Guardar como ruta» (sin ruta) o «Quitar de la ruta» (enlazada) y «Exportar GPX» (menú de compartir de Android); en una caminata en curso, «Seguir una ruta…» (hoja) o «Dejar de seguir la ruta» y «No avisar / Avisar si me salgo».
+- **Capas**: «¿Terminar y guardar?» y, al guardar una caminata que mejora el tiempo de su ruta o es la más larga de su actividad, el Snackbar «Nuevo récord en esta ruta · 52:10 · antes 54:20» o «Nuevo récord de distancia · …» (1.4.10); «Guardar como ruta» pide el nombre (diálogo de texto); la tarjeta «¿Es una variante de «…»?» con Sí / No (Snackbar «Deshacer» tras No) y Snackbars «Ruta guardada» (con «Ver») y «Quitada de «…»» (con «Deshacer»); en sprints, «¿Terminar con N de M sprints?», ⋮ «Quitar el sprint N» (tocando la última fila) y Snackbars con «Deshacer»; en «Listo», la fila «6 sprints · Descanso 1:30 · cuenta 5 s» abre la hoja «Plan» (Sprints, Descanso y Cuenta previa; guardan al momento en la sesión y en la actividad, `setSprintNumbers`, 1.5.2); el Snackbar «Recta de 36 m guardada» con «Deshacer» que deja la pantalla Recta al volver (la sesión se recarga con `useOnDataChanged`); título editable al terminar; «Añadir foto» (menú «Hacer una foto» · «Elegir de la galería») al terminar.
 
 #### Mapa · `/ruta/:id`
 - **Llega desde**: sesión de cardio (caminata, en directo o terminada).
@@ -379,9 +381,15 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Lleva a**: cada vez → `/cardio-sesion/:id`; «Seguir esta ruta» → `/cardio-sesion/:id` (la caminata en curso o una nueva; con varias, `showActions`); ⋮ «Exportar GPX» (menú de compartir) y «Borrar ruta» ↩.
 - **Capas**: título editable («Nombre de la ruta»); ⋮ «Borrar ruta» → «¿Borrar la ruta «…»?» (sus caminatas siguen). El mapa no se toca (sus fotos son de varias caminatas; el mapa a pantalla completa es de una).
 
+#### Recta · `/recta/:id`
+- **Llega desde**: la tarjeta de la recta (`StraightCard`) de unos sprints (1.5.2): en directo, en «Listo» y en «Hechos»; y en el detalle de una sesión de sprints terminada.
+- **Lleva a**: ninguna ruta. «Fijar salida» y, con la cruz en la llegada, «Guardar · 36 m» (entre 10 y 400 m; fuera, deshabilitado) → `setSprintStraight` y ↩ con el Snackbar «Recta de 36 m guardada» y «Deshacer» (que avisa con `emitDataChanged`). En la cabecera, «Escribir los metros» (diálogo de texto «Recta»): guarda el número sin extremos, o vacío quita la recta («Recta quitada»), y ↩ igual.
+- **Dentro**: `InteractiveMap` en modo `pick`, en satélite, zoom 19, norte arriba y sin giro, con una cruz fija en el centro: se mueve el mapa, no la cruz. «Lleva la cruz a la salida»; tras fijarla, los metros en vivo, «Lleva la cruz a la llegada» y «Cambiar salida» sobre el mapa. Botones flotantes: satélite ↔ mapa y, con la sesión en curso, «Centrar en mi posición» (solo mueve el mapa: los extremos se fijan a ojo). Abre en la llegada ya marcada; si no, en el último punto de la sesión en curso o donde se corrió la terminada (`sprintsPlace` de sus `lap_fixes`); si no, donde está el móvil (`currentPlace`).
+- **Capas**: diálogo de texto «Recta». Sin conexión, «Sin conexión» con «Reintentar» y «Escribir los metros»; sin ninguna posición, «Sin posición» y «Escribir los metros»; si la sesión no es de sprints, «Sesión no encontrada».
+
 #### Compartir · `/compartir/:tipo/:id`
 - **Llega desde**: Resumen (`tipo = entreno`); sesión de cardio terminada, caminata o sprints (`tipo = cardio`).
-- **Lleva a**: ninguna ruta. «Guardar» (galería) y «Compartir» (menú de Android); sin permiso de galería, el Snackbar abre los ajustes de la app (`Linking.openSettings`). Estilos Mapa · Foto (si la sesión tiene fotos; empieza en él) · Oscuro · Sin fondo, formato Historia · Vertical · Cuadrado (9:16, 4:5 y 1:1; no en Sin fondo) y, con varias fotos, una fila para elegir cuál; el título se guarda en la sesión.
+- **Lleva a**: ninguna ruta. «Guardar» (galería) y «Compartir» (menú de Android); sin permiso de galería, el Snackbar abre los ajustes de la app (`Linking.openSettings`). Estilos Mapa · Foto (si la sesión tiene fotos; empieza en él) · Oscuro · Sin fondo, formato Historia · Vertical · Cuadrado (9:16, 4:5 y 1:1; no en Sin fondo) y, con varias fotos, una fila para elegir cuál; el título se guarda en la sesión. De unos sprints (1.5.2): «6 × 36 m», Mejor y Vel. media (la del mejor sprint sobre la recta) y cada sprint con su tiempo y su velocidad; sin recta, cuántos, Mejor y Duración, y solo los tiempos. Nada de lo que midió el GPS.
 
 #### Foto · `/foto/:id`
 - **Llega desde**: la tira de fotos del detalle de una sesión de cardio y del Resumen.
@@ -412,7 +420,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 
 #### Actividad · `/cardio/actividad/:id`
 - **Llega desde**: Cardio semanal o de un día.
-- **Lleva a**: «Añadir»/«Guardar» ↩; ⋮ «Quitar actividad» ↩ con Snackbar «Deshacer». En una de Sprints: cuántos, «Cuenta previa», el descanso y «Recta» (un campo de texto en metros; vacío, «La mide el GPS»), 1.5.0.
+- **Lleva a**: «Añadir»/«Guardar» ↩; ⋮ «Quitar actividad» ↩ con Snackbar «Deshacer». En una de Sprints: cuántos, «Cuenta previa», el descanso y «Recta» (un campo de texto en metros, 1.5.0; vacío, «Sin marcar», con la ayuda «Se marca en el mapa, desde los sprints.»). Desde la 1.5.2 la recta marcada en el mapa conserva sus extremos (`straightEnds`) solo si el número no cambia: otro número es otra recta, sin extremos. No navega a Recta.
 
 #### Músculos · `/musculos`
 - **Llega desde**: Rutinas y Perfil («Series por músculo»).
@@ -484,6 +492,7 @@ flowchart LR
     MR["Mis rutas<br/>/mis-rutas"]
     RT["Ruta<br/>/mis-rutas/:id"]
     HM["Mapa de calor<br/>/mapa-calor"]
+    RC["Recta<br/>/recta/:id"]
   end
   SHARE["Compartir"]
   FOTO["Foto<br/>/foto/:id"]
@@ -534,6 +543,7 @@ flowchart LR
   RT --> CS
   CS --> RT
   CS --> MAP
+  CS --> RC
   CS --> SHARE
   CS --> FOTO
   RUT --> RE
@@ -627,6 +637,7 @@ flowchart TD
   MR["Mis rutas<br/>/mis-rutas"]
   RT["Ruta<br/>/mis-rutas/:id"]
   HM["Mapa de calor<br/>/mapa-calor"]
+  RC["Recta<br/>/recta/:id"]
   MR -->|"fila Mapa de calor"| HM
   HOY -->|"Iniciar / Ver"| CS
   HOY -->|"fila En curso"| CS
@@ -647,6 +658,8 @@ flowchart TD
   CS -->|"mapa · ampliar"| MAP
   CS -->|"3D ?modo=3d"| MAP
   MAP -->|"Volver ↩"| CS
+  CS -->|"sprints: tarjeta de la recta"| RC
+  RC -->|"Guardar · Escribir los metros ↩"| CS
   CS -->|"compartir (caminata, sprints)"| SHARE
   CS -->|"una foto"| FOTO
   FOTO -->|"Quitar la última ↩"| CS
@@ -1004,6 +1017,8 @@ erDiagram
     REAL speed
     REAL altitude
     INTEGER received_at
+    INTEGER source "0 fusionada, 1 chip"
+    REAL speed_accuracy "solo del chip"
   }
   photo {
     INTEGER id PK
@@ -1071,11 +1086,11 @@ erDiagram
 | `workout_session` | Un entreno | `routine_id` NULL = sesión suelta (sus ejercicios salen de `set_log.slot_id` y `current_slot_id`). `rest_ends_at`, `current_slot_id` y `skipped_slot_ids` guardan el estado en curso. `imported` = vino del Excel. Descartar **borra** la fila (el estado `abandoned` existe en el tipo pero no se escribe). `warmup_started_at`/`warmup_ended_at` (calentamiento) y `set_started_at` (inicio de la serie en curso, null durante el descanso), desde la 1.4.7. |
 | `set_log` | Cada serie | `weight_kg` copia el peso del slot al registrar (el historial no cambia si el slot sube). `is_warmup = 1` = aproximación: no cuenta para series, volumen, récords ni progresión. `started_at` (inicio) y `rest_seconds` (descanso previsto entonces) cronometran series y descansos desde la 1.4.7 (`workoutTimes.ts`). |
 | `weight_change` | Sugerencias y cambios de peso | Abiertas = `pending` + `dismissed`. Como mucho una abierta por slot. |
-| `cardio_activity` | Cardio de la semana, por día | `plan`: JSON de Fases (`liss`/`miss`/`hiit`) o de sprints (`{kind:'sprint', sprints, restSec}`). |
+| `cardio_activity` | Cardio de la semana, por día | `plan`: JSON de Fases (`liss`/`miss`/`hiit`) o de sprints (`{kind:'sprint', sprints, restSec, leadSec, straightM, straightEnds}`: la cuenta previa y los metros de la recta desde la 1.5.0; `straightEnds`, su salida y su llegada `{start, end}` con 6 decimales cuando se marcó en el mapa, 1.5.2, sin migración). Lo cambian el editor y, desde unos sprints, `setSprintNumbers` y `setSprintStraight`. |
 | `cardio_log` | Cardio hecho un día | `UNIQUE(date, activity_id)`; desmarcar pone `done = 0`. Con `session_id` si se grabó. |
-| `cardio_session` | Una sesión grabada | `route` (polilínea) y `samples` (`[[s, d, a], …]`) al terminar; `laps` es todo el estado de los sprints; `lap_fixes`, sus puntos GPS para recalcular. Una caminata repetida apunta a su ruta (`route_id`, `route_relation`); `route_declined = 1` tras «No» o «Quitar de la ruta» (no se vuelve a preguntar ni a enlazar sola). La ruta que se sigue va en `follow_route_id` (se conserva al terminar, para su gris) y el estado de su detector en `follow_state` (lo escribe la tarea del GPS; null al terminar). |
+| `cardio_session` | Una sesión grabada | `route` (polilínea) y `samples` (`[[s, d, a], …]`) al terminar; `plan` es su copia del plan (en unos sprints, con su recta, que se puede marcar después); `laps` es todo el estado de los sprints; `lap_fixes`, sus puntos GPS para recalcular y para las trazas del detalle: por sprint, desde 3 s antes del pitido hasta 8 s después de la parada (1.5.2; antes 3 s), cada punto `[ms desde el pitido, lat·1e6, lon·1e6, precisión·10, velocidad·100, ms de retraso]` y, los del chip, dos campos más (`1` y la precisión de la velocidad·100). Una caminata repetida apunta a su ruta (`route_id`, `route_relation`); `route_declined = 1` tras «No» o «Quitar de la ruta» (no se vuelve a preguntar ni a enlazar sola). La ruta que se sigue va en `follow_route_id` (se conserva al terminar, para su gris) y el estado de su detector en `follow_state` (lo escribe la tarea del GPS; null al terminar). |
 | `route` | Una caminata guardada como ruta (Mis rutas, 1.4.8) | Su propia copia de la línea (`path`, con sus tramos), la distancia y el desnivel: borrar la caminata de la que salió no la cambia. No guarda de qué caminata salió ni el mejor tiempo: se calcula con sus caminatas al leer. |
-| `cardio_point` | Puntos GPS de la sesión en curso | Se borran al terminar. No van en la copia. |
+| `cardio_point` | Puntos GPS de la sesión en curso | Se borran al terminar. No van en la copia. `source` (1.5.2): 0 = la ubicación fusionada de expo-location, 1 = el GPS del chip (solo en los sprints, que guardan las dos); `speed_accuracy`, cuánto se fía el chip de su velocidad (m/s). En un punto del chip, `received_at` no es cuándo llegó: `received_at − t` es cuánto va su hora GPS por detrás del reloj de los toques (diagnóstico). |
 | `photo` | Fotos de una sesión de cardio o de un entreno (exactamente uno, con `CHECK`) | `file` es el nombre de su copia reducida en `Documents/photos/`; la fila va en la copia, la imagen no. `taken_at` y `lat`/`lon` (su sitio en la ruta) cuando se saben. Borrar la sesión borra las filas (también en el repositorio, sin depender de `foreign_keys`) y la pantalla borra los ficheros (`deletingPhotosOf`). |
 | `food` / `diet_item` | Alimentos (macros por 100 g) y lo que se come en cada plan | Borrar un alimento lo archiva: sigue en los días que lo usan. Un alimento de un plan de día (`plan_id`) guarda en `weekday` un 1 de relleno; el repositorio da `weekday = null`. |
 | `diet_plan` / `diet_day_meal` / `diet_log` (1.5.1) | Planes de día del usuario; las comidas de una fecha que siguen otro plan que el de su día; lo marcado como comido | Sin fila en `diet_day_meal`, una comida sigue el día de la semana de su fecha. `diet_log` copia comida, alimento y gramos al marcar: el plan puede cambiar después, lo comido no. Las marcas de **hoy** sí siguen al plan (gramos) y se van con el alimento que sale de él. |
@@ -1103,6 +1118,7 @@ erDiagram
 | 13 | 1.4.9 | `cardio_session.follow_route_id` (`ON DELETE SET NULL`) y `follow_state`; `settings.route_alert` |
 | 14 | 1.5.0 | `cardio_activity.no_day` (una actividad «sin día»: `weekday` es `NOT NULL` con `CHECK` y no se puede relajar, así que guarda un 1 de relleno y el repositorio da `null`) |
 | 15 | 1.5.1 | Tablas `diet_plan`, `diet_day_meal` y `diet_log`; `diet_item.plan_id` (`ON DELETE CASCADE`; con él, `weekday` es relleno); `settings.diet_in_today`; índices `diet_item(plan_id)`, `diet_log(date)` y `diet_log(item_id)` |
+| 16 | 1.5.2 | `cardio_point.source` (`DEFAULT 0`: 0 la ubicación fusionada, 1 el GPS del chip) y `speed_accuracy`; `SPRINT_FUSED_WEAK` (solo datos: en los `laps` de las sesiones de sprints, «good» pasa a «weak»: todo lo medido hasta ahora venía de la ubicación fusionada) |
 
 ### 4.5 Cifrado de la base (SQLCipher)
 
@@ -1143,6 +1159,7 @@ Además, el módulo nativo usa `SharedPreferences`: posición de la burbuja (`re
 | 7 | `EXERCISE_PAIR_DEFAULTS` |
 | 8 | `SPRINT_TRACKING_DEFAULTS` |
 | 9 | `EXERCISE_MUSCLE_DEFAULTS` |
+| 16 | `SPRINT_FUSED_WEAK` (los sprints de la copia dejan de contar como bien medidos) |
 
   Siempre deja `dev_mode = 0`. Después (`restoreFrom`): adopta la clave de la copia si el móvil no tenía contraseña, `resetNotifications()` y `rescheduleDailyReminders()`.
 
@@ -1243,7 +1260,7 @@ sequenceDiagram
 ### 5.4 Caminata con GPS
 
 1. Hoy → «Iniciar» → `startCardio` ([cardioSession.ts](src/services/cardioSession.ts)): `startCardioSession` (fila `in_progress`) → `startGpsTracking(WALK_GPS)`: permiso de ubicación **en primer plano** y precisa, ubicación activada (si no, `enableNetworkProviderAsync`), `startLocationUpdatesAsync('entreno-gps')` cada 3 s con `BestForNavigation` y servicio en primer plano «Grabando la ruta» (`killServiceOnDestroy: false`). Si falla, descarta la sesión y muestra el motivo (`GPS_ERROR_MESSAGE`).
-2. La tarea `entreno-gps` (definida al cargar [gpsTracker.ts](src/services/gpsTracker.ts)) abre su conexión cifrada y guarda los puntos con `addTrackPoints` en la sesión GPS o de sprints en marcha (sin pausa), con su `segment` y `received_at`.
+2. La tarea `entreno-gps` (definida al cargar [gpsTracker.ts](src/services/gpsTracker.ts)) abre su conexión cifrada y guarda los puntos con `storeTrackPoints` en la sesión GPS o de sprints en marcha (sin pausa), con su `segment` y `received_at`. Si la sesión es de sprints, con cada lote guarda además los puntos del chip (`storeSprintGnss`, §5.6).
 3. Pantalla en directo: `useCardioSession` relee cada 3 s; píldora del GPS como título; panel de cifras (`MetricBoard`); segmentado Mapa · Gráfica · Parciales (se recuerda en `settings.cardio_live_panel`); tocar el mapa → `/ruta/:id`.
 4. «Pausar» → para el GPS y `paused_at`; «Seguir» → `paused_ms` += pausa, `segment + 1`, GPS otra vez (la distancia nunca une tramos).
 5. «Terminar» → «¿Terminar y guardar?» → `finishCardioSession`: `summarizeTrack`, `encodeRoute` → `route`, `buildSamples` → `samples`, borra `cardio_point`, *upsert* en `cardio_log` con el resultado («5,2 km · 58 min») y `session_id`; después `linkToRepeatedRoute` la enlaza a la ruta guardada que repita igual o al revés (un fallo ahí no pierde la caminata) → detalle con «Compartir» y «Listo»; `walkRecordText` (1.4.10) mira si mejoró el mejor tiempo de la ruta que repite (`routeRecordOf` → `routeRecordText`) o, si no repite ninguna, si es la más larga de su actividad (`longestWalkText`), y lo dice en un Snackbar → `maybeAutoBackup`.
@@ -1269,7 +1286,7 @@ sequenceDiagram
 ```mermaid
 stateDiagram-v2
   [*] --> ready
-  ready --> waiting: Empezar sprint (salida tras la cuenta previa)
+  ready --> waiting: Salida en N s (salida tras la cuenta previa)
   waiting --> ready: Cancelar (durante la cuenta)
   waiting --> waiting: más o menos 30 s, Saltar descanso
   waiting --> running: llega la salida (pitido)
@@ -1281,15 +1298,20 @@ stateDiagram-v2
   done --> [*]: Terminar
 ```
 
-1. «Iniciar» → `startCardioSession` (plan de sprints, `laps = '[]'`) → GPS a 1 punto/s (`SPRINT_GPS`, notificación «Sprints») + `syncSprint`. Sin GPS, la sesión se queda y Hoy pregunta «Seguir sin GPS» (solo tiempo) o «Cancelar» (la descarta).
+1. «Iniciar» → `startCardioSession` (plan de sprints, `laps = '[]'`) → GPS a 1 punto/s (`SPRINT_GPS`, notificación «Sprints») + `syncSprint`, que con ese GPS en marcha arranca también el oyente del chip (`startSprintGps`, 1.5.2). Sin GPS, la sesión se queda y Hoy pregunta «Seguir sin GPS» (solo tiempo) o «Cancelar» (la descarta).
+1b. **«Listo»** (1.5.2; `ready`: antes del primer sprint y siempre que no hay salida pendiente): el título «Sprint 1 de 6», una tarjeta con la secuencia dibujada («5 s · cuenta» → «Pitido · sales» → «Parar · al llegar»), la tarjeta de la recta (→ `/recta/:id`, punto 7), la fila «6 sprints · Descanso 1:30 · cuenta 5 s» y la tabla de lo hecho. La fila abre la hoja «Plan»: «Sprints» (no menos de los hechos más uno), «Descanso» (de 15 en 15 s) y «Cuenta previa» (de 5 en 5 s) → `setSprintNumbers` (la copia del plan de la sesión y el plan de la actividad, en una transacción) + `reschedule(db)`. El botón «Salida en N s» → `goSprint`.
 2. **Estado**: todo sale de `cardio_session.laps` y la hora (`sprintState` en [sprint.ts](src/domain/sprint.ts)): `ready`, `waiting` (descanso o cuenta atrás: los últimos segundos de la cuenta previa del plan, `leadMs`, 5 por defecto; vibra a 3, 2 y 1), `running` (más de 60 s → «¿Se te olvidó parar?» / «Quitar este sprint»), `done`.
 3. **Acciones** ([sprintSession.ts](src/services/sprintSession.ts)): leen, aplican una transición pura y escriben con `setSprintLaps` (bloqueo optimista: un doble toque escribe una vez), y luego `syncSprint`. «Parar» toma la hora del toque; antes de 0,6 s se ignora; antes de 3 s, «Salida anulada» con «Deshacer». Tocar la última fila → ⋮ «Quitar el sprint N» (con «Deshacer»).
 4. **`syncSprint`**: si hay una salida pendiente, `scheduleSprintBeep(goAt)`, cuenta atrás nativa («Descanso» o «Preparados») y `startSprintRunning(goAt, …)`, que deja preparada la notificación del sprint en marcha («Sprint 3 de 6 · Toca Parar al llegar», con «Parar») para que sustituya a la cuenta atrás en el pitido sin esperar al JS, y arma los botones de volumen desde la salida; corriendo, la muestra; si no hay nada, lo cancela todo. Se llama tras cada acción, al volver la app a primer plano y al arrancar.
 4b. **Parar con un botón** (1.5.0): con el sprint corriendo, un botón de volumen (`RestTimerPackage`, por `ReactActivityHandler.onKeyDown`; solo llega con la app delante) o el «Parar» de la notificación (`SprintStopReceiver`) llaman a `SprintStop.record`: ignora la pulsación antes de 3 s de la salida y la segunda del mismo sprint, guarda la hora de la pulsación (`SharedPreferences`), vibra y avisa al JS (`onSprintStop`). `applyButtonStop` ([sprintSession.ts](src/services/sprintSession.ts)) la recoge con `takeSprintStop()` (al llegar el evento, al volver a la app y al arrancar) y la aplica con `stopSprint(db, id, at, true)`: `stopLap` con `button` ignora antes de 3 s en vez de anular la salida y, si el descanso ya habría terminado o estaría en su cuenta, no deja salida pendiente.
+4c. **GPS del chip** (1.5.2): lo que da expo-location es la ubicación fusionada de Android, que alisa un sprint (su velocidad se queda en unos 2 m/s y sus posiciones van 2–3 s tarde). `SprintGnss` (nativo, §6.3) escucha `LocationManager.GPS_PROVIDER` sin intervalo mínimo y guarda cada punto en memoria, con su hora pasada al reloj de los toques. [gpsTracker.ts](src/services/gpsTracker.ts) se los lleva (`takeSprintGnss`, cada punto una vez) y los guarda con `storeTrackPoints` en `cardio_point` con `source = 1` y `speed_accuracy`; si nada escuchaba (un proceso nuevo), arranca el oyente. Lo hace la tarea `entreno-gps` con cada lote fusionado de unos sprints (también con la pantalla bloqueada) y, con `storeSprintGnss`, `useCardioSession` en cada lectura (una por segundo con la pantalla abierta) y `finishSprints`: siempre por la conexión y la cola de la tarea, así los puntos se escriben de lote en lote y desde un solo sitio. Las dos conexiones (la de la app y la de la tarea) llevan `PRAGMA busy_timeout = 5000`: la que encuentra a la otra escribiendo espera en vez de fallar con «database is locked» (pasaba al escribir las dos cada segundo). La ubicación fusionada se sigue guardando (`source = 0`): mantiene el servicio en primer plano y es el respaldo.
+4d. **Medición** (`measureSprint` en [sprint.ts](src/domain/sprint.ts), 1.5.2): usa los puntos del chip si cubren el sprint (3 o más dentro y, de media, uno cada 2,5 s o menos) y, si no, los fusionados (un APK sin el módulo, o el oyente perdido con su proceso). Quita los puntos con precisión peor de 20 m y los saltos aislados; la velocidad de cada punto es la Doppler si es creíble, y solo se corrige el que se aparta más de 2,5 m/s de sus dos vecinos (la mediana de 3 de antes se comía la punta de un sprint corto). Una curva que despega tarde se lee ese tanto después (`curveLag`, como mucho 1,5 s). `quality` nunca pasa de «weak» con la ubicación fusionada, ni cuando las posiciones dicen otra distancia que las velocidades (más de 5 m o de un cuarto). La pantalla mide cada sprint cerrado con los puntos de 3 s antes del pitido a 8 s después de la parada.
 5. **Pantalla sobre el bloqueo**: mientras está enfocada, `setShowWhenLocked(true)` (botón de encendido → «Parar» sin PIN). Atrás no sale mientras corre o en la cuenta atrás.
-6. **Terminar** (o ⋮ «Terminar ahora», con «¿Terminar con N de M sprints?») → `finishSprints`: cierra el sprint abierto, espera hasta 5 s a los puntos posteriores a la última parada, `stopSprintTracking` (pitido, GPS, cuenta atrás, pase de bloqueo), mide cada sprint (`measureLaps`) y `finishSprintSession` guarda `laps` medidos, `lap_fixes`, borra los puntos y escribe `cardio_log`.
+6. **Terminar** (o ⋮ «Terminar ahora», con «¿Terminar con N de M sprints?») → `finishSprints`: cierra el sprint abierto, espera hasta 5 s a tener un punto 2,5 s posterior a la última parada (trayendo los del chip en cada vuelta), `stopSprintTracking` (pitido, oyente del chip, GPS, cuenta atrás, pase de bloqueo), mide cada sprint (`measureLaps`) y `finishSprintSession` guarda `laps` medidos y `lap_fixes` (las dos fuentes, hasta 8 s tras cada parada), borra los puntos y escribe `cardio_log` con `formatSprintResult(laps, straightM)`: «6 × 36 m · mejor 7,0 s» o, sin recta, «6 sprints · mejor 7,0 s».
+7. **Recta** (1.5.2): la tarjeta de la recta (`StraightCard`, en «Listo», en «Hechos» y en el detalle de una sesión terminada) → `/recta/:id`. Allí, `markedStraight(salida, llegada)` da los extremos (6 decimales) y los metros enteros entre ellos (de 10 a 400), o se escriben los metros (sin extremos) → `setSprintStraight`, en una transacción: la copia del plan de la sesión, la línea de su día (`cardio_log.value`) si está terminada y, si la actividad no tiene una sesión posterior, también el plan de la actividad (la recta de hoy vale el próximo día; la de una sesión antigua no pisa la de ahora). Si cambió la actividad, `reschedule(db)`. Vuelve con el Snackbar «Deshacer», que repone la anterior. En directo, con el último punto (de ±20 m o mejor) a más de 150 m de los dos extremos, la tarjeta dice «Marcada en otro sitio» (`straightElsewhere`).
+8. **Cifras** (1.5.2): mandan el tiempo y la recta. La velocidad de un sprint es su recta ÷ su tiempo, del pitido a «Parar» (`straightSpeedMs`); lo del GPS va aparte, en gris y con «≈» si es débil, y ni corrige ni se corrige. `SprintStats`: «Mejor» y, con recta, «Vel. media» (la del mejor, `bestSprint`). `SprintTable`: con recta, «# · Tiempo · Media · GPS» (los metros que midió); sin ella, «# · Tiempo · Metros · Vel. máx.»; en verde, el mejor tiempo. `SprintNotes`: qué es cada columna y «Vel. máx. del GPS» (`gpsTopSpeed`: se omite si es menor que la media del mejor sprint). En el descanso, el último sprint dice «18,5 km/h · GPS 34 m». El detalle de una sesión terminada dibuja en el mapa de la tarjeta la recta y, encima, la traza de cada sprint (`sprintTraces`: solo puntos del chip, del pitido a «Parar», leídos de `lap_fixes` con `sprintLapFixes`; las sesiones anteriores no tienen). Hoy, el historial y la imagen para compartir usan las mismas cifras. Salvo la línea del día (`cardio_log.value`), nada de esto se guarda: sale de `laps`, `lap_fixes` y el plan al leer.
 
-**Si se mata la app**: la alarma de respaldo (2 s antes de la salida) levanta el proceso y el receptor toca el pitido; al arrancar, `restoreCardioInProgress` → `ensureCardioRunning` (sin pedir permisos) → GPS + `syncSprint`. El sprint sigue corriendo desde su salida.
+**Si se mata la app**: la alarma de respaldo (2 s antes de la salida) levanta el proceso y el receptor toca el pitido; al arrancar, `restoreCardioInProgress` → `ensureCardioRunning` (sin pedir permisos) → GPS + `syncSprint`. El sprint sigue corriendo desde su salida. El oyente del chip muere con el proceso y sus puntos sin recoger se pierden: lo vuelven a arrancar la tarea `entreno-gps` con su siguiente lote (`storeSprintGnss`) o `syncSprint`; un sprint que el chip no cubre se mide con los puntos fusionados y queda «≈».
 
 ### 5.7 Marcar cardio, repetirlo y «Hacer otro cardio»
 
@@ -1315,8 +1337,10 @@ stateDiagram-v2
 | Borrar ejercicio | ⋮ de `/ejercicio/:id` | `archiveExercise` (las rutinas y el historial no cambian) | No |
 | Actividad de cardio | `/cardio/actividad/:id` | `addCardio`/`updateCardio` (tipo y plan) | Sí |
 | Quitar actividad | ⋮ de la actividad | `archiveCardio`; «Deshacer» → `unarchiveCardio` + `emitDataChanged` | Sí |
+| Plan de unos sprints en curso (1.5.2) | hoja «Plan» de «Listo» (al momento) | `setSprintNumbers` (la sesión y su actividad) | Sí |
+| Recta de unos sprints (1.5.2) | `/recta/:id`, desde la sesión | `setSprintStraight` (la sesión y, si es la última de su actividad, la actividad); «Deshacer» repone la anterior + `emitDataChanged` | Sí, si cambió la actividad |
 
-Todas pasan por `queueWrite`. Los formularios (slot, ejercicio, actividad, alimento) tienen un «Guardar» abajo deshabilitado sin cambios y preguntan al salir con cambios. El nombre de un ejercicio es único (sin distinguir mayúsculas); los músculos se eligen en una hoja con chips por grupo y uno no puede ser principal y secundario a la vez.
+Todas pasan por `queueWrite` (el plan de unos sprints, con `useSavedAtOnce`). Los formularios (slot, ejercicio, actividad, alimento) tienen un «Guardar» abajo deshabilitado sin cambios y preguntan al salir con cambios. El nombre de un ejercicio es único (sin distinguir mayúsculas); los músculos se eligen en una hoja con chips por grupo y uno no puede ser principal y secundario a la vez.
 
 ### 5.9 Dieta
 
@@ -1408,7 +1432,8 @@ No cambian con el tema: la imagen para compartir (`imageColors`), el icono, la p
 
 | Mecanismo | Código | Para qué | ¿Sobrevive a matar la app? |
 |---|---|---|---|
-| Tarea `entreno-gps` (`expo-task-manager`) + servicio de `expo-location` | [gpsTracker.ts](src/services/gpsTracker.ts) | Puntos de caminatas (3 s) y sprints (1 s); el detector de la ruta seguida y su aviso inmediato (1.4.9) | Sí: el servicio sigue y la tarea corre en un contexto JS sin pantalla |
+| Tarea `entreno-gps` (`expo-task-manager`) + servicio de `expo-location` | [gpsTracker.ts](src/services/gpsTracker.ts) | Puntos de caminatas (3 s) y sprints (1 s); el detector de la ruta seguida y su aviso inmediato (1.4.9); en unos sprints, cada lote trae además los puntos del chip (1.5.2) | Sí: el servicio sigue y la tarea corre en un contexto JS sin pantalla |
+| `SprintGnss`: oyente de `LocationManager.GPS_PROVIDER` en su hilo (`HandlerThread`) | [SprintGnss.kt](modules/rest-timer/android/src/main/java/expo/modules/resttimer/SprintGnss.kt) | Los puntos del chip durante los sprints, sin el filtro de la ubicación fusionada; en memoria hasta que el JS se los lleva (1.5.2) | No: vive lo que el proceso (que el servicio de expo-location mantiene vivo y con ubicación con la pantalla bloqueada). En un proceso nuevo lo arranca la tarea `entreno-gps` con su siguiente lote; lo que no se había recogido se pierde |
 | Alarma `rest-<sesión>` (`DATE`, `alarmClock`) | [restTimer.ts](src/services/restTimer.ts) | Fin del descanso | Sí (`AlarmManager`) |
 | Alarmas `cardio-<sesión>-<n>` / `-end` | [cardioTimer.ts](src/services/cardioTimer.ts) | Cambios de fase | Sí |
 | Avisos `daily-1` … `daily-7` (`WEEKLY`) | [dailyReminder.ts](src/services/dailyReminder.ts) | Recordatorio diario | Sí (programados por el sistema) |
@@ -1449,6 +1474,9 @@ API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptio
 | `stopSprintRunning()` | `RestTimerService.stopSprintRunning` + `SprintStop.disarm` | Quita esa notificación y suelta los botones de volumen | `sprintSession` |
 | `takeSprintStop()` | `SprintStop.take` | La parada pulsada y aún no aplicada (`{at, source}`), una sola vez | `sprintSession` |
 | `onSprintButtonStop(listener)` | evento `onSprintStop` | Avisa de una parada con un botón mientras el JS está vivo | `SprintLive` |
+| `startSprintGnss()` | `SprintGnss.start` | Empieza a escuchar el GPS del chip (`GPS_PROVIDER`, sin tiempo ni distancia mínimos: cada punto que calcula, uno por segundo en casi todos los móviles) y a guardar los puntos en memoria (los últimos 5400, hora y media). `false` sin el módulo, sin permiso de ubicación precisa o sin GPS; idempotente (1.5.2) | `gpsTracker` |
+| `stopSprintGnss()` | `SprintGnss.stop` | Deja de escuchar y tira lo guardado | `gpsTracker` |
+| `takeSprintGnss()` | `SprintGnss.take` | Los puntos guardados desde la última llamada, el más antiguo primero y cada uno una sola vez: `{t, lat, lon, accuracy, speed, speedAccuracy, clockLagMs}`, con `t` en el reloj de los toques (la hora del punto por su tiempo desde el arranque, así un reloj del sistema desviado del GPS no desplaza el sprint). `null` si no está escuchando | `gpsTracker` |
 | `pbkdf2Sha256(password, salt, iterations)` | `Pbkdf2.sha256` (`AsyncFunction`) | Clave de las copias, fuera del hilo de JS | `services/backupCipher` |
 | `canDrawOverlays()` | `Settings.canDrawOverlays` | Permiso de la burbuja | `restTimer`, `notifications` |
 | `isIgnoringBatteryOptimizations()` | `PowerManager` | Si la app está fuera de la optimización de batería (`null` si no se sabe) | `notifications` |
@@ -1456,6 +1484,8 @@ API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptio
 `OnActivityEntersForeground/Background` le dice al servicio si la app está delante (la burbuja solo sale detrás).
 
 `RestTimerPackage` (1.5.0) es un `Package` de Expo, que el autolinking encuentra por su nombre: registra un `ReactActivityHandler` cuyos `onKeyDown`/`onKeyUp` reciben las teclas de la actividad. Mientras `SprintStop.capturing()` (hay un sprint corriendo), consume las de volumen y registra la parada con la hora del evento; el resto del tiempo no las toca. No hace falta parchear `MainActivity` ni un plugin de configuración.
+
+`SprintGnss` (1.5.2) no declara permisos ni servicio propios: usa el permiso de ubicación precisa que ya pidió expo-location y sigue recibiendo puntos con la pantalla bloqueada porque el servicio en primer plano «Sprints» mantiene vivo el proceso. En `logcat` deja `[sprint] gnss en marcha`, `[sprint] gnss primer punto: ±N m, reloj N ms` y `[sprint] gnss parado`.
 
 ### 6.4 Permisos
 
@@ -1469,7 +1499,7 @@ API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptio
 | `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_SPECIAL_USE` | módulo `rest-timer` | `RestTimerService` |
 | `SYSTEM_ALERT_WINDOW` | módulo | Burbuja flotante |
 | `POST_PROMOTED_NOTIFICATIONS` | módulo | *Live Update* en Android 16 |
-| Ubicación en primer plano (precisa) | plugin de `expo-location` (`isAndroidForegroundServiceEnabled: true`, `isAndroidBackgroundLocationEnabled: false`) | GPS con servicio en primer plano; no se pide «Permitir siempre» |
+| Ubicación en primer plano (precisa) | plugin de `expo-location` (`isAndroidForegroundServiceEnabled: true`, `isAndroidBackgroundLocationEnabled: false`) | GPS con servicio en primer plano; no se pide «Permitir siempre». El oyente del chip de los sprints (1.5.2) usa este mismo permiso: no añade ninguno |
 | Añadir fotos | `expo-media-library` | «Guardar» de la imagen para compartir y copia en la galería de las fotos hechas con la cámara |
 | `CAMERA` | `expo-image-picker` (plugin con `microphonePermission: false`, que quita `RECORD_AUDIO`) | «Hacer una foto»; se pide al usarla |
 | Ninguno para elegir fotos | selector de fotos del sistema (`PickVisualMedia`) | «Elegir de la galería» |

@@ -42,6 +42,9 @@ export function RouteMap({
   guideEnds = null,
   fit = [],
   palette = colors,
+  traces = [],
+  maxScale,
+  label,
 }: {
   segments: LatLon[][];
   height?: number;
@@ -78,10 +81,16 @@ export function RouteMap({
   fit?: LatLon[][];
   /** The colours it is drawn with: the share image is always dark, whatever the mode of the app. */
   palette?: Palette;
+  /** Thin lines over the route: the path of each sprint over its straight (1.5.2). */
+  traces?: LatLon[][];
+  /** With `exactFit`, how far past the deepest zoom something very short may grow (twice by default). */
+  maxScale?: number;
+  /** What a screen reader says instead of «Mapa de la ruta». */
+  label?: string;
 }) {
   const [width, setWidth] = useState(0);
   const points = segments.flat();
-  const fitPoints = [...points, ...guide.flat(), ...fit.flat()];
+  const fitPoints = [...points, ...guide.flat(), ...fit.flat(), ...traces.flat()];
 
   return (
     <View style={[styles.box, !rounded && styles.square, { height }]} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
@@ -95,7 +104,7 @@ export function RouteMap({
           disabled={!onPress}
           style={StyleSheet.absoluteFill}
           accessibilityRole={onPress ? 'button' : undefined}
-          accessibilityLabel={onPress ? 'Abrir el mapa a pantalla completa' : 'Mapa de la ruta'}>
+          accessibilityLabel={label ?? (onPress ? 'Abrir el mapa a pantalla completa' : 'Mapa de la ruta')}>
           <MapContent
             segments={segments}
             points={points}
@@ -116,6 +125,8 @@ export function RouteMap({
             exactFit={exactFit}
             overTiles={overTiles}
             colors={palette}
+            traces={traces}
+            maxScale={maxScale}
           />
         </Pressable>
       ) : null}
@@ -144,6 +155,8 @@ function MapContent({
   exactFit,
   overTiles,
   colors,
+  traces,
+  maxScale,
 }: {
   segments: LatLon[][];
   points: LatLon[];
@@ -164,9 +177,13 @@ function MapContent({
   exactFit: boolean;
   overTiles?: ReactNode;
   colors: Palette;
+  traces: LatLon[][];
+  maxScale?: number;
 }) {
   const { top = 0, bottom = 0, left = 0, right = 0 } = fitInset;
-  const fitted = (exactFit ? fitViewExact : fitView)(fitPoints, width - left - right, height - top - bottom, fitPadding);
+  const fitted = exactFit
+    ? fitViewExact(fitPoints, width - left - right, height - top - bottom, fitPadding, maxScale)
+    : fitView(fitPoints, width - left - right, height - top - bottom, fitPadding);
   // The fitted view is of the free space; the map starts `left` and `top` before it.
   const view = { ...fitted, originX: fitted.originX - left / fitted.scale, originY: fitted.originY - top / fitted.scale };
   const tiles = tilesFor(view, width, height, detail);
@@ -178,6 +195,7 @@ function MapContent({
   const toLine = (segment: LatLon[]) => segment.map(at).map((p) => `${p.x},${p.y}`).join(' ');
   const lines = segments.map(toLine);
   const guideLines = guide.map(toLine);
+  const traceLines = traces.map(toLine);
   const guideStart = guideEnds?.start ? at(guideEnds.start) : null;
   const guideEnd = guideEnds ? at(guideEnds.end) : null;
   const allSettled = tiles.length > 0 && settled >= tiles.length;
@@ -253,6 +271,13 @@ function MapContent({
             <Circle cx={end.x} cy={end.y} r={7} fill={colors.primary} stroke={colors.bg} strokeWidth={2} />
           </>
         ) : null}
+        {/* Over the route: under it they would be hidden just when the GPS is right. */}
+        {traceLines.map((points, i) => (
+          <Polyline key={`to${i}`} points={points} fill="none" stroke={colors.mapCasing} strokeWidth={4} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
+        {traceLines.map((points, i) => (
+          <Polyline key={`t${i}`} points={points} fill="none" stroke={colors.text} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
+        ))}
         {/* Same mark as the chart's cursor. */}
         {mark ? (
           <>

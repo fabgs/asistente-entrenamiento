@@ -109,6 +109,7 @@ export default function RootLayout() {
           <Stack.Screen name="mis-rutas" options={{ title: 'Mis rutas' }} />
           <Stack.Screen name="mis-rutas/[id]" options={{ title: 'Ruta' }} />
           <Stack.Screen name="mapa-calor" options={{ title: 'Mapa de calor' }} />
+          <Stack.Screen name="recta/[id]" options={{ title: 'Recta' }} />
           <Stack.Screen name="compartir/[tipo]/[id]" options={{ title: 'Compartir' }} />
           <Stack.Screen name="foto/[id]" options={{ title: 'Foto' }} />
           <Stack.Screen name="slot/[id]" options={{ title: 'Ejercicio de la rutina' }} />

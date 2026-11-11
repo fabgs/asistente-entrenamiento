@@ -48,15 +48,16 @@ export function fitView(points: LatLon[], width: number, height: number, padding
 /**
  * Like fitView, but scaled between zoom levels so the route fills the space exactly, as the route
  * without map does (`outline`): the share image draws it the same size in every look. A very short
- * route stops at twice the deepest zoom.
+ * route stops at `maxScale` times the deepest zoom: twice, or more for something as short as the
+ * straight of the sprints (36 m at twice are 78 dp).
  */
-export function fitViewExact(points: LatLon[], width: number, height: number, padding = 24): MapView {
+export function fitViewExact(points: LatLon[], width: number, height: number, padding = 24, maxScale = 2): MapView {
   const { zoom } = fitView(points, width, height, padding);
   const { minX, maxX, minY, maxY } = bounds(points, zoom);
   const ratio = (room: number, span: number) => (span > 0 ? room / span : Infinity);
   const fill = Math.min(ratio(width - 2 * padding, maxX - minX), ratio(height - 2 * padding, maxY - minY));
   // Below the deepest zoom, fill < 2: one more level would have fitted.
-  const scale = Math.max(1, Math.min(fill, zoom === MAX_ZOOM ? 2 : Infinity));
+  const scale = Math.max(1, Math.min(fill, zoom === MAX_ZOOM ? maxScale : Infinity));
   return {
     zoom,
     originX: (minX + maxX) / 2 - width / 2 / scale,

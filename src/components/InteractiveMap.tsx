@@ -45,6 +45,20 @@ const toHeat = (paths: HeatPath[]) => ({
   })),
 });
 
+/**
+ * Marking a place on the map (the straight of the sprints, 1.5.2): a cross stays in the middle and
+ * the map moves under it, so the thumb never covers the spot. North stays up.
+ */
+export interface MapPick {
+  /** Where the map opens, and how close. */
+  center: LatLon;
+  zoom: number;
+  /** The end already fixed: a line runs from it to the cross. */
+  anchor: LatLon | null;
+  /** Whether the cross shows (not once both ends are fixed). */
+  cross: boolean;
+}
+
 type Frame = [[number, number], [number, number]];
 const toFrame = (frame: { min: LatLon; max: LatLon } | null): Frame | null =>
   frame ? [[frame.min.lon, frame.min.lat], [frame.max.lon, frame.max.lat]] : null;
@@ -58,6 +72,7 @@ function buildHtml(initial: {
   /** The heat map: grey tiles (only its paths have colour) and taps on its paths. */
   heat: boolean;
   frame: Frame | null;
+  pick: { center: [number, number]; zoom: number } | null;
 }): string {
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
@@ -67,9 +82,13 @@ html,body,#map{margin:0;padding:0;width:100%;height:100%;background:${colors.bg}
 .maplibregl-ctrl-attrib{background:${colors.overlay}!important;color:${colors.muted}!important;font:10px/20px sans-serif}
 .maplibregl-ctrl-attrib a{color:${colors.muted}}
 .maplibregl-ctrl-attrib-button{filter:invert(${isDark ? 1 : 0})}
+#cross{position:absolute;left:50%;top:50%;width:32px;height:32px;margin:-16px 0 0 -16px;pointer-events:none;display:none}
+#cross:before,#cross:after{content:'';position:absolute;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.7)}
+#cross:before{left:15px;top:0;width:2px;height:32px}
+#cross:after{left:0;top:15px;width:32px;height:2px}
 .km{box-sizing:border-box;width:20px;height:20px;border-radius:10px;border:2px solid ${colors.text};background:${colors.bg};
  color:${colors.text};font:700 11px sans-serif;display:flex;align-items:center;justify-content:center;box-shadow:0 1px 3px rgba(0,0,0,.6)}
-</style></head><body><div id="map"></div>
+</style></head><body><div id="map"></div><div id="cross"></div>
 <script>
 function post(m){window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify(m))}
 window.onerror=function(m){post({type:'error',message:String(m)})};
@@ -81,7 +100,8 @@ if(!window.maplibregl)return;
 var init=${JSON.stringify(initial)};
 var state={route:init.route,guide:init.guide,mode:init.mode,padding:init.padding,follow:false,kms:[],frame:init.frame};
 var empty={type:'FeatureCollection',features:[]};
-var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75,fadeDuration:0,
+var map=new maplibregl.Map(Object.assign({container:'map',attributionControl:false,maxPitch:75,fadeDuration:0},
+ init.pick?{center:init.pick.center,zoom:init.pick.zoom,maxZoom:21,dragRotate:false,touchPitch:false}:{},{
  style:{version:8,
   sources:{
    osm:{type:'raster',tiles:['${OSM}'],tileSize:128,maxzoom:19,attribution:'© OpenStreetMap'},
@@ -92,6 +112,8 @@ var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75
    guide:{type:'geojson',data:empty},
    route:{type:'geojson',data:empty},
    ends:{type:'geojson',data:empty},
+   pick:{type:'geojson',data:empty},
+   anchor:{type:'geojson',data:empty},
    cursor:{type:'geojson',data:empty}},
   layers:[
    {id:'bg',type:'background',paint:{'background-color':'${colors.bg}'}},
@@ -105,8 +127,11 @@ var map=new maplibregl.Map({container:'map',attributionControl:false,maxPitch:75
    {id:'route-casing',type:'line',source:'route',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'${colors.mapCasing}','line-width':10}},
    {id:'route',type:'line',source:'route',layout:{'line-join':'round','line-cap':'round'},paint:{'line-color':'${colors.primary}','line-width':6}},
    {id:'ends',type:'circle',source:'ends',paint:{'circle-radius':['match',['get','kind'],'start',6,7],'circle-color':['match',['get','kind'],'start','${colors.bg}','${colors.primary}'],'circle-stroke-color':['match',['get','kind'],'start','${colors.primary}','${colors.bg}'],'circle-stroke-width':['match',['get','kind'],'start',3,2]}},
+   {id:'pick-casing',type:'line',source:'pick',layout:{'line-cap':'round'},paint:{'line-color':'${colors.mapCasing}','line-width':7}},
+   {id:'pick',type:'line',source:'pick',layout:{'line-cap':'round'},paint:{'line-color':'${colors.primary}','line-width':4}},
+   {id:'anchor',type:'circle',source:'anchor',paint:{'circle-radius':6,'circle-color':'${colors.bg}','circle-stroke-color':'${colors.primary}','circle-stroke-width':3}},
    {id:'cursor-shadow',type:'circle',source:'cursor',paint:{'circle-radius':11,'circle-color':'#000000','circle-opacity':0.35,'circle-blur':0.6}},
-   {id:'cursor',type:'circle',source:'cursor',paint:{'circle-radius':7,'circle-color':'${colors.text}','circle-stroke-color':'${colors.bg}','circle-stroke-width':3}}]}});
+   {id:'cursor',type:'circle',source:'cursor',paint:{'circle-radius':7,'circle-color':'${colors.text}','circle-stroke-color':'${colors.bg}','circle-stroke-width':3}}]}}));
 map.addControl(new maplibregl.AttributionControl({compact:true}),'bottom-left');
 function bounds(){var b=new maplibregl.LngLatBounds();state.route.concat(state.guide).forEach(function(s){s.forEach(function(c){b.extend(c)})});
  if(state.frame){b.extend(state.frame[0]);b.extend(state.frame[1])}return b}
@@ -144,6 +169,16 @@ function setCursor(c){
  map.getSource('cursor').setData(c?{type:'Feature',geometry:{type:'Point',coordinates:c}}:empty);
  if(!c)return;var p=map.project(c),w=map.getCanvas().clientWidth,h=map.getCanvas().clientHeight;
  if(p.x<w*0.1||p.x>w*0.9||p.y<h*0.1||p.y>h*0.9)map.easeTo({center:c,duration:300})}
+// The line from the fixed end to the cross follows the map without a round trip to the app.
+var anchor=null,cross=false,sent=0;
+function drawPick(){
+ var c=map.getCenter();
+ map.getSource('pick').setData(anchor&&cross?{type:'Feature',geometry:{type:'LineString',coordinates:[anchor,[c.lng,c.lat]]}}:empty);
+ map.getSource('anchor').setData(anchor&&cross?{type:'Feature',geometry:{type:'Point',coordinates:anchor}}:empty)}
+function sendCenter(force){
+ var now=Date.now();if(!force&&now-sent<80)return;sent=now;
+ var c=map.getCenter();post({type:'center',lon:c.lng,lat:c.lat})}
+function setPick(a,on){anchor=a;cross=on;document.getElementById('cross').style.display=on?'block':'none';drawPick()}
 function setLayer(layer){map.setLayoutProperty('osm','visibility',layer==='map'?'visible':'none');map.setLayoutProperty('pnoa','visibility',layer==='satellite'?'visible':'none')}
 function setMode(mode,animate){
  state.mode=mode;var three=mode==='3d';
@@ -154,14 +189,15 @@ map.on('load',function(){
  map.setSky({'sky-color':'${colors.bg}','horizon-color':'${colors.cardAlt}','fog-color':'${colors.bg}','sky-horizon-blend':0.6,'horizon-fog-blend':0.6,'fog-ground-blend':0.7});
  setLayer(init.layer);setGuide(init.guide);setRoute(init.route,true);
  if(init.mode==='3d')setMode('3d',true);
- post({type:'ready'})});
-map.on('moveend',function(){post({type:'camera',bearing:map.getBearing(),pitch:map.getPitch()})});
+ post({type:'ready'});if(init.pick)sendCenter(true)});
+map.on('moveend',function(){post({type:'camera',bearing:map.getBearing(),pitch:map.getPitch()});if(init.pick)sendCenter(true)});
+if(init.pick){map.touchZoomRotate.disableRotation();map.on('move',function(){drawPick();sendCenter(false)})}
 map.on('dragstart',function(){if(state.follow)post({type:'moved'})});
 map.on('click',function(e){
  if(init.heat){var at=nearestOnHeat(e.point);post(at?{type:'tap',lon:at.lng,lat:at.lat}:{type:'tapout'});return}
  var box=[[e.point.x-24,e.point.y-24],[e.point.x+24,e.point.y+24]];
  if(map.queryRenderedFeatures(box,{layers:['route','route-casing']}).length)post({type:'tap',lon:e.lngLat.lng,lat:e.lngLat.lat})});
-window.app={setHeat:setHeat,setFrame:function(frame){state.frame=frame},setRoute:setRoute,setGuide:setGuide,setCursor:setCursor,setMode:setMode,setLayer:setLayer,recenter:recenter,setKms:setKms,
+window.app={setPick:setPick,centerOn:function(c,zoom){map.easeTo({center:c,zoom:Math.max(map.getZoom(),zoom),duration:400})},setHeat:setHeat,setFrame:function(frame){state.frame=frame},setRoute:setRoute,setGuide:setGuide,setCursor:setCursor,setMode:setMode,setLayer:setLayer,recenter:recenter,setKms:setKms,
  north:function(){map.easeTo({bearing:0,pitch:state.mode==='3d'?60:0,duration:500})},
  follow:function(on){state.follow=on;if(on&&last())map.easeTo({center:last(),zoom:Math.max(map.getZoom(),16),duration:500})}};
 })();
@@ -187,6 +223,9 @@ export function InteractiveMap({
   onUserMove,
   heat,
   frame = null,
+  pick,
+  onCenter,
+  centerOn = null,
 }: {
   segments: LatLon[][];
   /** What is left of a route being followed (1.4.9), in grey under the walk; «ver todo» fits both. */
@@ -219,6 +258,11 @@ export function InteractiveMap({
   onTapOut?: () => void;
   /** What «ver todo» and the first view fit besides the route. */
   frame?: { min: LatLon; max: LatLon } | null;
+  /** Marking a place (1.5.2): see `MapPick`. `onCenter` says where the cross is as the map moves. */
+  pick?: MapPick;
+  onCenter?: (center: LatLon) => void;
+  /** Moves the camera there (a new object each time it should move). */
+  centerOn?: LatLon | null;
 }) {
   const web = useRef<WebView<object>>(null);
   const [status, setStatus] = useState<MapStatus>('loading');
@@ -231,6 +275,7 @@ export function InteractiveMap({
       padding: { top: 48 + topInset, right: 48, bottom: 48 + bottomInset, left: 48 },
       heat: heat !== undefined,
       frame: toFrame(frame),
+      pick: pick ? { center: [pick.center.lon, pick.center.lat], zoom: pick.zoom } : null,
     }),
   );
   const ready = status === 'ready';
@@ -275,6 +320,15 @@ export function InteractiveMap({
   useEffect(() => {
     if (ready && recenterKey > 0) run('app.recenter(true)');
   }, [ready, recenterKey]);
+  const anchor = pick?.anchor ?? null;
+  const cross = pick?.cross ?? false;
+  useEffect(() => {
+    if (ready && pick) run(`app.setPick(${anchor ? JSON.stringify([anchor.lon, anchor.lat]) : 'null'},${cross})`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new object arrives on every render
+  }, [ready, anchor?.lat, anchor?.lon, cross]);
+  useEffect(() => {
+    if (ready && centerOn) run(`app.centerOn(${JSON.stringify([centerOn.lon, centerOn.lat])},18)`);
+  }, [ready, centerOn]);
   useEffect(() => {
     if (ready && northKey > 0) run('app.north()');
   }, [ready, northKey]);
@@ -293,6 +347,7 @@ export function InteractiveMap({
         setStatus(message.type);
         onStatus?.(message.type);
       } else if (message.type === 'camera') onCamera?.({ bearing: message.bearing ?? 0, pitch: message.pitch ?? 0 });
+      else if (message.type === 'center') onCenter?.({ lat: message.lat ?? 0, lon: message.lon ?? 0 });
       else if (message.type === 'tap') onTap?.({ lat: message.lat ?? 0, lon: message.lon ?? 0 });
       else if (message.type === 'tapout') onTapOut?.();
       else if (message.type === 'moved') onUserMove?.();

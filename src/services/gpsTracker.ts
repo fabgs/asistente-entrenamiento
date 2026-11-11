@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
 import { storeTrackPoints } from '@/db/repositories/cardioSessions';
+import { startSprintGnss, stopSprintGnss, takeSprintGnss } from '../../modules/rest-timer';
 import { notifyFollow } from './routeAlert';
 import { openDatabaseInBackground } from './secureDatabase';
 import { colors } from '@/theme';
@@ -21,7 +22,7 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(GPS_TASK, async
   const batch = async () => {
     database ??= openDatabaseInBackground();
     const db = await database;
-    const { follow } = await storeTrackPoints(
+    const { follow, sprint } = await storeTrackPoints(
       db,
       data.locations.map((l) => ({
         t: l.timestamp,
@@ -34,11 +35,60 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(GPS_TASK, async
       })),
       receivedAt,
     );
+    // Sprints are measured with the chip's own fixes (1.5.2): each fused batch brings them along,
+    // also with the screen locked, and starts the listener again in a process Android restarted.
+    if (sprint) await drainSprintGnss(db);
     if (follow) await notifyFollow(follow).catch((e) => console.warn('Could not alert about the route', e));
   };
   queue = queue.then(batch).catch((e) => console.warn('Could not store GPS points', e));
   await queue;
 });
+
+/**
+ * Stores the fixes the GPS chip gave since the last time (PLAN.md §6.8, 1.5.2) in the sprints in
+ * progress; if nothing was listening (a new process), it starts. Each fix is taken once.
+ */
+async function drainSprintGnss(db: SQLiteDatabase): Promise<void> {
+  const fixes = takeSprintGnss();
+  if (fixes === null) {
+    startSprintGnss();
+    return;
+  }
+  if (fixes.length === 0) return;
+  await storeTrackPoints(
+    db,
+    fixes.map((f) => ({
+      t: f.t,
+      lat: f.lat,
+      lon: f.lon,
+      accuracy: f.accuracy,
+      speed: f.speed,
+      altitude: null,
+      // Not when it arrived: how far the fix's own (GPS) time runs behind the clock of the taps.
+      receivedAt: f.t + f.clockLagMs,
+      gnss: true,
+      speedAccuracy: f.speedAccuracy,
+    })),
+  );
+}
+
+/**
+ * Brings the chip's fixes now (the screen every second, and on finishing), through the task's own
+ * connection and queue: the points are always written one batch at a time, from one place.
+ */
+export function storeSprintGnss(): Promise<void> {
+  queue = queue
+    .then(async () => {
+      database ??= openDatabaseInBackground();
+      await drainSprintGnss(await database);
+    })
+    .catch((e) => console.warn('Could not store the GPS fixes', e));
+  return queue;
+}
+
+/** The chip's listener goes with the sprints: on with their GPS, off when they end. */
+export const startSprintGps = () => startSprintGnss();
+export const stopSprintGps = () => stopSprintGnss();
 
 export type GpsStart = 'ok' | 'denied' | 'approximate' | 'off';
 
@@ -95,6 +145,27 @@ export async function stopGpsTracking(): Promise<void> {
 }
 
 export const isGpsRecording = () => Location.hasStartedLocationUpdatesAsync(GPS_TASK);
+
+/**
+ * Where the phone is, to open a map there (marking the straight of the sprints, 1.5.2): the last
+ * place Android knows if it is recent, otherwise a fix asked now. Null without the permission (it
+ * is not asked for here) or without a fix in a few seconds.
+ */
+export async function currentPlace(): Promise<{ lat: number; lon: number } | null> {
+  try {
+    if (!(await Location.getForegroundPermissionsAsync()).granted) return null;
+    const known = await Location.getLastKnownPositionAsync({ maxAge: 60_000, requiredAccuracy: 100 });
+    const fix =
+      known ??
+      (await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000)),
+      ]));
+    return fix ? { lat: fix.coords.latitude, lon: fix.coords.longitude } : null;
+  } catch {
+    return null;
+  }
+}
 
 export async function openLocationSettings(): Promise<void> {
   await Location.enableNetworkProviderAsync().catch(() => undefined);

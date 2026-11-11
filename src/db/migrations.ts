@@ -32,6 +32,14 @@ export const SPRINT_TRACKING_DEFAULTS = `
     WHERE tracking = 'timer' AND name LIKE '%sprint%' AND plan LIKE '%"kind":"hiit"%';
 `;
 
+/**
+ * Sprints measured before the 1.5.2 came from Android's fused location, which smooths a sprint
+ * away (PLAN.md §6.8): none of them was well measured, whatever they said.
+ */
+export const SPRINT_FUSED_WEAK = `
+  UPDATE cardio_session SET laps = REPLACE(laps, '"good"', '"weak"') WHERE tracking = 'sprint' AND laps IS NOT NULL;
+`;
+
 /** Exercises done with two dumbbells (material «mancuernas»): their weight is that of each one. */
 export const EXERCISE_PAIR_DEFAULTS = `UPDATE exercise SET pair = 1 WHERE lower(trim(equipment)) = 'mancuernas';`;
 
@@ -394,10 +402,20 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_diet_log_item ON diet_log(item_id);
   ALTER TABLE settings ADD COLUMN diet_in_today INTEGER NOT NULL DEFAULT 1;
   `,
+  // Sprints with the GPS chip itself (1.5.2): where each fix came from (0 the fused location,
+  // 1 the chip) and how far the chip trusts its speed. The sprints measured until now were all
+  // from the fused location: they stop counting as well measured.
+  `
+  ALTER TABLE cardio_point ADD COLUMN source INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE cardio_point ADD COLUMN speed_accuracy REAL;
+  ${SPRINT_FUSED_WEAK}
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {
-  await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+  // busy_timeout: the GPS task writes through a connection of its own; whoever finds the other
+  // writing waits instead of failing with «database is locked».
+  await db.execAsync('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
   const current = row?.user_version ?? 0;
   for (let version = current; version < MIGRATIONS.length; version++) {

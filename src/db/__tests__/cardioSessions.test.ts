@@ -7,6 +7,7 @@ import { MIGRATIONS, migrate } from '../migrations';
 import { cardioLogOn, listCardio, setCardioDone, updateCardio, type CardioActivity } from '../repositories/cardio';
 import {
   addTrackPoints,
+  storeTrackPoints,
   discardCardioSession,
   finishCardioSession,
   getActiveCardioSession,
@@ -236,10 +237,14 @@ describe('sprints', () => {
     expect(session).toMatchObject({ tracking: 'sprint', sprint: DEFAULT_SPRINT_PLAN, laps: [], lapsJson: '[]' });
     const fix: NewPoint = { t: T0 + 1000, lat: 40.4, lon: -3.7, accuracy: 4, speed: 7.5, altitude: null, receivedAt: T0 + 1400 };
     expect(await addTrackPoints(db, [fix])).toBe(1);
+    // And the ones of the GPS chip itself (1.5.2), marked as such, with how far it trusts its speed.
+    const chip: NewPoint = { t: T0 + 1100, lat: 40.4001, lon: -3.7, accuracy: 3, speed: 7.9, altitude: null, receivedAt: T0 + 1160, gnss: true, speedAccuracy: 0.4 };
+    expect(await storeTrackPoints(db, [chip])).toMatchObject({ stored: 1, sprint: true });
     expect(await listSprintFixes(db, id, T0, T0 + 2000)).toEqual([
-      { t: T0 + 1000, lat: 40.4, lon: -3.7, accuracy: 4, speed: 7.5, receivedAt: T0 + 1400 },
+      { t: T0 + 1000, lat: 40.4, lon: -3.7, accuracy: 4, speed: 7.5, receivedAt: T0 + 1400, gnss: false, speedAccuracy: null },
+      { t: T0 + 1100, lat: 40.4001, lon: -3.7, accuracy: 3, speed: 7.9, receivedAt: T0 + 1160, gnss: true, speedAccuracy: 0.4 },
     ]);
-    expect(await lastTrackPoint(db, id)).toEqual({ t: T0 + 1000, accuracy: 4, receivedAt: T0 + 1400 });
+    expect(await lastTrackPoint(db, id)).toEqual({ t: T0 + 1100, lat: 40.4001, lon: -3.7, accuracy: 3, receivedAt: T0 + 1160 });
   });
 
   it('writes the laps only once for the two taps of a double tap', async () => {
@@ -266,9 +271,10 @@ describe('sprints', () => {
     expect(done.distanceM).toBeCloseTo(76, 0);
     expect(done.laps).toEqual([{ ...laps[0], distanceM: 76 }, laps[1]]);
     expect(await listTrackPoints(db, id)).toEqual([]);
-    expect((await cardioLogOn(db, '2026-11-02')).get(sprints.id)?.value).toBe('2 sprints · máx. 30,6\u00A0km/h');
+    // The best time, not what the GPS measured (1.5.2).
+    expect((await cardioLogOn(db, '2026-11-02')).get(sprints.id)?.value).toBe('2 sprints · mejor 11,8\u00A0s');
     const [entry] = (await cardioHistory(db)).flatMap((d) => d.activities).filter((a) => a.kind === 'sprint');
-    expect(entry).toMatchObject({ sessionId: id, value: '2 sprints · máx. 30,6\u00A0km/h', sprint: { count: 2, topSpeedMs: 8.5, bestTimeMs: 11_800 } });
+    expect(entry).toMatchObject({ sessionId: id, value: '2 sprints · mejor 11,8\u00A0s', sprint: { count: 2, bestTimeMs: 11_800, straightM: null } });
   });
 });
 

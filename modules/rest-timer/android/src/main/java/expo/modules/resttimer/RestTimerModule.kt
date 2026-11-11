@@ -67,6 +67,20 @@ class RestTimerModule : Module() {
       SprintStop.take(context)?.let { (at, source) -> mapOf("at" to at.toDouble(), "source" to source) }
     }
 
+    // The GPS of the sprints straight from the chip (1.5.2): the fused location smooths a sprint away.
+    Function("startSprintGnss") {
+      SprintGnss.start(context)
+    }
+
+    Function("stopSprintGnss") {
+      SprintGnss.stop(context)
+    }
+
+    // The fixes kept since the last call, as rows of numbers (see `SprintGnss.take`); null when it is not listening.
+    Function("takeSprintGnss") {
+      if (SprintGnss.running()) SprintGnss.take().map { it.toList() } else null
+    }
+
     // The key of the encrypted copies (PLAN.md §9); async, so it runs off the JS thread.
     AsyncFunction("pbkdf2Sha256") { password: String, salt: String, iterations: Int ->
       val key = Pbkdf2.sha256(Base64.decode(password, Base64.NO_WRAP), Base64.decode(salt, Base64.NO_WRAP), iterations)

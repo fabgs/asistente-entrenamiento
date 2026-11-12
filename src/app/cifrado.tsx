@@ -8,6 +8,7 @@ import { useDb, useLoader } from '@/hooks/data';
 import {
   backupToGithub,
   clearBackupPassword,
+  ForeignCopyError,
   githubTarget,
   githubToken,
   hasBackupPassword,
@@ -49,8 +50,10 @@ export default function BackupPasswordScreen() {
       try {
         await backupToGithub(db);
         showSnackbar('Contraseña guardada y copia cifrada subida');
-      } catch {
-        showSnackbar('Contraseña guardada. La copia no se pudo subir: súbela desde Ajustes');
+      } catch (e) {
+        // A new phone: the copy in GitHub is the one to restore, not one to replace with this data.
+        if (e instanceof ForeignCopyError) showSnackbar('Contraseña guardada. La copia de GitHub no se ha tocado: no es de este móvil');
+        else showSnackbar('Contraseña guardada. La copia no se pudo subir: súbela desde Ajustes');
       }
     } else {
       showSnackbar('Contraseña guardada');

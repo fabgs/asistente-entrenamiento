@@ -5,6 +5,7 @@ import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Db } from '@/db/db';
 import { exportBackup, getMeta, parseBackup, resetData, restoreBackup, setMeta, type Backup } from '@/db/maintenance';
+import { getBackupLink, setBackupLink } from '@/db/repositories/backupLink';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { SEED } from '@/db/seedData';
 import type { SeedData } from '@/db/seedTypes';
@@ -17,11 +18,14 @@ import {
   sameKdf,
   type BackupKey,
 } from '@/domain/backupCipher';
+import { mayReplaceCopy } from '@/domain/backupLink';
 import { localDateString } from '@/domain/schedule';
 import { appKit, backupKeyStore } from './backupCipher';
 import { rescheduleDailyReminders } from './dailyReminder';
-import { getRawFile, putFile, type GithubTarget } from './githubBackup';
+import { getFileSha, getRawFile, putFile, type GithubTarget } from './githubBackup';
 import { resetNotifications } from './notifications';
+
+export { ForeignCopyError } from './githubBackup';
 
 const TOKEN_KEY = 'github-backup-token';
 const INSTALL_KEY = 'install-stamp';
@@ -131,9 +135,11 @@ export async function pickBackupFile(): Promise<string | null> {
 /**
  * Replaces the data with the copy. On a phone without a password yet, the one of an encrypted copy
  * is kept for the next ones (a new phone restoring its copies); only once restored, not on cancel.
+ * `githubSha` is the copy in GitHub it came from: from now on the phone may upload over it.
  */
-export async function restoreFrom(db: Db, { backup, key }: OpenedBackup): Promise<void> {
+export async function restoreFrom(db: Db, { backup, key }: OpenedBackup, githubSha?: string | null): Promise<void> {
   await restoreBackup(db, backup);
+  if (githubSha) await setBackupLink(db, githubSha);
   if (key && !(await backupKeyStore.get())) await backupKeyStore.set(key);
   await resetNotifications();
   await rescheduleDailyReminders(db);
@@ -144,15 +150,26 @@ export function githubTarget(s: Settings): GithubTarget | null {
   return { owner: s.backupOwner, repo: s.backupRepo, path: s.backupPath || 'entreno-backup.json' };
 }
 
-/** Uploads a backup now; the result (time or error) is stored in settings for the UI. */
-export async function backupToGithub(db: Db, now = new Date()): Promise<void> {
+/**
+ * Uploads a backup now; the result (time or error) is stored in settings for the UI. Only over the
+ * copy this phone uploaded or restored last (PLAN.md §9): over any other, ForeignCopyError, unless
+ * the user has just said so (`replaceForeign`).
+ */
+export async function backupToGithub(db: Db, now = new Date(), replaceForeign = false): Promise<void> {
   const settings = await getSettings(db);
   const target = githubTarget(settings);
   const token = await githubToken.get();
   if (!target || !token) throw new Error('Configura el repositorio y el token de GitHub primero.');
   try {
-    const file = await writeBackupFile(db, now);
-    await putFile(target, token, await file.base64(), `Copia de seguridad ${now.toISOString()}`);
+    const link = await getBackupLink(db);
+    const sha = await putFile(
+      target,
+      token,
+      async () => (await writeBackupFile(db, now)).base64(),
+      `Copia de seguridad ${now.toISOString()}`,
+      (current) => replaceForeign || mayReplaceCopy(current, link),
+    );
+    await setBackupLink(db, sha ?? (await getFileSha(target, token)));
     await updateSettings(db, { lastBackupAt: now.getTime(), lastBackupError: null });
   } catch (e) {
     await updateSettings(db, { lastBackupError: e instanceof Error ? e.message : String(e) });
@@ -160,12 +177,27 @@ export async function backupToGithub(db: Db, now = new Date()): Promise<void> {
   }
 }
 
-/** Downloads the latest backup from GitHub without applying it: its text, to open with `openBackup`. */
-export async function downloadFromGithub(db: Db): Promise<string> {
+/**
+ * Downloads the latest backup from GitHub without applying it: its text, to open with `openBackup`,
+ * and its sha, for `restoreFrom`.
+ */
+export async function downloadFromGithub(db: Db): Promise<{ text: string; sha: string | null }> {
   const target = githubTarget(await getSettings(db));
   const token = await githubToken.get();
   if (!target || !token) throw new Error('Configura el repositorio y el token de GitHub primero.');
-  return getRawFile(target, token);
+  // The sha first: if another phone uploads in between, this one is left tied to the older copy
+  // and asks before replacing the newer one.
+  const sha = await getFileSha(target, token);
+  return { text: await getRawFile(target, token), sha };
+}
+
+/** Whether GitHub holds a copy this phone would not replace on its own: one to restore, on a new phone. */
+export async function foreignCopyInGithub(db: Db): Promise<boolean> {
+  const target = githubTarget(await getSettings(db));
+  const token = await githubToken.get();
+  if (!target || !token) return false;
+  const sha = await getFileSha(target, token);
+  return sha !== null && !mayReplaceCopy(sha, await getBackupLink(db));
 }
 
 /** At most once a day, never in developer mode, silently skipped if not configured or offline. */

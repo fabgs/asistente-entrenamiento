@@ -42,29 +42,50 @@ function explain(status: number, missing: string): GithubError {
   return new GithubError(`GitHub respondió con un error (${status}).`);
 }
 
-/** Creates or replaces the file; each upload becomes a commit, so GitHub keeps every version. */
+const NO_REPO = 'No encuentro el repositorio: revisa usuario, nombre y permisos del token.';
+
+/**
+ * The file in GitHub is not the copy this phone uploaded or restored last (a new phone, a reset,
+ * another phone uploading): replacing it is for the user to decide. Nothing was uploaded.
+ */
+export class ForeignCopyError extends GithubError {
+  constructor() {
+    super('En GitHub hay una copia que no salió de este móvil. Restáurala o, si la buena es la de este, pulsa «Subir ahora».');
+  }
+}
+
+/** The blob sha of the file, which names that exact copy; null if there is none yet. */
+export async function getFileSha(target: GithubTarget, token: string, fetchImpl: FetchLike = fetch): Promise<string | null> {
+  const current = await request(fetchImpl, contentsUrl(target), { headers: headers(token) });
+  if (current.status === 404) return null;
+  if (!current.ok) throw explain(current.status, NO_REPO);
+  return ((await current.json()) as { sha?: string }).sha ?? null;
+}
+
+/**
+ * Creates or replaces the file; each upload becomes a commit, so GitHub keeps every version.
+ * `mayReplace` sees the sha of the file there is (null if none) before anything is built or sent:
+ * ForeignCopyError if it says no. Returns the sha of the new file (null if GitHub did not say).
+ */
 export async function putFile(
   target: GithubTarget,
   token: string,
-  base64Content: string,
+  base64Content: () => Promise<string>,
   message: string,
+  mayReplace: (currentSha: string | null) => boolean,
   fetchImpl: FetchLike = fetch,
-): Promise<void> {
-  const url = contentsUrl(target);
-  const current = await request(fetchImpl, url, { headers: headers(token) });
-  if (!current.ok && current.status !== 404) {
-    throw explain(current.status, 'No encuentro el repositorio: revisa usuario, nombre y permisos del token.');
-  }
-  const sha = current.ok ? ((await current.json()) as { sha?: string }).sha : undefined;
+): Promise<string | null> {
+  const sha = await getFileSha(target, token, fetchImpl);
+  if (!mayReplace(sha)) throw new ForeignCopyError();
 
-  const result = await request(fetchImpl, url, {
+  const result = await request(fetchImpl, contentsUrl(target), {
     method: 'PUT',
     headers: { ...headers(token), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message, content: base64Content, ...(sha ? { sha } : {}) }),
+    body: JSON.stringify({ message, content: await base64Content(), ...(sha ? { sha } : {}) }),
   });
-  if (!result.ok) {
-    throw explain(result.status, 'No encuentro el repositorio: revisa usuario, nombre y permisos del token.');
-  }
+  if (!result.ok) throw explain(result.status, NO_REPO);
+  const created = (await result.json().catch(() => null)) as { content?: { sha?: string } } | null;
+  return created?.content?.sha ?? null;
 }
 
 export async function getRawFile(target: GithubTarget, token: string, fetchImpl: FetchLike = fetch): Promise<string> {

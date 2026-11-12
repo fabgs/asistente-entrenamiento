@@ -6,6 +6,7 @@ import type { Backup } from '@/db/maintenance';
 import type { SeedData } from '@/db/seedTypes';
 import { updateSettings, type Settings } from '@/db/repositories/settings';
 import { WrongPasswordError } from '@/domain/backupCipher';
+import { copyContents } from '@/domain/backupLink';
 import { formatAgo, formatBytes, formatDateWithYear } from '@/domain/format';
 import { localDateString } from '@/domain/schedule';
 import { useDb } from '@/hooks/data';
@@ -13,6 +14,8 @@ import { deleteUnusedPhotos } from '@/services/photos';
 import {
   backupToGithub,
   downloadFromGithub,
+  foreignCopyInGithub,
+  ForeignCopyError,
   githubTarget,
   githubToken,
   openBackup,
@@ -173,8 +176,10 @@ function confirmDeleteUnused(count: number, onDelete: () => Promise<void>): void
 
 function confirmRestore(backup: Backup): Promise<boolean> {
   const date = formatDateWithYear(localDateString(new Date(backup.exportedAt)));
+  // What it holds, so that an empty copy (one uploaded by a new phone) is not restored unawares.
+  const contents = copyContents(backup.tables.workout_session?.length ?? 0, backup.tables.cardio_session?.length ?? 0);
   return new Promise((resolve) =>
-    showDialog('¿Restaurar la copia?', `Todos tus datos se sustituyen por los de la copia del ${date}.`, [
+    showDialog('¿Restaurar la copia?', `Todos tus datos se sustituyen por los de la copia del ${date}, que ${contents}.`, [
       { text: 'Cancelar', style: 'cancel', onPress: () => resolve(false) },
       { text: 'Restaurar', style: 'destructive', onPress: () => resolve(true) },
     ]),
@@ -245,26 +250,53 @@ export function BackupSection({
     }
   };
 
-  const restore = async (text: string | null) => {
+  /** `githubSha`: the copy in GitHub the text is, when it comes from there. */
+  const restore = async (text: string | null, githubSha?: string | null) => {
     const opened = text === null ? null : await openAskingPassword(text);
     if (!opened || !(await confirmRestore(opened.backup))) return;
-    await restoreFrom(db, opened);
+    await restoreFrom(db, opened, githubSha);
     await onReplaced();
     showSnackbar('Datos restaurados');
   };
 
-  const upload = (): Promise<void> =>
+  const restoreFromGithub = () =>
+    run('restore', async () => {
+      const copy = await downloadFromGithub(db);
+      await restore(copy.text, copy.sha);
+    });
+
+  const upload = (replaceForeign = false): Promise<void> =>
     run('upload', async () => {
       try {
-        await backupToGithub(db);
+        await backupToGithub(db, new Date(), replaceForeign);
         showSnackbar('Copia subida a GitHub');
-      } catch {
-        // The reason stays in the «Última copia» row.
-        showSnackbar('No se pudo subir la copia', { label: 'Reintentar', onPress: upload });
+      } catch (e) {
+        if (e instanceof ForeignCopyError) {
+          showDialog(
+            'En GitHub hay otra copia',
+            'No salió de este móvil: es de otro o de antes de reiniciar los datos. Si subes la de este, la sustituye. Para traer aquí esos datos, cancela y pulsa «Restaurar…».',
+            [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Subir encima', style: 'destructive', onPress: () => upload(true) },
+            ],
+          );
+        } else {
+          // The reason stays in the «Última copia» row.
+          showSnackbar('No se pudo subir la copia', { label: 'Reintentar', onPress: () => upload(replaceForeign) });
+        }
       } finally {
         await onChanged();
       }
     });
+
+  // A new phone that has just been told where the copy is: what it wants is to bring it.
+  const offerRestore = async () => {
+    if (!(await foreignCopyInGithub(db).catch(() => false))) return;
+    showDialog('Ya hay una copia en GitHub', 'No salió de este móvil. ¿Quieres traer aquí sus datos?', [
+      { text: 'Ahora no', style: 'cancel' },
+      { text: 'Restaurar…', onPress: restoreFromGithub },
+    ]);
+  };
 
   const busyIcon = (task: Task) => (busy === task ? <Spinner /> : undefined);
 
@@ -331,7 +363,7 @@ export function BackupSection({
             left={<RowIcon name="cloud-upload-outline" />}
             title="Subir ahora"
             right={busyIcon('upload')}
-            onPress={upload}
+            onPress={() => upload()}
             chevron={false}
             disabled={!!busy || !hasToken}
           />
@@ -339,7 +371,7 @@ export function BackupSection({
             left={<RowIcon name="cloud-download-outline" />}
             title="Restaurar…"
             right={busyIcon('restore')}
-            onPress={() => run('restore', async () => restore(await downloadFromGithub(db)))}
+            onPress={restoreFromGithub}
             chevron={false}
             disabled={!!busy || !hasToken}
           />
@@ -372,6 +404,7 @@ export function BackupSection({
             setEditing(false);
             await onChanged();
             showSnackbar(message);
+            await offerRestore();
           }}
         />
       ) : null}

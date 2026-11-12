@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.5.2** (`versionCode` 25, [app.json](app.json)) |
+| Versión de la app | **1.5.3** (`versionCode` 26, [app.json](app.json)) |
 | Esquema de la BD | **16** (`PRAGMA user_version`, 16 migraciones) |
-| Revisado | 2026-11-11, versión 1.5.2 (sprints: el GPS del chip por el módulo nativo, la recta marcada en el mapa en la pantalla nueva `/recta/:id`, «Listo» nuevo con la hoja «Plan», y cifras por tiempo y recta con lo del GPS aparte) |
+| Revisado | 2026-11-12, versión 1.5.3 (la copia en GitHub: el móvil recuerda cuál es la suya, `backup-sha`, y no sustituye otra sin preguntar; `backupLink` en el dominio y en los repositorios; la pregunta antes de restaurar dice qué trae la copia) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -101,7 +101,7 @@ sequenceDiagram
   L->>S: prepareDatabase()
   S-->>L: clave (o null si la BD sigue sin cifrar)
   L->>P: abre entreno.db
-  P->>P: PRAGMA key · migrate() · resetIfNewInstallInDevMode() · importSeed(SEED)
+  P->>P: PRAGMA key · migrate() · resetIfNewInstallInDevMode() · importSeed(SEED) y, si era el primer arranque, setBackupLink(null)
   P->>B: monta Bootstrap y el Stack
   B->>B: ensureChannels · si se reinició para aplicar un tema, navigate(/ajustes) · pedir permiso de notificaciones
   B->>B: rescheduleDailyReminders · restoreWorkoutInProgress · restoreCardioInProgress · maybeAutoBackup
@@ -147,6 +147,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [hints.ts](src/db/repositories/hints.ts) | `app_meta` (`hint:*`) | `hintsSeen`, `markHintSeen` (`walk-metric`, `walk-chart`, `sprint-how`, `sprint-volume`, `heat-map`) |
 | [pathHeat.ts](src/db/repositories/pathHeat.ts) | `cardio_session` (lectura), `app_meta` (`heat-map-mode`) | `listHeatWalks` (las caminatas con GPS terminadas, la última primero, con su línea codificada), `getHeatMode`, `setHeatMode` |
 | [admin.ts](src/db/repositories/admin.ts) | `app_meta` (`admin`) | `getAdminOptions` (la primera vez, sí si ya hay copia en GitHub o modo pruebas), `setAdminOptions` |
+| [backupLink.ts](src/db/repositories/backupLink.ts) | `app_meta` (`backup-sha`); lee `settings.last_backup_at` y si hay rutinas, sesiones o pesajes | `getBackupLink` (de qué copia de GitHub vienen los datos del móvil, si ya había subido y si tiene datos), `setBackupLink` (1.5.3) |
 
 </details>
 
@@ -183,6 +184,7 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [photos.ts](src/domain/photos.ts) | Fecha y GPS del EXIF de una foto y dónde va en la ruta (`placeFromFix`, `placeAtTime`, `photoPlace`, `walkTrackOf`); imágenes sin sesión (`photosWithoutSession`) |
 | [secretTaps.ts](src/domain/secretTaps.ts) | Siete toques en la versión para ver u ocultar las opciones de administrador (`addTap`, `tapOutcome`) |
 | [backupCipher.ts](src/domain/backupCipher.ts) | Formato de copia cifrada, PBKDF2/AES con un «kit» inyectado |
+| [backupLink.ts](src/domain/backupLink.ts) | La copia de GitHub de la que viene el móvil (1.5.3): `mayReplaceCopy` (¿puede una subida sustituir la copia que hay sin preguntar?) y `copyContents` (qué trae una copia, para la pregunta antes de restaurarla) |
 | [format.ts](src/domain/format.ts) | Formatos es-ES (kg, duraciones, fechas, tamaños de fichero, series con su unidad `formatSetGroups`/`formatSetValues`, `workoutTitle`) |
 | [types.ts](src/domain/types.ts) | Tipos compartidos (`IsoWeekday`, `RepTarget`, `Recommendation`…) |
 
@@ -204,9 +206,9 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [sprintSession.ts](src/services/sprintSession.ts) | Acciones de los sprints, pitido, cuenta atrás y la notificación del sprint en marcha; aplicar la parada de un botón (`applyButtonStop`, 1.5.0); arranca y para el oyente del chip con el GPS de los sprints y, al terminar, espera sus puntos hasta 2,5 s tras la última parada (1.5.2) | `SprintLive`, cardioSession |
 | [gpsTracker.ts](src/services/gpsTracker.ts) | Tarea `entreno-gps` (guarda los puntos lote a lote, avisa si te sales de la ruta seguida y, en unos sprints, trae con cada lote los puntos del chip) y arrancar/parar el GPS; el GPS del chip (1.5.2): `storeSprintGnss` (guarda lo que el oyente dio desde la última vez, o lo arranca si no escuchaba), `startSprintGps`/`stopSprintGps`; `currentPlace` (dónde está el móvil, sin pedir permiso, para abrir un mapa) | cardioSession, sprintSession, `walk.ts`, Recta, `_layout` |
 | [secureDatabase.ts](src/services/secureDatabase.ts) | Clave SQLCipher, cifrar una BD antigua, conexión de la tarea GPS | `_layout`, gpsTracker |
-| [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub, modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
+| [backup.ts](src/services/backup.ts) | Exportar/importar, GitHub (solo sube encima de la copia de la que viene el móvil: `ForeignCopyError`, `foreignCopyInGithub`, 1.5.3), modo pruebas, contraseña de las copias | Ajustes, Cifrado, Hoy, entreno, cardio, `_layout` |
 | [backupCipher.ts](src/services/backupCipher.ts) | Kit nativo (PBKDF2 del módulo + AES-GCM de `expo-crypto`) y la clave guardada | backup |
-| [githubBackup.ts](src/services/githubBackup.ts) | API de contenidos de GitHub (GET sha, PUT, descarga raw) | backup |
+| [githubBackup.ts](src/services/githubBackup.ts) | API de contenidos de GitHub: `getFileSha`, `putFile` (pregunta con el `sha` que hay antes de construir y mandar la copia, y devuelve el nuevo) y la descarga raw | backup |
 | [photos.ts](src/services/photos.ts) | Hacer una foto o elegirla de la galería, guardar su copia reducida, quitarla y borrar las de una sesión; recuperar la que Android dejó a medias (`recoverPendingPhotos`); imágenes sin sesión | Sesión de cardio, Resumen, Foto, Compartir, cardioSession |
 | [shareImage.ts](src/services/shareImage.ts) | Captura de una vista, guardar en la galería, compartir | Compartir |
 | [network.ts](src/services/network.ts) | ¿Se pueden cargar teselas ahora? | Compartir |
@@ -454,7 +456,7 @@ Notación: **→** navega (`push` salvo que se diga), **↩** vuelve (`back`), *
 - **Opciones de administrador** (1.4.5): la copia en GitHub y el modo pruebas solo se ven con ellas (el modo pruebas, también mientras esté activo); siete toques en «Entreno vX» del pie las muestran u ocultan; desde el tercero el pie dice cuántos faltan (un Snackbar taparía la versión) y al séptimo sale el Snackbar ([secretTaps.ts](src/domain/secretTaps.ts), `app_meta('admin')`).
 - **Dieta** (1.5.1): el interruptor «Comidas en Hoy» (`settings.diet_in_today`) pone o quita la fila «Dieta» de la pestaña Hoy.
 - **Apariencia** (1.4.10): la fila «Tema y color · Oscuro · Verde» abre una hoja con «Oscuro · Claro», cuatro colores, una mini vista previa y «Aplicar», que reinicia el JavaScript y vuelve a Ajustes (§5.15); con un entreno o un cardio en curso no deja aplicar.
-- **Capas**: hoja «Apariencia»; hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?», «Copia cifrada» (contraseña), «¿Reiniciar los datos?».
+- **Capas**: hoja «Apariencia»; hoja «Descanso entre series»; «Sugerencias de peso» ([WeightRules.tsx](src/components/WeightRules.tsx)): hojas «Incremento», «Cuándo subir el peso» y «Cuándo bajar el peso» (con ejemplos de `raiseExamples`/`lowerExamples`); hoja «Avisos y permisos» (detalles), formulario de GitHub desplegable, diálogos «¿Restaurar la copia?» (con la fecha y lo que trae), «Copia cifrada» (contraseña), «En GitHub hay otra copia» («Subir encima», al pulsar «Subir ahora» si la de GitHub no es la del móvil), «Ya hay una copia en GitHub» («Restaurar…», al guardar la configuración de GitHub en un móvil cuyos datos no vienen de ella) y «¿Reiniciar los datos?».
 
 #### Cifrar las copias · `/cifrado`
 - **Llega desde**: Ajustes.
@@ -1077,7 +1079,7 @@ erDiagram
 |---|---|---|
 | `profile` | Datos del cuerpo y de los objetivos | El peso no va aquí: es el último de `weight_log`. Los g/kg de proteína y grasa y los L/kg de agua se editan en Objetivos del día (el agua en ml/kg). `name` no se usa. |
 | `settings` | Ajustes de la app y estado de la copia | `progression_mode`, `sessions_below_to_decrease` y `default_increment_kg` se editan en Ajustes → «Sugerencias de peso» y `getSettings` los limpia (`sanitizeProgression`). `cardio_*` y `distance_unit` recuerdan la vista de la caminata. |
-| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas), `hint:<pista>` (pistas de un solo uso), `heat-map-mode` (el modo del mapa de calor, 1.4.10), `admin` (opciones de administrador) y `photo-pending` (la foto mientras la cámara o la galería están abiertas). No va en la copia. |
+| `app_meta` | Datos internos que sobreviven a un reinicio de datos | `install-stamp` (modo pruebas), `hint:<pista>` (pistas de un solo uso), `heat-map-mode` (el modo del mapa de calor, 1.4.10), `admin` (opciones de administrador), `backup-sha` (la copia de GitHub de la que vienen los datos del móvil, 1.5.3; un reinicio la deja vacía) y `photo-pending` (la foto mientras la cámara o la galería están abiertas). No va en la copia. |
 | `weight_log` | Un pesaje por día | `logWeight` hace *upsert* por fecha. |
 | `exercise` | Catálogo de ejercicios | `pair = 1`: el peso es de cada mancuerna y el volumen cuenta las dos. Crear uno con el nombre de un archivado lo recupera. |
 | `exercise_muscle` | Músculos principales y secundarios de cada ejercicio | Un músculo es principal o secundario, no ambos. Claves desconocidas se ignoran al leer. |
@@ -1376,20 +1378,22 @@ Todas pasan por `queueWrite` (el plan de unos sprints, con `useSavedAtOnce`). Lo
 | Acción | Dónde | Qué pasa |
 |---|---|---|
 | Exportar | Ajustes «Exportar copia» | `exportBackup` → JSON (cifrado si hay contraseña) en `cache/entreno-backup-AAAA-MM-DD.json` → menú de compartir |
-| Importar | Ajustes «Importar copia» | Selector de ficheros → `openBackup` (pide contraseña si hace falta) → «¿Restaurar la copia?» → `restoreFrom` |
-| Configurar GitHub | Ajustes «Copia automática en GitHub» / «Cambiar configuración» | Usuario, repositorio y fichero en `settings`; token en el almacén seguro; «Olvidar el token» |
-| Subir | «Subir ahora» o automática | `backupToGithub`: `GET` para el `sha` y `PUT` con el fichero en base64 (un commit por copia); guarda `last_backup_at` o `last_backup_error` |
-| Automática | Arranque, terminar un entreno (también desde Hoy), terminar un cardio | `maybeAutoBackup`: como mucho una cada 24 h, nunca en modo pruebas, en silencio si falla o no está configurada |
-| Restaurar de GitHub | «Restaurar…» | `downloadFromGithub` (raw) → igual que importar |
-| Poner contraseña | `/cifrado` | `setBackupPassword` → PBKDF2-HMAC-SHA256 nativo (600 000 iteraciones, sal de 16 B, mínimo 10 caracteres) → guarda la **clave derivada** (no la contraseña); si GitHub está configurado y no hay modo pruebas, sube una copia cifrada |
+| Importar | Ajustes «Importar copia» | Selector de ficheros → `openBackup` (pide contraseña si hace falta) → «¿Restaurar la copia?», con la fecha de la copia y lo que trae (`copyContents`: «tiene 373 entrenos y 8 sesiones de cardio» o «no tiene ningún entreno ni cardio») → `restoreFrom` |
+| Configurar GitHub | Ajustes «Copia automática en GitHub» / «Cambiar configuración» | Usuario, repositorio y fichero en `settings`; token en el almacén seguro; «Olvidar el token». Al guardar, si en GitHub hay una copia que el móvil no sustituiría (`foreignCopyInGithub`: un móvil nuevo), el diálogo «Ya hay una copia en GitHub» ofrece restaurarla (1.5.3) |
+| Subir | «Subir ahora» o automática | `backupToGithub`: `GET` para el `sha` de la copia que hay; si no es la del móvil (`mayReplaceCopy`), `ForeignCopyError` sin construir ni subir nada (a mano, el diálogo «En GitHub hay otra copia» con «Subir encima», que repite la subida sin esa comprobación); si lo es o no hay fichero, `PUT` con el fichero en base64 (un commit por copia) y el `sha` nuevo pasa a ser la copia del móvil; guarda `last_backup_at` o `last_backup_error` |
+| Automática | Arranque, terminar un entreno (también desde Hoy), terminar un cardio | `maybeAutoBackup`: como mucho una cada 24 h, nunca en modo pruebas ni encima de una copia que no es la del móvil, en silencio si falla o no está configurada (el motivo queda en la fila «Última copia») |
+| Restaurar de GitHub | «Restaurar…» | `downloadFromGithub` (el `sha` y después el texto raw) → igual que importar; al restaurar, ese `sha` pasa a ser la copia del móvil |
+| Poner contraseña | `/cifrado` | `setBackupPassword` → PBKDF2-HMAC-SHA256 nativo (600 000 iteraciones, sal de 16 B, mínimo 10 caracteres) → guarda la **clave derivada** (no la contraseña); si GitHub está configurado y no hay modo pruebas, sube una copia cifrada, salvo que la de GitHub no sea la del móvil (un móvil nuevo): entonces no la toca y lo dice |
 | Dejar de cifrar | ⋮ de `/cifrado` | Borra la clave guardada |
 | Abrir una cifrada | Importar o restaurar | Usa la clave guardada si la sal y las iteraciones coinciden; si no, pide la contraseña («No es esa. Prueba otra vez.»); un móvil sin contraseña adopta la de la copia al restaurar |
 | En el ordenador | — | `node scripts/decrypt-backup.mjs copia.json > fuera-del-repo.json` |
 
+**La copia del móvil** (1.5.3, [backupLink.ts](src/domain/backupLink.ts)). `app_meta('backup-sha')` guarda el `sha` (el del blob de git, que da la API de contenidos) de la copia de GitHub que el móvil subió o restauró por última vez, y vacío si sus datos no vienen de ninguna: en el primer arranque (`initDatabase` en [_layout.tsx](src/app/_layout.tsx), cuando `importSeed` carga los catálogos) y al reiniciar los datos (`resetData`). Una subida solo sustituye por su cuenta esa copia, o crea el fichero si no lo hay; ante cualquier otra (un móvil nuevo, un reinicio, otro móvil que subió después) no sube y lo dice. Un móvil que viene de una versión anterior no tiene nada guardado: sigue subiendo si ya había subido (`last_backup_at`) y tiene datos (rutinas, sesiones o pesajes), y desde esa subida lo guarda. Es del móvil y no de los datos: no va en la copia, y restaurar un fichero no lo cambia.
+
 ### 5.13 Modo pruebas y datos de prueba
 
 - `settings.dev_mode` (apagado en instalaciones nuevas; restaurar una copia siempre lo apaga).
-- **Al instalar un APK nuevo** (`resetIfNewInstallInDevMode`, dentro de `onInit`): compara `Application.getLastUpdateTimeAsync()` con `app_meta('install-stamp')`; si cambió y `dev_mode = 1`, `resetData(SEED)` y `resetNotifications()`. `resetData` conserva `backup_owner`, `backup_repo`, `backup_path`, `last_backup_at` y `dev_mode` (para no subir datos vacíos encima de la copia buena).
+- **Al instalar un APK nuevo** (`resetIfNewInstallInDevMode`, dentro de `onInit`): compara `Application.getLastUpdateTimeAsync()` con `app_meta('install-stamp')`; si cambió y `dev_mode = 1`, `resetData(SEED)` y `resetNotifications()`. `resetData` conserva `backup_owner`, `backup_repo`, `backup_path`, `last_backup_at` y `dev_mode`, y olvida de qué copia de GitHub venían los datos (`backup-sha` vacío, 1.5.3): el móvil vaciado no sube nada encima de la copia buena hasta restaurarla o hasta que el usuario lo pida (§5.12).
 - **Efectos**: etiqueta «Pruebas» en Hoy; sin copias automáticas; poner contraseña no sube copia.
 - **Ajustes · Modo pruebas**: interruptor «Borrar los datos al instalar una versión nueva» y «Reiniciar datos ahora» (`resetToSeed` → ⤒). Solo en desarrollo (`__DEV__`, el bundle de release no los incluye): «Cargar datos de prueba (Excel)» (`DEMO_SEED`), «Añadir caminata de prueba» ([demoWalk.ts](src/db/demoWalk.ts)), «Añadir sprints de prueba» ([demoSprints.ts](src/db/demoSprints.ts)) y «Catálogo de componentes».
 - Borrar los datos no borra las imágenes de las fotos (§4.7).

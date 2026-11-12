@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Appearance, View } from 'react-native';
 import { DialogHost, showSnackbar, SnackbarHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
+import { setBackupLink } from '@/db/repositories/backupLink';
 import { importSeed } from '@/db/seed';
 import { SEED } from '@/db/seedData';
 import { useDb } from '@/hooks/data';
@@ -38,7 +39,8 @@ async function initDatabase(db: SQLiteDatabase, key: string | null) {
   if (key) await db.execAsync(keyPragma(key));
   await migrate(db);
   await resetIfNewInstallInDevMode(db);
-  await importSeed(db, SEED, new Date());
+  // A phone that starts empty: its data comes from no copy in GitHub, so it will not replace one (PLAN.md §9).
+  if (await importSeed(db, SEED, new Date())) await setBackupLink(db, null);
 }
 
 // navigate, not push: going back to a screen already open must not stack a second copy of it.

@@ -100,10 +100,14 @@ export async function wipeAllData(db: Db): Promise<void> {
 /** Settings a reset keeps: see `resetData`. */
 const KEPT_ON_RESET = ['backup_owner', 'backup_repo', 'backup_path', 'last_backup_at', 'dev_mode'] as const;
 
+/** `app_meta` key of the copy in GitHub the data of this phone comes from: repositories/backupLink. */
+export const BACKUP_LINK_KEY = 'backup-sha';
+
 /**
  * Wipes everything and loads `seed`, like a fresh install, but keeps where the GitHub copy goes
  * (right after a reset that copy is what one usually restores) and when it was last uploaded and
- * the developer mode: otherwise the automatic copy would upload the empty data over the good one.
+ * the developer mode. The data no longer comes from the copy in GitHub, so the phone forgets it:
+ * otherwise the automatic copy would upload the empty data over the good one.
  */
 export async function resetData(db: Db, seed: SeedData, now: Date): Promise<void> {
   const kept = await db.getFirstAsync<Record<(typeof KEPT_ON_RESET)[number], SqlValue>>(
@@ -119,6 +123,7 @@ export async function resetData(db: Db, seed: SeedData, now: Date): Promise<void
       ...KEPT_ON_RESET.map((c) => kept[c]),
     );
   }
+  await setMeta(db, BACKUP_LINK_KEY, '');
 }
 
 /**

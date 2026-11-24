@@ -33,14 +33,15 @@ import { githubToken, hasBackupPassword } from '@/services/backup';
 import { unusedPhotos } from '@/services/photos';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 import {
+  ANDROID_ALARM_SETTINGS,
   countScheduledNotifications,
   getPermissionState,
   openBatteryOptimizationSettings,
   openNotificationSettings,
   openOverlaySettings,
+  type PermissionState,
   requestExactAlarmPermission,
   requestNotificationPermission,
-  type PermissionState,
 } from '@/services/notifications';
 import { colors, spacing } from '@/theme';
 
@@ -134,12 +135,14 @@ function SettingsList({ data, reload, onReplaced }: { data: Loaded; reload: () =
             value={settings.keepAwake}
             onValueChange={(keepAwake) => save({ keepAwake })}
           />
-          <SettingSwitch
-            label="Burbuja flotante"
-            subtitle="Con el descanso, cuando sales de la app"
-            value={settings.restOverlay}
-            onValueChange={(restOverlay) => save({ restOverlay })}
-          />
+          {ANDROID_ALARM_SETTINGS ? (
+            <SettingSwitch
+              label="Burbuja flotante"
+              subtitle="Con el descanso, cuando sales de la app"
+              value={settings.restOverlay}
+              onValueChange={(restOverlay) => save({ restOverlay })}
+            />
+          ) : null}
         </ListGroup>
       </Section>
 
@@ -221,17 +224,22 @@ async function allowNotifications(): Promise<void> {
   if (!(await requestNotificationPermission())) await openNotificationSettings();
 }
 
-/** What the alarms need; the bubble's permission only counts when the bubble is on. */
+/**
+ * What the alarms need; the bubble's permission only counts when the bubble is on. On iOS (1.5.5)
+ * only the notifications: exact alarms, battery and bubble are Android's.
+ */
 function permissionChecks(p: PermissionState, bubble: boolean): Check[] {
+  const notifications: Check = {
+    name: 'Notificaciones',
+    ok: p.notifications,
+    fix: 'Permitir notificaciones',
+    why: 'Sin ellas no suena el fin del descanso',
+    icon: 'bell-cog-outline',
+    run: allowNotifications,
+  };
+  if (!ANDROID_ALARM_SETTINGS) return [notifications];
   const checks: Check[] = [
-    {
-      name: 'Notificaciones',
-      ok: p.notifications,
-      fix: 'Permitir notificaciones',
-      why: 'Sin ellas no suena el fin del descanso',
-      icon: 'bell-cog-outline',
-      run: allowNotifications,
-    },
+    notifications,
     {
       name: 'Alarmas exactas',
       ok: p.exactAlarms,

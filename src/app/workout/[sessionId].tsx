@@ -82,7 +82,7 @@ import { warmupProposal, type WarmupSet } from '@/domain/warmup';
 import { nextPendingSlot, nextStep, setsDone, type NextStep } from '@/domain/workoutMachine';
 import { useDb, useLoader, useNow } from '@/hooks/data';
 import { maybeAutoBackup } from '@/services/backup';
-import { openOverlaySettings } from '@/services/notifications';
+import { ANDROID_ALARM_SETTINGS, openOverlaySettings } from '@/services/notifications';
 import {
   canDrawOverlays,
   cancelRestEnd,
@@ -411,7 +411,7 @@ export default function WorkoutScreen() {
           onAdjust={adjustRest}
           onContinue={continueAfterRest}
           oneMore={restSlotDone && !session.nextExtra && current ? { name: current.exerciseName, onPress: oneMoreSet } : null}
-          askOverlay={settings.restOverlay && !data.overlayAllowed}
+          askOverlay={ANDROID_ALARM_SETTINGS && settings.restOverlay && !data.overlayAllowed}
           onGrantOverlay={openOverlaySettings}
           onDeclineOverlay={async () => {
             await updateSettings(db, { restOverlay: false });

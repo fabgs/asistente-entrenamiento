@@ -83,7 +83,9 @@ async function prepare(): Promise<string | null> {
   if (stored && !plain) return stored;
 
   const key = stored ?? toHex(getRandomBytes(32));
-  if (!stored) await SecureStore.setItemAsync(KEY_ITEM, key);
+  // On iOS (1.5.5) readable after the first unlock, so the GPS task can open the base with the
+  // phone locked, and never out of this phone, like the base on Android (no cloud backup).
+  if (!stored) await SecureStore.setItemAsync(KEY_ITEM, key, { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY });
   if (!file.exists) return key;
   if (!plain) {
     // Encrypted with a key this phone no longer has: put it aside and start empty (restore a copy).

@@ -1,7 +1,7 @@
 import Constants from 'expo-constants';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
+import { Linking, Platform } from 'react-native';
 import {
   cancelSprintBeep,
   canDrawOverlays,
@@ -74,6 +74,12 @@ export async function ensureChannels(): Promise<void> {
   });
 }
 
+/**
+ * What only Android has (1.5.5): exact alarms, battery optimization and the floating bubble. On iOS
+ * a scheduled notification needs none of the first two and there is no bubble.
+ */
+export const ANDROID_ALARM_SETTINGS = Platform.OS === 'android';
+
 export interface PermissionState {
   notifications: boolean;
   exactAlarms: boolean;
@@ -128,7 +134,8 @@ export async function openOverlaySettings(): Promise<void> {
 }
 
 export async function openNotificationSettings(): Promise<void> {
-  if (Platform.OS !== 'android') return;
+  // iOS has no direct way to the notification settings: the app's own page holds them.
+  if (Platform.OS !== 'android') return Linking.openSettings();
   await IntentLauncher.startActivityAsync(IntentLauncher.ActivityAction.APP_NOTIFICATION_SETTINGS, {
     extra: { 'android.provider.extra.APP_PACKAGE': androidPackage() },
   });

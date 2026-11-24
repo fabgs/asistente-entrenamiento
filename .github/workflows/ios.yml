@@ -1,0 +1,91 @@
+# La app de iPhone sin firmar (Entreno-<versión>.ipa), compilada en un Mac de GitHub: gratis en un
+# repositorio público. La firma la pone SideStore en el propio iPhone con un Apple ID gratuito
+# (AGENTS.md, «iPhone»). Se lanza a mano (Actions → iOS → Run workflow) o con una etiqueta ios-*.
+name: iOS
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['ios-*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  ipa:
+    # Estándar (no -large ni -xlarge): las de pago se cobran también en repos públicos.
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Expo SDK 58 pide Xcode 26.4 o posterior.
+      - name: Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.6.app || true
+          xcodebuild -version
+
+      - name: Dependencias
+        run: npm ci 2>&1 | tee npm.log
+
+      - name: Proyecto de iOS
+        run: npx expo prebuild --platform ios --no-install 2>&1 | tee prebuild.log
+
+      - name: CocoaPods
+        run: cd ios && pod install 2>&1 | tee ../pod.log
+
+      - name: Compilar sin firmar
+        run: |
+          WORKSPACE=$(ls -d ios/*.xcworkspace | head -1)
+          SCHEME=$(basename "$WORKSPACE" .xcworkspace)
+          echo "Workspace $WORKSPACE, esquema $SCHEME"
+          # Todo a build.log (son decenas de miles de líneas); al final, su cola.
+          xcodebuild -workspace "$WORKSPACE" -scheme "$SCHEME" -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -archivePath build/app.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            archive > build.log 2>&1 || { tail -200 build.log; exit 1; }
+          tail -20 build.log
+
+      - name: Empaquetar el .ipa
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          APP=$(ls -d build/app.xcarchive/Products/Applications/*.app | head -1)
+          mkdir -p dist/Payload
+          cp -R "$APP" dist/Payload/
+          (cd dist && zip -qry "Entreno-$VERSION.ipa" Payload)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ls -la dist
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: Entreno-${{ env.VERSION }}-ios
+          path: dist/*.ipa
+          # Se borra pronto: el repositorio es público y no hace falta guardarlo.
+          retention-days: 2
+          if-no-files-found: error
+
+      # Los errores como anotaciones: se leen en el resumen de la ejecución (y por la API) sin
+      # descargar el registro entero.
+      - name: Errores
+        if: failure()
+        run: |
+          for f in npm.log prebuild.log pod.log build.log; do
+            [ -f "$f" ] || continue
+            grep -E "error:|error |\[!\]|Error:|ERR!" "$f" | sort -u | head -8 | while IFS= read -r line; do
+              echo "::error title=$f::${line:0:900}"
+            done
+          done
+          true

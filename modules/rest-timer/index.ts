@@ -1,9 +1,13 @@
 import { requireOptionalNativeModule } from 'expo';
 
+/**
+ * Every function is optional: the iOS module (1.5.5) only has `pbkdf2Sha256`, and an APK older than
+ * the JS lacks the newer ones.
+ */
 interface RestTimerNative {
-  start(endsAt: number, title: string, body: string, overlay: boolean): void;
-  stop(): void;
-  canDrawOverlays(): boolean;
+  start?: (endsAt: number, title: string, body: string, overlay: boolean) => void;
+  stop?: () => void;
+  canDrawOverlays?: () => boolean;
   /** Missing in native builds older than 1.3.0 (the JS can be newer during development). */
   isIgnoringBatteryOptimizations?: () => boolean;
   /** Missing in native builds older than 1.3.4. */
@@ -33,17 +37,17 @@ export interface SprintButtonStop {
   source: 'volume' | 'notification';
 }
 
-// Android only; absent on other platforms and in Jest.
+// Absent in Jest; on iOS only the key of the encrypted copies (1.5.5).
 const native = requireOptionalNativeModule<RestTimerNative>('RestTimer');
 
 /** Lock-screen countdown (and floating bubble when the app is in the background) until `endsAt`. */
 export function startRestCountdown(endsAt: number, title: string, body: string, overlay: boolean): void {
-  native?.start(endsAt, title, body, overlay);
+  native?.start?.(endsAt, title, body, overlay);
 }
 
 /** Ends the countdown; the activity in progress, if any, shows again. */
 export function stopRestCountdown(): void {
-  native?.stop();
+  native?.stop?.();
 }
 
 /**
@@ -152,7 +156,7 @@ export async function pbkdf2Sha256(password: string, salt: string, iterations: n
 }
 
 export function canDrawOverlays(): boolean {
-  return native?.canDrawOverlays() ?? false;
+  return native?.canDrawOverlays?.() ?? false;
 }
 
 /**

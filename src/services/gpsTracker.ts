@@ -111,7 +111,7 @@ export const SPRINT_GPS: GpsOptions = { intervalMs: 1000, title: 'Sprints', body
 export async function startGpsTracking(options = WALK_GPS, { prompt = true } = {}): Promise<GpsStart> {
   const permission = prompt ? await Location.requestForegroundPermissionsAsync() : await Location.getForegroundPermissionsAsync();
   if (!permission.granted) return 'denied';
-  if (permission.android?.accuracy === 'coarse') return 'approximate';
+  if (permission.android?.accuracy === 'coarse' || permission.ios?.accuracy === 'reduced') return 'approximate';
   if (!(await Location.hasServicesEnabledAsync())) {
     if (!prompt) return 'off';
     try {
@@ -136,6 +136,11 @@ export async function startGpsTracking(options = WALK_GPS, { prompt = true } = {
       notificationColor: colors.primary,
       killServiceOnDestroy: false,
     },
+    // iOS (1.5.5): the blue pill while it records in the background, no pause when standing still
+    // (a rest between sprints), and filtered as on foot.
+    showsBackgroundLocationIndicator: true,
+    pausesUpdatesAutomatically: false,
+    activityType: Location.ActivityType.Fitness,
   });
   return 'ok';
 }

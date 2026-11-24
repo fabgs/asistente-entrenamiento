@@ -16,7 +16,7 @@ import {
   Screen,
   Section,
 } from '@/components/ui';
-import { addDietItem, listFoods, type Food } from '@/db/repositories/diet';
+import { addDietItem, addEatenFood, listFoods, type Food } from '@/db/repositories/diet';
 import { planSource, weekdaySource, type DietSource, type Meal } from '@/domain/diet';
 import { formatNumber, NBSP, normalizeForSearch } from '@/domain/format';
 import { kcalOf, macrosFor } from '@/domain/nutrition';
@@ -40,17 +40,23 @@ function initialOf(food: Food): string {
   return /[A-ZÑ]/.test(first) ? first : '#';
 }
 
+/** Where a chosen food goes: a meal of a plan, or a meal of one date only (eaten off the plan, 1.5.4). */
+type PickTarget = DietSource | { kind: 'date'; date: string };
+
 /**
  * Food catalog. With `pickMeal` and where it goes (`pickDay`, a weekday, or `pickPlan`, a plan of the
- * user's, 1.5.1), choosing a food adds it to that meal of the plan.
+ * user's, 1.5.1), choosing a food adds it to that meal of the plan; with `pickDate`, to that meal of
+ * that day only, as eaten off the plan (1.5.4).
  */
 export default function FoodsScreen() {
-  const params = useLocalSearchParams<{ pickDay?: string; pickPlan?: string; pickMeal?: Meal }>();
-  const to: DietSource | null = params.pickPlan
-    ? planSource(Number(params.pickPlan))
-    : params.pickDay
-      ? weekdaySource(Number(params.pickDay) as IsoWeekday)
-      : null;
+  const params = useLocalSearchParams<{ pickDay?: string; pickPlan?: string; pickDate?: string; pickMeal?: Meal }>();
+  const to: PickTarget | null = params.pickDate
+    ? { kind: 'date', date: params.pickDate }
+    : params.pickPlan
+      ? planSource(Number(params.pickPlan))
+      : params.pickDay
+        ? weekdaySource(Number(params.pickDay) as IsoWeekday)
+        : null;
   const pick = to && params.pickMeal ? { to, meal: params.pickMeal } : null;
   const [query, setQuery] = useState('');
   const [chosen, setChosen] = useState<Food | null>(null);
@@ -150,7 +156,7 @@ export default function FoodsScreen() {
   );
 }
 
-function AddToMeal({ food, to, meal, onAdded }: { food: Food; to: DietSource; meal: Meal; onAdded: () => void }) {
+function AddToMeal({ food, to, meal, onAdded }: { food: Food; to: PickTarget; meal: Meal; onAdded: () => void }) {
   const db = useDb();
   const [grams, setGrams] = useState(100);
   const [adding, setAdding] = useState(false);
@@ -158,7 +164,8 @@ function AddToMeal({ food, to, meal, onAdded }: { food: Food; to: DietSource; me
 
   const add = async () => {
     setAdding(true);
-    await addDietItem(db, to, meal, food.id, grams);
+    if (to.kind === 'date') await addEatenFood(db, to.date, meal, food.id, grams);
+    else await addDietItem(db, to, meal, food.id, grams);
     onAdded();
   };
 
@@ -175,7 +182,7 @@ function AddToMeal({ food, to, meal, onAdded }: { food: Food; to: DietSource; me
       />
       <AppText variant="caption" tabular>
         {formatNumber(kcal, 0)}
-        {NBSP}kcal
+        {NBSP}kcal{to.kind === 'date' ? ' · Solo hoy: el plan no cambia.' : ''}
       </AppText>
       <Button size="lg" title="Añadir" disabled={grams <= 0 || adding} onPress={add} />
     </>

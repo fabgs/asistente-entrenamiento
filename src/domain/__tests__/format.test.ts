@@ -9,6 +9,7 @@ import {
   formatAgo,
   formatDateWithYear,
   formatDuration,
+  durationParts,
   formatMinutes,
   formatSetGroups,
   formatSetValues,
@@ -146,6 +147,21 @@ describe('format', () => {
   it('formats the result of a cardio session', () => {
     expect(formatCardioResult(5234, 58 * 60_000)).toBe('5,23 km · 58 min');
     expect(formatCardioResult(null, 30 * 60_000)).toBe('30 min');
+  });
+
+  it('splits a duration into figures and units for the image (1.5.4)', () => {
+    expect(durationParts(20_000)).toEqual([{ value: '20', unit: 's' }]);
+    expect(durationParts(59_600)).toEqual([{ value: '1', unit: 'min' }]);
+    expect(durationParts(58 * 60_000)).toEqual([{ value: '58', unit: 'min' }]);
+    expect(durationParts(60 * 60_000)).toEqual([{ value: '1', unit: 'h' }]);
+    expect(durationParts(116 * 60_000)).toEqual([
+      { value: '1', unit: 'h' },
+      { value: '56', unit: 'min' },
+    ]);
+    // The same rounding as formatDuration: the image and the summary never disagree.
+    for (const ms of [59_400, 59_500, 3_569_000, 3_570_000, 7_000_000]) {
+      expect(durationParts(ms).map((p) => `${p.value} ${p.unit}`).join(' ')).toBe(formatDuration(ms));
+    }
   });
 
   it('formats durations, in seconds below a minute', () => {

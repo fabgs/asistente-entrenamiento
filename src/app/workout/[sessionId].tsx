@@ -253,11 +253,13 @@ export default function WorkoutScreen() {
       await update({ currentSlotId: slotId, skippedSlotIds: unskipped });
       return;
     }
-    if (session.restEndsAt && !restIsOver(session.restEndsAt) && setsDone(slotId, sets) < slot.sets) {
-      // Still resting: the chosen exercise becomes the next one, the rest keeps counting.
-      const next = nextStep(planned, sets, unskipped, slotId);
+    if (session.restEndsAt && !restIsOver(session.restEndsAt)) {
+      // Still resting: the chosen exercise comes next and the rest keeps counting. One already done
+      // comes as one more set (until 1.5.3 it opened that set and the rest was lost).
+      const extra = setsDone(slotId, sets) >= slot.sets;
+      const next = nextStep(planned, sets, unskipped, slotId, extra);
       await scheduleRestEnd(id, session.restEndsAt, describeNext(next, slots, done), settings.restOverlay).catch(() => null);
-      await update({ currentSlotId: slotId, skippedSlotIds: unskipped });
+      await update({ currentSlotId: slotId, skippedSlotIds: unskipped, nextExtra: extra });
       return;
     }
     if (session.restEndsAt) await cancelRestEnd(id);
@@ -293,7 +295,7 @@ export default function WorkoutScreen() {
   const adjustRest = async (deltaSeconds: number) => {
     if (!session.restEndsAt) return;
     const endsAt = shiftDeadline(session.restEndsAt, deltaSeconds);
-    const next = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
+    const next = nextStep(planned, sets, skipped, session.currentSlotId ?? -1, session.nextExtra);
     await scheduleRestEnd(id, endsAt, describeNext(next, slots, done), settings.restOverlay).catch(() => null);
     await update({ restEndsAt: endsAt });
   };
@@ -305,7 +307,28 @@ export default function WorkoutScreen() {
     await reload();
   };
 
-  const restNext = nextStep(planned, sets, skipped, session.currentSlotId ?? -1);
+  const restNext = nextStep(planned, sets, skipped, session.currentSlotId ?? -1, session.nextExtra);
+  const restSlotDone = current !== null && setsDone(current.id, sets) >= current.sets;
+
+  /** «Una serie más» (1.5.4): after the last set of an exercise, one more of it before the next; «Deshacer» puts the next back. */
+  const setExtraNext = async (slotId: number, extra: boolean) => {
+    // Read again: «Deshacer» may come after ±30 s, after the rest or after choosing another exercise.
+    const fresh = await getSession(db, id);
+    if (!fresh?.restEndsAt || fresh.currentSlotId !== slotId) return;
+    if (!restIsOver(fresh.restEndsAt)) {
+      const next = nextStep(planned, sets, skipped, slotId, extra);
+      await scheduleRestEnd(id, fresh.restEndsAt, describeNext(next, slots, done), settings.restOverlay).catch(() => null);
+    }
+    await update({ nextExtra: extra });
+  };
+  const oneMoreSet = async () => {
+    if (!current) return;
+    const slotId = current.id;
+    Haptics.selectionAsync();
+    await setExtraNext(slotId, true);
+    showSnackbar('Siguiente: serie extra', { label: 'Deshacer', onPress: () => setExtraNext(slotId, false) });
+  };
+
   const continueAfterRest = () => {
     setBrowsing(false);
     if (restNext.kind === 'next_set') endRest('same');
@@ -387,6 +410,7 @@ export default function WorkoutScreen() {
           onDelete={removeSet}
           onAdjust={adjustRest}
           onContinue={continueAfterRest}
+          oneMore={restSlotDone && !session.nextExtra && current ? { name: current.exerciseName, onPress: oneMoreSet } : null}
           askOverlay={settings.restOverlay && !data.overlayAllowed}
           onGrantOverlay={openOverlaySettings}
           onDeclineOverlay={async () => {
@@ -1271,6 +1295,7 @@ function RestView({
   onDelete,
   onAdjust,
   onContinue,
+  oneMore,
   askOverlay,
   onGrantOverlay,
   onDeclineOverlay,
@@ -1291,6 +1316,8 @@ function RestView({
   onDelete: (set: SetLog) => void;
   onAdjust: (deltaSeconds: number) => void;
   onContinue: () => void;
+  /** After the last set of an exercise (1.5.4): one more of it before the next. */
+  oneMore: { name: string; onPress: () => void } | null;
   askOverlay: boolean;
   onGrantOverlay: () => void;
   onDeclineOverlay: () => void;
@@ -1318,7 +1345,11 @@ function RestView({
         : 'Terminar';
   const nextSetNumber = next.kind === 'next_set' ? next.setNumber : nextSlotDone + 1;
   const nextSetLabel =
-    next.kind === 'next_exercise' && nextSetNumber === 1 ? 'Primera serie' : `Serie ${nextSetNumber} de ${nextSlot?.sets ?? 0}`;
+    next.kind === 'next_exercise' && nextSetNumber === 1
+      ? 'Primera serie'
+      : nextSlot && nextSetNumber > nextSlot.sets
+        ? 'Serie extra'
+        : `Serie ${nextSetNumber} de ${nextSlot?.sets ?? 0}`;
   const ringSize = 264;
   const ink = over ? colors.primary : colors.text;
 
@@ -1407,6 +1438,19 @@ function RestView({
         )}
       </ListGroup>
 
+      {oneMore ? (
+        // Small on purpose: it is seldom used, and the rest is what the screen is about.
+        <View style={styles.oneMore}>
+          <Button
+            kind="text"
+            icon="plus"
+            title="Una serie más"
+            accessibilityLabel={`Una serie más de ${oneMore.name}`}
+            onPress={oneMore.onPress}
+          />
+        </View>
+      ) : null}
+
       {askOverlay ? (
         <ListGroup>
           <View style={styles.noticeRow}>
@@ -1474,6 +1518,8 @@ const styles = StyleSheet.create({
   cellPending: { borderWidth: 1, borderColor: colors.border },
   cellValue: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   inlineAction: { marginVertical: -spacing.md },
+  // In line with the texts of the rows above (the text button has its own padding).
+  oneMore: { alignSelf: 'flex-start', marginTop: -spacing.sm },
   weightRow: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: 2 },
   weightLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   suggestionSlot: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md },

@@ -32,6 +32,19 @@ describe('nextStep', () => {
     expect(nextStep(slots, done(2, 2), [], 2)).toEqual({ kind: 'next_exercise', slotId: 3 });
   });
 
+  it('offers one more set of a finished exercise when asked (1.5.4)', () => {
+    expect(nextStep(slots, done(1, 1), [], 1, true)).toEqual({ kind: 'next_set', slotId: 1, setNumber: 3 });
+    expect(nextStep(slots, done(1, 1, 1), [], 1, true)).toEqual({ kind: 'next_set', slotId: 1, setNumber: 4 });
+    // Even with everything done, or skipped: it was asked for.
+    expect(nextStep(slots, done(1, 1, 2, 3, 3), [], 3, true)).toEqual({ kind: 'next_set', slotId: 3, setNumber: 3 });
+    expect(nextStep(slots, done(1, 1), [1], 1, true)).toEqual({ kind: 'next_set', slotId: 1, setNumber: 3 });
+    // A pending exercise just goes on; without the flag nothing changes.
+    expect(nextStep(slots, done(1), [], 1, true)).toEqual({ kind: 'next_set', slotId: 1, setNumber: 2 });
+    expect(nextStep(slots, done(1, 1), [], 1, false)).toEqual({ kind: 'next_exercise', slotId: 2 });
+    // An exercise that is not in the workout: the flag means nothing.
+    expect(nextStep(slots, done(1, 1, 2, 3, 3), [], 9, true)).toEqual({ kind: 'finished' });
+  });
+
   it('does not count warm-up sets', () => {
     const warmups = [{ slotId: 1, isWarmup: true }, { slotId: 1, isWarmup: true }];
     expect(setsDone(1, [...warmups, ...done(1)])).toBe(1);

@@ -160,7 +160,42 @@ describe('a day against its plan', () => {
     // A food taken out of the plan since, and the grams of then.
     const gone: EatenFood = { ...lunch[0], itemId: null, grams: 250 };
     expect(dayProgress(all, mealSources(2, []), [gone]).eaten.kcal).toBeCloseTo(100);
-    expect([...tickedMeals([gone, eat(dinner[0])])]).toEqual(['comida', 'cena']);
+    // Since 1.5.4 it reads as eaten off the plan: it belongs to no plan, so it does not keep its meal on one.
+    expect([...tickedMeals([gone, eat(dinner[0])])]).toEqual(['cena']);
+  });
+
+  it('keeps the grams eaten today when they are not the plan\'s (1.5.4)', () => {
+    const day = dayProgress(all, mealSources(2, []), [eat(breakfast[0], 150), eat(lunch[0])]);
+    const [morning, noon] = day.meals;
+    expect(morning.eatenGrams).toEqual(new Map([[breakfast[0].id, 150]]));
+    expect(noon.eatenGrams).toEqual(new Map([[lunch[0].id, 200]]));
+    // The plan stays the plan; what was eaten and the list of the meal follow the grams of today.
+    expect(day.planned.kcal).toBeCloseTo(180);
+    expect(day.eaten.kcal).toBeCloseTo(60 + 80);
+    expect(morning.planned.kcal).toBeCloseTo(60);
+    expect(morning.listed.kcal).toBeCloseTo(60 + 20);
+    expect(morning.done).toBe(false);
+  });
+
+  it('lists what was eaten off the plan in its meal (1.5.4)', () => {
+    const cookies: EatenFood = { meal: 'desayuno', itemId: null, grams: 30, fatPer100g: 20, carbsPer100g: 60, proteinPer100g: 5 };
+    const snack: EatenFood = { meal: 'merienda', itemId: null, grams: 50, fatPer100g: 0, carbsPer100g: 0, proteinPer100g: 10 };
+    const day = dayProgress(all, mealSources(2, []), [eat(breakfast[0]), cookies, snack]);
+    // Tuesday has no merienda: eating one adds the meal, done with what was eaten.
+    expect(day.meals.map((m) => m.meal)).toEqual(['desayuno', 'comida', 'merienda', 'cena']);
+    const [morning, , afternoon] = day.meals;
+    expect(morning.extras).toEqual([cookies]);
+    expect(morning.items).toEqual(breakfast);
+    // Something off the plan does not tick the meal: its foods of the plan still have to be eaten.
+    expect(morning.done).toBe(false);
+    expect(afternoon).toMatchObject({ items: [], extras: [snack], done: true });
+    // 30 g at 20/60/5 is 6·9 + 18·4 + 1,5·4 = 132 kcal.
+    expect(morning.listed.kcal).toBeCloseTo(40 + 20 + 132);
+    expect(day.eaten.kcal).toBeCloseTo(40 + 132 + 20);
+    expect(day.planned.kcal).toBeCloseTo(180);
+    expect(mealsLine(day)).toBe('1 de 4 comidas');
+    // Changing the plan of the day moves the meals with nothing of the plan ticked, extras or not.
+    expect([...tickedMeals([eat(breakfast[0]), cookies, snack])]).toEqual(['desayuno']);
   });
 
   it('says nothing of a day with nothing planned', () => {

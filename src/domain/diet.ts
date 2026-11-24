@@ -101,29 +101,44 @@ export function keptMealsLine(kept: readonly Meal[]): string | null {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
-/** Something ticked as eaten on a date: a copy of what the plan said then (`itemId` null once that food left the plan). */
+/**
+ * Something eaten on a date: a copy of what the plan said then, with the grams of that day (1.5.4:
+ * they may differ). `itemId` null is something eaten off the plan: added in Hoy (1.5.4), or a food
+ * that has left the plan since (only on older days: leaving the plan takes today's tick with it).
+ */
 export interface EatenFood extends FoodPer100g {
   itemId: number | null;
   meal: Meal;
   grams: number;
 }
 
-export const tickedMeals = (eaten: readonly Pick<EatenFood, 'meal'>[]): Set<Meal> => new Set(eaten.map((e) => e.meal));
+/**
+ * The meals with a food of the plan ticked: they stay on the plan they were eaten from when the
+ * day changes plan. Something eaten off the plan belongs to no plan and pins nothing.
+ */
+export const tickedMeals = (eaten: readonly Pick<EatenFood, 'meal' | 'itemId'>[]): Set<Meal> =>
+  new Set(eaten.filter((e) => e.itemId !== null).map((e) => e.meal));
 
-export interface MealProgress<T> {
+export interface MealProgress<T, E = EatenFood> {
   meal: Meal;
   source: DietSource;
   items: T[];
   /** The items of the meal ticked as eaten. */
   eatenIds: Set<number>;
-  /** Everything in it is ticked. */
+  /** The grams eaten of each ticked item: the plan's, or what was set in Hoy for that day (1.5.4). */
+  eatenGrams: Map<number, number>;
+  /** What was eaten in this meal off the plan (1.5.4). */
+  extras: E[];
+  /** Everything in it is ticked: its foods of the plan or, with none, it has something off the plan. */
   done: boolean;
   planned: Macros;
+  /** The meal as its list reads: its foods with the grams eaten when ticked, and what is off the plan. */
+  listed: Macros;
 }
 
-export interface DayProgress<T> {
-  /** The meals with something to eat, in order. */
-  meals: MealProgress<T>[];
+export interface DayProgress<T, E = EatenFood> {
+  /** The meals with something to eat or eaten off the plan, in order. */
+  meals: MealProgress<T, E>[];
   mealsDone: number;
   planned: Macros;
   /** Everything ticked that day, whatever plan it was on. */
@@ -131,20 +146,29 @@ export interface DayProgress<T> {
 }
 
 /** A day against its plan: each meal with its foods and which are ticked, and the totals. */
-export function dayProgress<T extends PlannedFood>(items: readonly T[], sources: MealSources, eaten: readonly EatenFood[]): DayProgress<T> {
-  const logged = new Set(eaten.map((e) => e.itemId));
-  const meals = MEAL_KEYS.map((meal): MealProgress<T> => {
+export function dayProgress<T extends PlannedFood, E extends EatenFood = EatenFood>(
+  items: readonly T[],
+  sources: MealSources,
+  eaten: readonly E[],
+): DayProgress<T, E> {
+  const logged = new Map<number, number>();
+  for (const e of eaten) if (e.itemId !== null) logged.set(e.itemId, e.grams);
+  const meals = MEAL_KEYS.map((meal): MealProgress<T, E> => {
     const own = items.filter((i) => i.meal === meal && belongsTo(i, sources[meal]));
-    const eatenIds = new Set(own.filter((i) => logged.has(i.id)).map((i) => i.id));
+    const eatenGrams = new Map(own.filter((i) => logged.has(i.id)).map((i) => [i.id, logged.get(i.id)!]));
+    const extras = eaten.filter((e) => e.meal === meal && e.itemId === null);
     return {
       meal,
       source: sources[meal],
       items: own,
-      eatenIds,
-      done: own.length > 0 && eatenIds.size === own.length,
+      eatenIds: new Set(eatenGrams.keys()),
+      eatenGrams,
+      extras,
+      done: own.length > 0 ? eatenGrams.size === own.length : extras.length > 0,
       planned: sumMacros(own.map((i) => macrosFor(i, i.grams))),
+      listed: sumMacros([...own.map((i) => macrosFor(i, eatenGrams.get(i.id) ?? i.grams)), ...extras.map((e) => macrosFor(e, e.grams))]),
     };
-  }).filter((m) => m.items.length > 0);
+  }).filter((m) => m.items.length > 0 || m.extras.length > 0);
   return {
     meals,
     mealsDone: meals.filter((m) => m.done).length,

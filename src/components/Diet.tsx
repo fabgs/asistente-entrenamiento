@@ -1,9 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
-import type { DietItem } from '@/db/repositories/diet';
+import type { DietItem, DietLogEntry } from '@/db/repositories/diet';
 import { formatNumber, NBSP } from '@/domain/format';
-import { deviation, macrosFor, type Deviation, type Macros, type NutritionTargets } from '@/domain/nutrition';
+import { deviation, macrosFor, type Deviation, type FoodPer100g, type Macros, type NutritionTargets } from '@/domain/nutrition';
 import type { IsoWeekday } from '@/domain/types';
 import { colors, spacing } from '@/theme';
 import { AppText, Button, Card, DayPicker, Divider, Icon, NumberRow, ProgressBar, SectionLabel, Value } from './ui';
@@ -150,43 +150,114 @@ export function FoodRow({ item, onPress }: { item: DietItem; onPress: () => void
       accessibilityRole="button"
       accessibilityLabel={`${item.foodName}, ${grams} gramos, ${kcal} kilocalorías`}
       style={styles.foodRow}>
-      <FoodColumns item={item} />
+      <FoodColumns name={item.foodName} food={item} grams={item.grams} />
     </Pressable>
   );
 }
 
-/** The same food in today's list (1.5.1): the whole row ticks it as eaten. */
-export function TickRow({ item, eaten, onToggle }: { item: DietItem; eaten: boolean; onToggle: () => void }) {
+/**
+ * The same food in today's list (1.5.1): the whole row ticks it as eaten. Held down, its grams of
+ * today (1.5.4); eaten in other grams, it shows those and the plan's under its name.
+ */
+export function TickRow({
+  item,
+  eaten,
+  eatenGrams,
+  onToggle,
+  onAmount,
+}: {
+  item: DietItem;
+  eaten: boolean;
+  /** The grams eaten today, when ticked. */
+  eatenGrams?: number;
+  onToggle: () => void;
+  onAmount: () => void;
+}) {
+  const grams = eatenGrams ?? item.grams;
+  const changed = eaten && grams !== item.grams;
   return (
     <Pressable
       onPress={() => {
         Haptics.selectionAsync();
         onToggle();
       }}
+      onLongPress={() => {
+        Haptics.selectionAsync();
+        onAmount();
+      }}
       android_ripple={{ color: colors.pressed }}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: eaten }}
-      accessibilityLabel={`${item.foodName}, ${formatNumber(item.grams)} gramos`}
+      accessibilityLabel={`${item.foodName}, ${formatNumber(grams)} gramos${changed ? `, en el plan ${formatNumber(item.grams)}` : ''}`}
+      accessibilityActions={[{ name: 'longpress', label: 'Cambiar la cantidad de hoy' }]}
+      onAccessibilityAction={(e) => {
+        if (e.nativeEvent.actionName === 'longpress') onAmount();
+      }}
       style={styles.foodRow}>
       <View style={styles.tick}>
         <Tick done={eaten} />
       </View>
-      <FoodColumns item={item} muted={eaten} />
+      <FoodColumns
+        name={item.foodName}
+        food={item}
+        grams={grams}
+        muted={eaten}
+        note={changed ? `Plan: ${formatNumber(item.grams)}${NBSP}g` : undefined}
+      />
     </Pressable>
   );
 }
 
-function FoodColumns({ item, muted = false }: { item: DietItem; muted?: boolean }) {
+/** Something eaten today off the plan (1.5.4): eaten by definition; tapping it changes or removes it. */
+export function ExtraRow({ entry, onPress }: { entry: DietLogEntry; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      android_ripple={{ color: colors.pressed }}
+      accessibilityRole="button"
+      accessibilityLabel={`${entry.foodName}, ${formatNumber(entry.grams)} gramos, fuera del plan`}
+      accessibilityHint="Cambia la cantidad o quítalo"
+      style={styles.foodRow}>
+      <View style={styles.tick}>
+        <Icon name="plus-circle" size={22} color={colors.primary} />
+      </View>
+      <FoodColumns name={entry.foodName} food={entry} grams={entry.grams} muted note="Fuera del plan" />
+    </Pressable>
+  );
+}
+
+/** «Añadir alimento» in today's list (1.5.4): as low as a food, its «+» where the circles go. */
+export function AddFoodRow({ title, onPress }: { title: string; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} android_ripple={{ color: colors.pressed }} accessibilityRole="button" style={styles.foodRow}>
+      <View style={styles.tick}>
+        <Icon name="plus" size={22} color={colors.primary} />
+      </View>
+      <AppText variant="bodySm" weight="600" style={{ flex: 1, color: colors.primary }}>
+        {title}
+      </AppText>
+    </Pressable>
+  );
+}
+
+function FoodColumns({ name, food, grams, muted = false, note }: { name: string; food: FoodPer100g; grams: number; muted?: boolean; note?: string }) {
   return (
     <>
-      <AppText variant="bodySm" numberOfLines={2} style={[{ flex: 1 }, muted && { color: colors.muted }]}>
-        {item.foodName}
-      </AppText>
+      <View style={{ flex: 1 }}>
+        <AppText variant="bodySm" numberOfLines={2} style={muted && { color: colors.muted }}>
+          {name}
+        </AppText>
+        {note ? (
+          <AppText variant="caption" numberOfLines={1}>
+            {note}
+          </AppText>
+        ) : null}
+      </View>
       <AppText variant="secondary" tabular numberOfLines={1} style={styles.grams}>
-        {formatNumber(item.grams)}
+        {formatNumber(grams)}
         {NBSP}g
       </AppText>
-      <Value value={formatNumber(itemMacros(item).kcal, 0)} unit="kcal" size="control" align="right" style={styles.kcal} />
+      <Value value={formatNumber(macrosFor(food, grams).kcal, 0)} unit="kcal" size="control" align="right" style={styles.kcal} />
     </>
   );
 }
@@ -198,19 +269,25 @@ function Tick({ done }: { done: boolean }) {
 
 /**
  * The label of a meal in today's list: its circle, in line with those of its foods, ticks the whole
- * meal (or unticks it, once all of it is eaten).
+ * meal (or unticks it, once all of it is eaten). Without foods of the plan (only something eaten off
+ * it, 1.5.4) there is nothing to tick: it only says it is done.
  */
-export function MealTickHeader({ label, kcal, done, onToggle }: { label: string; kcal: number; done: boolean; onToggle: () => void }) {
+export function MealTickHeader({ label, kcal, done, onToggle }: { label: string; kcal: number; done: boolean; onToggle?: () => void }) {
   return (
     <Pressable
-      onPress={() => {
-        Haptics.selectionAsync();
-        onToggle();
-      }}
+      onPress={
+        onToggle
+          ? () => {
+              Haptics.selectionAsync();
+              onToggle();
+            }
+          : undefined
+      }
+      disabled={!onToggle}
       hitSlop={{ top: 12, bottom: 4 }}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: done }}
-      accessibilityLabel={`${label}, todo`}
+      accessibilityRole={onToggle ? 'checkbox' : undefined}
+      accessibilityState={onToggle ? { checked: done } : undefined}
+      accessibilityLabel={onToggle ? `${label}, todo` : label}
       style={styles.mealHead}>
       <Tick done={done} />
       <View style={{ flex: 1 }}>
@@ -222,7 +299,8 @@ export function MealTickHeader({ label, kcal, done, onToggle }: { label: string;
   );
 }
 
-export function GramsEditor({ item, onSave }: { item: DietItem; onSave: (grams: number) => void }) {
+/** Grams of a food with what they come to; `note` says where they count (the plan, or only today). */
+export function GramsEditor({ item, note, onSave }: { item: FoodPer100g & { grams: number }; note?: string; onSave: (grams: number) => void }) {
   const [grams, setGrams] = useState(item.grams);
   const m = macrosFor(item, grams);
   const g = (value: number) => `${formatNumber(value, 1)}${NBSP}g`;
@@ -233,6 +311,7 @@ export function GramsEditor({ item, onSave }: { item: DietItem; onSave: (grams: 
         {formatNumber(m.kcal, 0)}
         {NBSP}kcal · Proteína {g(m.protein)} · Grasa {g(m.fat)} · Hidratos {g(m.carbs)}
       </AppText>
+      {note ? <AppText variant="caption">{note}</AppText> : null}
       <Button size="lg" title="Guardar" disabled={grams <= 0} onPress={() => onSave(grams)} />
     </>
   );

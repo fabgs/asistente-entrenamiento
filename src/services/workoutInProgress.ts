@@ -18,9 +18,9 @@ export function describeNext(next: NextStep, slots: Slot[], finishedLabel = 'Rut
   if (next.kind === 'finished') return finishedLabel;
   const slot = slots.find((s) => s.id === next.slotId);
   if (!slot) return next.kind === 'next_set' ? `Serie ${next.setNumber}` : 'Siguiente ejercicio';
-  return next.kind === 'next_set'
-    ? `Serie ${next.setNumber} de ${slot.sets} · ${slot.exerciseName} · ${loadOf(slot)}`
-    : `Siguiente ejercicio: ${slot.exerciseName} · ${loadOf(slot)}`;
+  if (next.kind === 'next_exercise') return `Siguiente ejercicio: ${slot.exerciseName} · ${loadOf(slot)}`;
+  const which = next.setNumber > slot.sets ? 'Serie extra' : `Serie ${next.setNumber} de ${slot.sets}`;
+  return `${which} · ${slot.exerciseName} · ${loadOf(slot)}`;
 }
 
 /**
@@ -36,14 +36,11 @@ export function inProgressText(session: Session, slots: Slot[], sets: SetLog[]):
     const next = slots.find((s) => s.id === nextId);
     return next ? `Calentamiento · Siguiente: ${next.exerciseName} · ${loadOf(next)}` : 'Calentamiento';
   }
-  if (session.restEndsAt) return describeNext(nextStep(planned, sets, skipped, session.currentSlotId ?? -1), slots, done);
-  const current = slots.find((s) => s.id === session.currentSlotId);
-  if (current) {
-    const doneSets = setsDone(current.id, sets);
-    return doneSets < current.sets
-      ? describeNext({ kind: 'next_set', slotId: current.id, setNumber: doneSets + 1 }, slots, done)
-      : `${current.exerciseName} · ${loadOf(current)}`;
+  if (session.restEndsAt) {
+    return describeNext(nextStep(planned, sets, skipped, session.currentSlotId ?? -1, session.nextExtra), slots, done);
   }
+  const current = slots.find((s) => s.id === session.currentSlotId);
+  if (current) return describeNext({ kind: 'next_set', slotId: current.id, setNumber: setsDone(current.id, sets) + 1 }, slots, done);
   const working = sets.filter((s) => !s.isWarmup).length;
   if (working > 0 && nextPendingSlot(planned, sets, skipped, null) === null) return done;
   return `${working} de ${slots.reduce((sum, s) => sum + s.sets, 0)} series`;

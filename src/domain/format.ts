@@ -120,6 +120,20 @@ export function formatMinutes(ms: number): string {
   return minutes === 0 ? `${hours}${NBSP}h` : `${hours}${NBSP}h ${minutes}${NBSP}min`;
 }
 
+/**
+ * formatDuration as figures and units, for a big figure whose units are drawn smaller (the image to
+ * share): "1 h 56 min" → 1 · h · 56 · min.
+ */
+export function durationParts(ms: number): { value: string; unit: string }[] {
+  if (ms < 59_500) return [{ value: String(Math.round(ms / 1000)), unit: 's' }];
+  const totalMinutes = Math.round(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return [{ value: String(minutes), unit: 'min' }];
+  const parts = [{ value: String(hours), unit: 'h' }];
+  return minutes === 0 ? parts : [...parts, { value: String(minutes), unit: 'min' }];
+}
+
 /** Time of day: "9:05". */
 export function formatTimeOfDay(ms: number): string {
   const d = new Date(ms);

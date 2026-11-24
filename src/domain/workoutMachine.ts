@@ -41,15 +41,19 @@ export function nextPendingSlot(
   return null;
 }
 
-/** What comes after finishing a set of `currentSlotId`. */
+/**
+ * What comes after finishing a set of `currentSlotId`. With `extra` (1.5.4: «Una serie más», or a
+ * finished exercise chosen in the list during the rest) it is one more set of it, done or not.
+ */
 export function nextStep(
   slots: PlannedSlot[],
   sets: DoneSet[],
   skipped: number[],
   currentSlotId: number,
+  extra = false,
 ): NextStep {
   const current = slots.find((s) => s.slotId === currentSlotId);
-  if (current && !isSlotComplete(current, sets)) {
+  if (current && (extra || !isSlotComplete(current, sets))) {
     return { kind: 'next_set', slotId: currentSlotId, setNumber: setsDone(currentSlotId, sets) + 1 };
   }
   const next = nextPendingSlot(slots, sets, skipped, currentSlotId);

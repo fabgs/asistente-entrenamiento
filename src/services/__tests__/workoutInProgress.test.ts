@@ -26,6 +26,7 @@ const session = (over: Partial<Session> = {}): Session => ({
   warmupStartedAt: null,
   warmupEndedAt: null,
   setStartedAt: null,
+  nextExtra: false,
   ...over,
 });
 
@@ -65,6 +66,18 @@ describe('workout notification text', () => {
     expect(completedLabel(session({ routineId: 1 }), [remo])).toBe('Rutina completada');
     const all = [set(1, 1), set(1, 2), set(1, 3)];
     expect(inProgressText(session({ routineId: 1, routineName: 'Día 1' }), [remo], all)).toBe('Rutina completada');
+  });
+
+  it('says «Serie extra» for one more set of an exercise already done (1.5.4)', () => {
+    const press = slot(2, 'Press');
+    const all = [set(1, 1), set(1, 2), set(1, 3)];
+    expect(describeNext({ kind: 'next_set', slotId: 1, setNumber: 4 }, [remo])).toBe('Serie extra · Remo · 35 kg');
+    // Resting after the last set: the next exercise, or the extra set once it is chosen.
+    const resting = { routineId: 1, currentSlotId: 1, restEndsAt: 100 };
+    expect(inProgressText(session(resting), [remo, press], all)).toBe('Siguiente ejercicio: Press · 35 kg');
+    expect(inProgressText(session({ ...resting, nextExtra: true }), [remo, press], all)).toBe('Serie extra · Remo · 35 kg');
+    // And while doing it.
+    expect(inProgressText(session({ routineId: 1, currentSlotId: 1 }), [remo, press], all)).toBe('Serie extra · Remo · 35 kg');
   });
 
   it('says it is warming up, and what comes after', () => {

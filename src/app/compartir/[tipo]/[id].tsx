@@ -11,7 +11,7 @@ import { listPhotos, type Photo } from '@/db/repositories/photos';
 import { getSlot, isBodyweight, type Slot } from '@/db/repositories/routines';
 import { getSession, listSets, setSessionTitle } from '@/db/repositories/sessions';
 import { getSettings } from '@/db/repositories/settings';
-import { formatDuration, formatLoad, formatLongDate, formatNumber, formatSetValues, formatSprintTime, formatTimeRange, NBSP, workoutTitle } from '@/domain/format';
+import { durationParts, formatLoad, formatLongDate, formatNumber, formatSetValues, formatSprintTime, formatTimeRange, NBSP, workoutTitle } from '@/domain/format';
 import type { RepUnit } from '@/domain/types';
 import { activeMs } from '@/domain/gps';
 import { parseLocalDate } from '@/domain/schedule';
@@ -46,6 +46,9 @@ const FORMAT_ROW = 72;
 const PHOTO_ROW = THUMB + 24;
 
 /** "3 × 12 · 35 kg" when every set had the same reps, "12, 11, 10 · 35 kg" when not; "2 × 45 s" for a hold. */
+/** The duration with its units smaller than its figures, like «4220 kg» next to it. */
+const durationFigure = (ms: number): StoryFigure => ({ label: 'Duración', value: '', parts: durationParts(ms) });
+
 function exerciseDetail(reps: number[], load: string, unit: RepUnit): string {
   const same = reps.every((r) => r === reps[0]);
   return `${same ? `${reps.length} × ${formatSetValues([reps[0]], unit)}` : formatSetValues(reps, unit)} · ${load}`;
@@ -105,7 +108,7 @@ export default function ShareScreen() {
             ...(best ? [fig('Mejor', formatSprintTime(best.timeMs))] : []),
             best?.speedMs != null
               ? fig('Vel. media', straightSpeed(straightM!, best.timeMs))
-              : { label: 'Duración', value: formatDuration(activeMs(session, session.finishedAt ?? session.startedAt)) },
+              : durationFigure(activeMs(session, session.finishedAt ?? session.startedAt)),
           ],
           exercises: rows.map(
             (r): StoryExercise => ({
@@ -147,7 +150,7 @@ export default function ShareScreen() {
       // An imported session was stored with a made-up hour: neither its time nor its duration are real.
       subtitle: `${formatLongDate(new Date(session.startedAt))}${session.finishedAt && !session.imported ? ` · ${formatTimeRange(session.startedAt, session.finishedAt)}` : ''}`,
       figures: [
-        { label: 'Duración', value: session.finishedAt && !session.imported ? formatDuration(session.finishedAt - session.startedAt) : '–' },
+        session.finishedAt && !session.imported ? durationFigure(session.finishedAt - session.startedAt) : { label: 'Duración', value: '–' },
         { label: 'Series', value: String(sets.length) },
         { label: 'Volumen', value: formatNumber(volume, 0), unit: 'kg' },
       ] as StoryFigure[],

@@ -1,4 +1,4 @@
-import type { ComponentRef, ReactNode, Ref } from 'react';
+import { Fragment, type ComponentRef, type ReactNode, type Ref } from 'react';
 import { Image, PixelRatio, StyleSheet, Text, View, type StyleProp, type TextProps, type TextStyle } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Polyline, Rect, Stop } from 'react-native-svg';
 import type { LatLon } from '@/domain/gps';
@@ -15,6 +15,8 @@ export interface StoryFigure {
   label: string;
   value: string;
   unit?: string;
+  /** A figure in several pieces, each with its smaller unit: «1 h 56 min» (1.5.4). Replaces value and unit. */
+  parts?: { value: string; unit: string }[];
 }
 
 export interface StoryExercise {
@@ -170,20 +172,33 @@ function Header({ u, k, title, subtitle, white }: { u: number; k: number; title:
 }
 
 function Figures({ u, k, figures, columns, white }: { u: number; k: number; figures: StoryFigure[]; columns: number; white: boolean }) {
+  // All in one row (a workout, sprints): each figure takes its own width and the free room goes
+  // evenly between them. In equal columns «1 h 56 min» filled its third and ran into «19» (1.5.3).
+  const oneRow = figures.length <= columns;
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', rowGap: 8 * u * k }}>
+    <View
+      style={
+        oneRow
+          ? { flexDirection: 'row', justifyContent: 'space-between', columnGap: 16 * u * k }
+          : { flexDirection: 'row', flexWrap: 'wrap', rowGap: 8 * u * k }
+      }>
       {figures.map((f) => (
-        <View key={f.label} style={{ width: `${100 / columns}%`, gap: 1 * u * k }}>
+        <View key={f.label} style={oneRow ? { flexShrink: 1, gap: 1 * u * k } : { width: `${100 / columns}%`, gap: 1 * u * k, paddingRight: 8 * u * k }}>
           <ShareText kind="label" u={u} k={k} style={styles.muted} white={white}>
             {f.label.toUpperCase()}
           </ShareText>
           <ShareText kind="value" u={u} k={k} style={styles.value} white={white} numberOfLines={1} adjustsFontSizeToFit>
-            {f.value}
-            {f.unit ? (
-              <ShareText kind="unit" u={u} k={k} style={styles.muted} white={white}>
-                {` ${f.unit}`}
-              </ShareText>
-            ) : null}
+            {(f.parts ?? [{ value: f.value, unit: f.unit }]).map((p, i) => (
+              <Fragment key={i}>
+                {i > 0 ? ' ' : ''}
+                {p.value}
+                {p.unit ? (
+                  <ShareText kind="unit" u={u} k={k} style={styles.muted} white={white}>
+                    {` ${p.unit}`}
+                  </ShareText>
+                ) : null}
+              </Fragment>
+            ))}
           </ShareText>
         </View>
       ))}

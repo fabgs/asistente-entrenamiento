@@ -2,7 +2,7 @@ import { router, useNavigation } from 'expo-router';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
 import { showActions, showDialog, showPrompt, showSnackbar, type SheetAction } from '@/components/Dialog';
-import { CopyDays, EatenTotals, FoodRow, GramsEditor, itemMacros, MealTickHeader, PlanTotals, TickRow } from '@/components/Diet';
+import { AddFoodRow, CopyDays, EatenTotals, ExtraRow, FoodRow, GramsEditor, itemMacros, MealTickHeader, PlanTotals, TickRow } from '@/components/Diet';
 import { FormRow } from '@/components/FormRow';
 import { Sheet } from '@/components/Sheet';
 import {
@@ -34,14 +34,20 @@ import {
   loadDietDay,
   MEALS,
   removeDietItem,
+  removeEatenFood,
   renameDietPlan,
   restoreDietDays,
   restoreDietItem,
+  restoreEatenFood,
   setDietDayOverrides,
   setEaten,
+  setEatenGrams,
   updateDietItemGrams,
+  updateEatenGrams,
   type DietItem,
+  type DietLogEntry,
 } from '@/db/repositories/diet';
+import { hintsSeen, markHintSeen } from '@/db/repositories/hints';
 import { loadNutritionTargets } from '@/db/repositories/settings';
 import {
   belongsTo,
@@ -72,6 +78,8 @@ import { colors, spacing } from '@/theme';
 /** «Hoy», what to eat today and what is ticked; «Planes», the plans it comes from. */
 type Tab = 'today' | 'plans';
 type TotalsView = 'day' | 'week';
+/** «Cantidad de hoy» (1.5.4): a food of the plan in other grams today, or something eaten off the plan. */
+type Amount = { kind: 'plan'; item: DietItem; grams: number; eaten: boolean } | { kind: 'extra'; entry: DietLogEntry } | null;
 
 const PLAN_NAME_MAX = 30;
 const MEAL_LABEL = Object.fromEntries(MEALS.map((m) => [m.key, m.label])) as Record<Meal, string>;
@@ -89,7 +97,8 @@ export default function DietScreen() {
   const [chosen, setChosen] = useState<DietSource | null>(null);
   const [view, setView] = useState<TotalsView>('day');
   const [item, setItem] = useState<DietItem | null>(null);
-  const [sheet, setSheet] = useState<'copy' | 'swap' | 'new' | null>(null);
+  const [sheet, setSheet] = useState<'copy' | 'swap' | 'new' | 'meal' | null>(null);
+  const [amount, setAmount] = useState<Amount>(null);
   const { data, reload } = useLoader(async (db) => {
     const now = new Date();
     const date = localDateString(now);
@@ -101,6 +110,7 @@ export default function DietScreen() {
       targets: await loadNutritionTargets(db, date),
       // What was ticked from Monday to today.
       week: await eatenByDate(db, localDateString(dateOfWeekday(now, 1, 0)), date),
+      amountHint: !(await hintsSeen(db)).has('diet-amount'),
     };
   });
 
@@ -212,6 +222,39 @@ export default function DietScreen() {
     });
   };
 
+  /** Held down in Hoy: its grams of today. Opening it once is enough to have learnt the gesture. */
+  const openAmount = (target: DietItem, grams: number, eaten: boolean) => {
+    setAmount({ kind: 'plan', item: target, grams, eaten });
+    if (data.amountHint) markHintSeen(db, 'diet-amount');
+  };
+
+  const saveAmount = async (grams: number) => {
+    const target = amount;
+    setAmount(null);
+    if (target?.kind === 'plan') await setEatenGrams(db, date, target.item.id, grams);
+    else if (target?.kind === 'extra') await updateEatenGrams(db, target.entry.id, grams);
+    await reload();
+  };
+
+  const removeExtra = async (entry: DietLogEntry) => {
+    setAmount(null);
+    const removed = await removeEatenFood(db, entry.id);
+    await reload();
+    if (!removed) return;
+    showSnackbar('Quitado de hoy', {
+      label: 'Deshacer',
+      onPress: async () => {
+        await restoreEatenFood(db, removed);
+        await reload();
+      },
+    });
+  };
+
+  /** Something eaten today that is not in the plan: the catalog, and it goes to that meal of today only. */
+  const addToday = (meal: Meal) => router.push({ pathname: '/alimentos', params: { pickDate: date, pickMeal: meal } });
+  const hiddenMeals = MEALS.filter((m) => !progress.meals.some((shown) => shown.meal === m.key));
+  const addElsewhere = () => (hiddenMeals.length === 1 ? addToday(hiddenMeals[0].key) : setSheet('meal'));
+
   const saveGrams = async (target: DietItem, grams: number) => {
     setItem(null);
     await updateDietItemGrams(db, target.id, grams, date);
@@ -287,7 +330,12 @@ export default function DietScreen() {
               text="Añade alimentos en Planes o cambia el plan de hoy."
             />
           ) : (
-            <EatenTotals eaten={progress.eaten} planned={progress.planned} />
+            <View style={{ gap: spacing.sm }}>
+              <EatenTotals eaten={progress.eaten} planned={progress.planned} />
+              {data.amountHint && progress.meals.some((m) => m.items.length > 0) ? (
+                <AppText variant="caption">Mantén pulsado un alimento para cambiar su cantidad solo hoy.</AppText>
+              ) : null}
+            </View>
           )}
 
           {progress.meals.map((meal) => (
@@ -297,8 +345,17 @@ export default function DietScreen() {
               // Said only when it is not the plan of the day: a meal eaten before changing it.
               from={sameSource(meal.source, todayPlan) ? null : sourceName(meal.source, planNames)}
               onToggle={toggle}
+              onAmount={openAmount}
+              onExtra={(entry) => setAmount({ kind: 'extra', entry })}
+              onAdd={() => addToday(meal.meal)}
             />
           ))}
+
+          {hiddenMeals.length > 0 ? (
+            <ListGroup>
+              <AddFoodRow title={progress.meals.length === 0 ? 'Añadir algo que has comido' : 'Añadir en otra comida'} onPress={addElsewhere} />
+            </ListGroup>
+          ) : null}
 
           {pastDays.length > 0 ? (
             <Section label="Esta semana">
@@ -405,6 +462,42 @@ export default function DietScreen() {
       </Sheet>
 
       <Sheet
+        visible={amount !== null}
+        title={amount?.kind === 'plan' ? amount.item.foodName : (amount?.entry.foodName ?? '')}
+        onClose={() => setAmount(null)}
+        action={
+          amount?.kind === 'extra' ? (
+            <Button kind="danger" icon="minus-circle-outline" title="Quitar" onPress={() => removeExtra(amount.entry)} />
+          ) : null
+        }>
+        {amount?.kind === 'plan' ? (
+          <GramsEditor
+            key={`plan-${amount.item.id}`}
+            item={{ ...amount.item, grams: amount.grams }}
+            note={`${amount.eaten ? 'Solo hoy' : 'Lo marca como comido, solo hoy'}. El plan sigue con ${formatNumber(amount.item.grams)}${NBSP}g.`}
+            onSave={saveAmount}
+          />
+        ) : amount?.kind === 'extra' ? (
+          <GramsEditor key={`extra-${amount.entry.id}`} item={amount.entry} note="Fuera del plan, solo hoy." onSave={saveAmount} />
+        ) : null}
+      </Sheet>
+
+      <Sheet visible={sheet === 'meal'} title="¿En qué comida?" onClose={() => setSheet(null)}>
+        <ListGroup style={{ backgroundColor: colors.cardAlt }}>
+          {hiddenMeals.map((m) => (
+            <ListRow
+              key={m.key}
+              title={m.label}
+              onPress={() => {
+                setSheet(null);
+                addToday(m.key);
+              }}
+            />
+          ))}
+        </ListGroup>
+      </Sheet>
+
+      <Sheet
         visible={sheet === 'copy'}
         title={selected.kind === 'weekday' ? `Copiar ${selectedInText} a…` : `Copiar ${selectedInText} a un día`}
         onClose={() => setSheet(null)}>
@@ -467,34 +560,61 @@ export default function DietScreen() {
   );
 }
 
-/** A meal of today: its circle ticks it whole, each food ticks itself. */
+/**
+ * A meal of today: its circle ticks it whole, each food ticks itself and, held down, takes other
+ * grams for today. Below, what was eaten off the plan and «Añadir alimento» (1.5.4).
+ */
 function TodayMeal({
   meal,
   from,
   onToggle,
+  onAmount,
+  onExtra,
+  onAdd,
 }: {
-  meal: MealProgress<DietItem>;
+  meal: MealProgress<DietItem, DietLogEntry>;
   from: string | null;
   onToggle: (ids: number[], eaten: boolean) => void;
+  onAmount: (item: DietItem, grams: number, eaten: boolean) => void;
+  onExtra: (entry: DietLogEntry) => void;
+  onAdd: () => void;
 }) {
   const label = MEAL_LABEL[meal.meal];
   return (
     <View style={{ gap: spacing.sm }}>
       <MealTickHeader
         label={from ? `${label} · ${from}` : label}
-        kcal={meal.planned.kcal}
+        kcal={meal.listed.kcal}
         done={meal.done}
-        onToggle={() =>
-          onToggle(
-            meal.items.map((i) => i.id),
-            !meal.done,
-          )
+        onToggle={
+          meal.items.length > 0
+            ? () =>
+                onToggle(
+                  meal.items.map((i) => i.id),
+                  !meal.done,
+                )
+            : undefined
         }
       />
       <ListGroup>
-        {meal.items.map((i) => (
-          <TickRow key={i.id} item={i} eaten={meal.eatenIds.has(i.id)} onToggle={() => onToggle([i.id], !meal.eatenIds.has(i.id))} />
+        {meal.items.map((i) => {
+          const eaten = meal.eatenIds.has(i.id);
+          const grams = meal.eatenGrams.get(i.id);
+          return (
+            <TickRow
+              key={i.id}
+              item={i}
+              eaten={eaten}
+              eatenGrams={grams}
+              onToggle={() => onToggle([i.id], !eaten)}
+              onAmount={() => onAmount(i, grams ?? i.grams, eaten)}
+            />
+          );
+        })}
+        {meal.extras.map((e) => (
+          <ExtraRow key={`extra-${e.id}`} entry={e} onPress={() => onExtra(e)} />
         ))}
+        <AddFoodRow title="Añadir alimento" onPress={onAdd} />
       </ListGroup>
     </View>
   );

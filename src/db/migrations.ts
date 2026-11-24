@@ -410,6 +410,11 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE cardio_point ADD COLUMN speed_accuracy REAL;
   ${SPRINT_FUSED_WEAK}
   `,
+  // One more set of an exercise already done, chosen during the rest (1.5.4): it has to survive the
+  // app being closed, like the rest itself.
+  `
+  ALTER TABLE workout_session ADD COLUMN next_extra INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 export async function migrate(db: Db): Promise<void> {

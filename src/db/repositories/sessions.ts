@@ -36,6 +36,11 @@ export interface Session {
    * set, or when its exercise was opened. Null while resting (its set has not started).
    */
   setStartedAt: number | null;
+  /**
+   * While resting: what comes next is one more set of `currentSlotId`, done or not (1.5.4: «Una serie
+   * más», or a finished exercise chosen in the list). Any other step clears it.
+   */
+  nextExtra: boolean;
 }
 
 /** Warming up: the stopwatch before the first exercise is running. */
@@ -79,6 +84,7 @@ interface SessionRow {
   warmup_started_at: number | null;
   warmup_ended_at: number | null;
   set_started_at: number | null;
+  next_extra: number;
 }
 
 /**
@@ -116,6 +122,7 @@ function toSession(row: SessionRow): Session {
     warmupStartedAt: row.warmup_started_at,
     warmupEndedAt: row.warmup_ended_at,
     setStartedAt: row.set_started_at,
+    nextExtra: bool(row.next_extra),
   };
 }
 
@@ -157,7 +164,7 @@ export async function startSession(db: Db, routineId: number, now: Date): Promis
  */
 export async function endWarmup(db: Db, sessionId: number, slotId: number | null, now = Date.now()): Promise<void> {
   await db.runAsync(
-    `UPDATE workout_session SET warmup_ended_at = ?, set_started_at = ?, current_slot_id = COALESCE(?, current_slot_id)
+    `UPDATE workout_session SET warmup_ended_at = ?, set_started_at = ?, current_slot_id = COALESCE(?, current_slot_id), next_extra = 0
      WHERE id = ? AND warmup_started_at IS NOT NULL AND warmup_ended_at IS NULL`,
     now,
     now,
@@ -184,14 +191,14 @@ export async function lastWarmupOf(db: Db, routineId: number): Promise<number | 
 export async function endRest(db: Db, sessionId: number, slotId: number | null | 'same', now = Date.now()): Promise<void> {
   if (slotId === 'same') {
     await db.runAsync(
-      'UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ? WHERE id = ?',
+      'UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ?, next_extra = 0 WHERE id = ?',
       now,
       sessionId,
     );
     return;
   }
   await db.runAsync(
-    `UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ?, current_slot_id = ?
+    `UPDATE workout_session SET rest_ends_at = NULL, rest_notification_id = NULL, set_started_at = ?, current_slot_id = ?, next_extra = 0
      WHERE id = ?`,
     now,
     slotId,
@@ -207,7 +214,7 @@ export async function openSlot(db: Db, sessionId: number, slotId: number, skippe
   await db.runAsync(
     `UPDATE workout_session
      SET current_slot_id = ?, skipped_slot_ids = ?, rest_ends_at = NULL, rest_notification_id = NULL,
-         set_started_at = COALESCE(set_started_at, ?)
+         set_started_at = COALESCE(set_started_at, ?), next_extra = 0
      WHERE id = ?`,
     slotId,
     JSON.stringify(skippedSlotIds),
@@ -265,10 +272,15 @@ export async function updateSessionState(
     restEndsAt?: number | null;
     restNotificationId?: string | null;
     skippedSlotIds?: number[];
+    /** Changing the exercise in course without saying it clears it. */
+    nextExtra?: boolean;
   },
 ): Promise<void> {
   if ('currentSlotId' in patch) {
     await db.runAsync('UPDATE workout_session SET current_slot_id = ? WHERE id = ?', patch.currentSlotId ?? null, id);
+  }
+  if ('currentSlotId' in patch || 'nextExtra' in patch) {
+    await db.runAsync('UPDATE workout_session SET next_extra = ? WHERE id = ?', patch.nextExtra ? 1 : 0, id);
   }
   if ('restEndsAt' in patch) {
     await db.runAsync('UPDATE workout_session SET rest_ends_at = ? WHERE id = ?', patch.restEndsAt ?? null, id);
@@ -335,8 +347,8 @@ export async function logSet(
     slot.restSeconds,
     now,
   );
-  // The rest starts: the next set has not.
-  await db.runAsync('UPDATE workout_session SET set_started_at = NULL WHERE id = ?', sessionId);
+  // The rest starts: the next set has not, and nothing has been chosen for after it.
+  await db.runAsync('UPDATE workout_session SET set_started_at = NULL, next_extra = 0 WHERE id = ?', sessionId);
   return result.lastInsertRowId;
 }
 

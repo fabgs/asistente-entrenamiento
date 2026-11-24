@@ -129,10 +129,21 @@ export async function addDietItem(db: Db, to: DietSource, meal: Meal, foodId: nu
   return result.lastInsertRowId;
 }
 
-/** The grams of the plan; if it is ticked on `today`, what was eaten today follows (older days keep theirs). */
+/**
+ * The grams of the plan; if it is ticked on `today` with the plan's grams, what was eaten today
+ * follows. Older days keep theirs, and so does today if its grams were changed in Hoy (1.5.4).
+ */
 export async function updateDietItemGrams(db: Db, id: number, grams: number, today: string): Promise<void> {
-  await db.runAsync('UPDATE diet_item SET grams = ? WHERE id = ?', grams, id);
-  await db.runAsync('UPDATE diet_log SET grams = ? WHERE item_id = ? AND date = ?', grams, id, today);
+  await db.withTransactionAsync(async () => {
+    await db.runAsync(
+      'UPDATE diet_log SET grams = ? WHERE item_id = ? AND date = ? AND grams = (SELECT grams FROM diet_item WHERE id = ?)',
+      grams,
+      id,
+      today,
+      id,
+    );
+    await db.runAsync('UPDATE diet_item SET grams = ? WHERE id = ?', grams, id);
+  });
 }
 
 export async function deleteDietItem(db: Db, id: number): Promise<void> {
@@ -351,12 +362,13 @@ export async function setDietDayOverrides(db: Db, date: string, overrides: MealO
 export interface DietLogEntry extends EatenFood {
   id: number;
   foodId: number;
+  foodName: string;
 }
 
 /** What is ticked as eaten on `date`. */
 export async function dietLogOn(db: Db, date: string): Promise<DietLogEntry[]> {
   return db.getAllAsync<DietLogEntry>(
-    `SELECT l.id, l.item_id AS itemId, l.meal, l.food_id AS foodId, l.grams,
+    `SELECT l.id, l.item_id AS itemId, l.meal, l.food_id AS foodId, f.name AS foodName, l.grams,
             f.fat_per_100g AS fatPer100g, f.carbs_per_100g AS carbsPer100g, f.protein_per_100g AS proteinPer100g
      FROM diet_log l JOIN food f ON f.id = l.food_id
      WHERE l.date = ? ORDER BY l.id`,
@@ -388,6 +400,79 @@ export async function setEaten(db: Db, date: string, itemIds: number[], eaten: b
       }
     }
   });
+}
+
+/**
+ * «Cantidad de hoy» (1.5.4): a food of the plan eaten on `date` in other grams. It is ticked if it
+ * was not; the plan does not change.
+ */
+export async function setEatenGrams(db: Db, date: string, itemId: number, grams: number, now = Date.now()): Promise<void> {
+  await db.withTransactionAsync(async () => {
+    const tick = await db.getFirstAsync<{ id: number }>('SELECT id FROM diet_log WHERE date = ? AND item_id = ?', date, itemId);
+    if (tick) {
+      await db.runAsync('UPDATE diet_log SET grams = ? WHERE id = ?', grams, tick.id);
+      return;
+    }
+    await db.runAsync(
+      `INSERT INTO diet_log (date, meal, food_id, grams, item_id, created_at)
+       SELECT ?, meal, food_id, ?, id, ? FROM diet_item WHERE id = ?`,
+      date,
+      grams,
+      now,
+      itemId,
+    );
+  });
+}
+
+/** Something eaten on `date` that is not in its plan (1.5.4): only that day, the plan does not change. */
+export async function addEatenFood(db: Db, date: string, meal: Meal, foodId: number, grams: number, now = Date.now()): Promise<number> {
+  const result = await db.runAsync(
+    'INSERT INTO diet_log (date, meal, food_id, grams, item_id, created_at) VALUES (?, ?, ?, ?, NULL, ?)',
+    date,
+    meal,
+    foodId,
+    grams,
+    now,
+  );
+  return result.lastInsertRowId;
+}
+
+/** The grams of something eaten off the plan. */
+export async function updateEatenGrams(db: Db, id: number, grams: number): Promise<void> {
+  await db.runAsync('UPDATE diet_log SET grams = ? WHERE id = ? AND item_id IS NULL', grams, id);
+}
+
+/** Removes something eaten off the plan and returns it, for «Deshacer». */
+export async function removeEatenFood(db: Db, id: number): Promise<StoredEaten | null> {
+  const row = await db.getFirstAsync<StoredEaten>(
+    'SELECT id, date, meal, food_id AS foodId, grams, created_at AS createdAt FROM diet_log WHERE id = ? AND item_id IS NULL',
+    id,
+  );
+  if (!row) return null;
+  await db.runAsync('DELETE FROM diet_log WHERE id = ?', id);
+  return row;
+}
+
+export async function restoreEatenFood(db: Db, row: StoredEaten): Promise<void> {
+  await db.runAsync(
+    'INSERT OR IGNORE INTO diet_log (id, date, meal, food_id, grams, item_id, created_at) VALUES (?, ?, ?, ?, ?, NULL, ?)',
+    row.id,
+    row.date,
+    row.meal,
+    row.foodId,
+    row.grams,
+    row.createdAt,
+  );
+}
+
+/** Something eaten off the plan as stored, to put it back. */
+export interface StoredEaten {
+  id: number;
+  date: string;
+  meal: Meal;
+  foodId: number;
+  grams: number;
+  createdAt: number;
 }
 
 /** What was ticked each day from `from` to `to` (local dates): its macros and in how many meals. Days with nothing are not there. */

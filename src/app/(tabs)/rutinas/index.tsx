@@ -10,11 +10,11 @@ import {
   Divider,
   EmptyState,
   Icon,
-  IconButton,
   ListGroup,
   ListRow,
   Loading,
   Screen,
+  TabHeaderButton,
   type IconName,
 } from '@/components/ui';
 import { listCardio, type CardioActivity } from '@/db/repositories/cardio';
@@ -73,11 +73,7 @@ export default function RoutinesScreen() {
 
   useLayoutEffect(() => {
     navigation.setOptions({
-      headerRight: () => (
-        <View style={styles.headerAction}>
-          <IconButton icon="plus" label="Nueva rutina" onPress={newRoutine} />
-        </View>
-      ),
+      headerRight: () => <TabHeaderButton icon="plus" label="Nueva rutina" onPress={newRoutine} />,
     });
   }, [navigation, newRoutine]);
 
@@ -221,7 +217,6 @@ function DayCell({ plan, today }: { plan: DayPlan; today: boolean }) {
 
 const styles = StyleSheet.create({
   // The tab header has no inset of its own: 4 + the 12 inside the button = the 16 dp margin.
-  headerAction: { marginRight: spacing.xs },
   flex: { flex: 1 },
   weekHead: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingTop: spacing.xs },
   weekToggle: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: spacing.xs, minHeight: 48 },

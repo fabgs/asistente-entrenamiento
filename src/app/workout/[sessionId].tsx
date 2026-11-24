@@ -210,7 +210,7 @@ export default function WorkoutScreen() {
     const result = await finishSession(db, id, toProgressionSettings(settings));
     if (result === 'discarded') router.dismissTo('/');
     else router.replace(`/workout/resumen/${id}?nuevo=1`);
-    maybeAutoBackup(db);
+    maybeAutoBackup(db, undefined, { force: true });
   };
 
   const confirmFinish = () => {

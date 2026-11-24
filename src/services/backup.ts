@@ -5,7 +5,16 @@ import * as Sharing from 'expo-sharing';
 import { Platform } from 'react-native';
 import type { Db } from '@/db/db';
 import { exportBackup, getMeta, parseBackup, resetData, restoreBackup, setMeta, type Backup } from '@/db/maintenance';
-import { getBackupLink, setBackupLink } from '@/db/repositories/backupLink';
+import {
+  getBackupLink,
+  getDeclinedCopy,
+  getSyncedFingerprint,
+  setBackupLink,
+  setDeclinedCopy,
+  setSyncedFingerprint,
+} from '@/db/repositories/backupLink';
+import { getActiveCardioSession } from '@/db/repositories/cardioSessions';
+import { getActiveSession } from '@/db/repositories/sessions';
 import { getSettings, updateSettings, type Settings } from '@/db/repositories/settings';
 import { SEED } from '@/db/seedData';
 import type { SeedData } from '@/db/seedTypes';
@@ -18,7 +27,8 @@ import {
   sameKdf,
   type BackupKey,
 } from '@/domain/backupCipher';
-import { mayReplaceCopy } from '@/domain/backupLink';
+import { copyContents, mayReplaceCopy } from '@/domain/backupLink';
+import { dataFingerprint, syncDecision } from '@/domain/sync';
 import { localDateString } from '@/domain/schedule';
 import { appKit, backupKeyStore } from './backupCipher';
 import { rescheduleDailyReminders } from './dailyReminder';
@@ -29,7 +39,12 @@ export { ForeignCopyError } from './githubBackup';
 
 const TOKEN_KEY = 'github-backup-token';
 const INSTALL_KEY = 'install-stamp';
-const AUTO_BACKUP_EVERY_MS = 24 * 60 * 60 * 1000;
+/**
+ * Automatic copies go up when the data changed (1.5.6), at most this often on their own (opening
+ * the app, leaving it); always when a workout or a cardio ends. Each copy is a commit of about a
+ * megabyte in the private repository: not one per tick of the diet.
+ */
+const AUTO_BACKUP_GAP_MS = 10 * 60 * 1000;
 
 export const githubToken = {
   get: () => SecureStore.getItemAsync(TOKEN_KEY),
@@ -83,19 +98,37 @@ export async function setBackupPassword(password: string): Promise<void> {
 
 export const clearBackupPassword = (): Promise<void> => backupKeyStore.clear();
 
-/** The text of a copy: the JSON of the data, encrypted if there is a password. */
-async function backupText(db: Db, now: Date): Promise<string> {
-  const json = JSON.stringify(await exportBackup(db, now));
+/** The text of a copy (the JSON of the data, encrypted if there is a password) and the fingerprint of that data. */
+async function backupText(db: Db, now: Date): Promise<{ text: string; fingerprint: string }> {
+  const backup = await exportBackup(db, now);
+  const json = JSON.stringify(backup);
   const key = await backupKeyStore.get();
-  return key ? encryptBackup(json, key, appKit) : json;
+  return { text: key ? await encryptBackup(json, key, appKit) : json, fingerprint: dataFingerprint(backup.tables) };
 }
 
-async function writeBackupFile(db: Db, now: Date): Promise<File> {
+async function writeBackupFile(db: Db, now: Date): Promise<{ file: File; fingerprint: string }> {
   const file = new File(Paths.cache, `entreno-backup-${localDateString(now)}.json`);
   if (file.exists) file.delete();
   file.create();
-  await file.write(await backupText(db, now));
-  return file;
+  const { text, fingerprint } = await backupText(db, now);
+  await file.write(text);
+  return { file, fingerprint };
+}
+
+/** The fingerprint of the data as it is now (domain/sync). */
+async function currentFingerprint(db: Db): Promise<string> {
+  return dataFingerprint((await exportBackup(db, new Date(0))).tables);
+}
+
+/**
+ * Whether the data changed since the copy this phone uploaded or restored last (1.5.6). A phone with
+ * none of the user's data has nothing to lose; one without a fingerprint yet (before its first copy
+ * with 1.5.6) counts as changed.
+ */
+export async function hasLocalChanges(db: Db): Promise<boolean> {
+  if (!(await getBackupLink(db)).hasData) return false;
+  const synced = await getSyncedFingerprint(db);
+  return synced === null || synced !== (await currentFingerprint(db));
 }
 
 /** A copy ready to restore, and the key that opened it if it was encrypted. */
@@ -121,7 +154,7 @@ export async function openBackup(text: string, password?: string): Promise<Opene
 
 /** Opens the share sheet with a JSON backup (save to Drive, send by Telegram…). */
 export async function shareBackupFile(db: Db, now = new Date()): Promise<void> {
-  const file = await writeBackupFile(db, now);
+  const { file } = await writeBackupFile(db, now);
   await Sharing.shareAsync(file.uri, { mimeType: 'application/json', dialogTitle: 'Guardar copia de seguridad' });
 }
 
@@ -139,7 +172,11 @@ export async function pickBackupFile(): Promise<string | null> {
  */
 export async function restoreFrom(db: Db, { backup, key }: OpenedBackup, githubSha?: string | null): Promise<void> {
   await restoreBackup(db, backup);
-  if (githubSha) await setBackupLink(db, githubSha);
+  if (githubSha) {
+    await setBackupLink(db, githubSha);
+    // Its data is now that copy's: no changes of its own until the user makes some.
+    await setSyncedFingerprint(db, await currentFingerprint(db));
+  }
   if (key && !(await backupKeyStore.get())) await backupKeyStore.set(key);
   await resetNotifications();
   await rescheduleDailyReminders(db);
@@ -162,14 +199,20 @@ export async function backupToGithub(db: Db, now = new Date(), replaceForeign = 
   if (!target || !token) throw new Error('Configura el repositorio y el token de GitHub primero.');
   try {
     const link = await getBackupLink(db);
+    let fingerprint: string | null = null;
     const sha = await putFile(
       target,
       token,
-      async () => (await writeBackupFile(db, now)).base64(),
+      async () => {
+        const written = await writeBackupFile(db, now);
+        fingerprint = written.fingerprint;
+        return written.file.base64();
+      },
       `Copia de seguridad ${now.toISOString()}`,
       (current) => replaceForeign || mayReplaceCopy(current, link),
     );
     await setBackupLink(db, sha ?? (await getFileSha(target, token)));
+    if (fingerprint !== null) await setSyncedFingerprint(db, fingerprint);
     await updateSettings(db, { lastBackupAt: now.getTime(), lastBackupError: null });
   } catch (e) {
     await updateSettings(db, { lastBackupError: e instanceof Error ? e.message : String(e) });
@@ -200,10 +243,66 @@ export async function foreignCopyInGithub(db: Db): Promise<boolean> {
   return sha !== null && !mayReplaceCopy(sha, await getBackupLink(db));
 }
 
-/** At most once a day, never in developer mode, silently skipped if not configured or offline. */
-export async function maybeAutoBackup(db: Db, now = new Date()): Promise<void> {
+/**
+ * Uploads a copy if the data changed since the last one (1.5.6; until then, once a day whatever
+ * happened): at most every AUTO_BACKUP_GAP_MS, or right away with `force` (a workout or a cardio has
+ * just ended). Never in developer mode, nor over another phone's copy; silently skipped if not
+ * configured or offline.
+ */
+export async function maybeAutoBackup(db: Db, now = new Date(), { force = false } = {}): Promise<void> {
   const settings = await getSettings(db);
   if (settings.devMode || !githubTarget(settings) || !(await githubToken.get())) return;
-  if (settings.lastBackupAt && now.getTime() - settings.lastBackupAt < AUTO_BACKUP_EVERY_MS) return;
+  if (!force && settings.lastBackupAt && now.getTime() - settings.lastBackupAt < AUTO_BACKUP_GAP_MS) return;
+  if (!(await hasLocalChanges(db))) return;
   await backupToGithub(db, now).catch(() => undefined);
+}
+
+/** A newer copy in GitHub than this phone's, uploaded by another one (1.5.6). */
+export interface NewerCopy {
+  kind: 'offer' | 'conflict';
+  sha: string;
+  /** null when it is encrypted with another password: it has to be restored from Ajustes. */
+  opened: OpenedBackup | null;
+  exportedAt: number | null;
+  /** «tiene 377 entrenos y 9 sesiones de cardio». */
+  contents: string | null;
+}
+
+/**
+ * Whether another phone uploaded a newer copy than the one this phone's data comes from, to offer
+ * it when the app opens (domain/sync). Null when there is nothing to offer, or nothing to ask now:
+ * developer mode, GitHub not set up, offline, or a workout or a cardio in progress (a copy replaces
+ * everything, also what is being recorded).
+ */
+export async function checkNewerCopy(db: Db): Promise<NewerCopy | null> {
+  const settings = await getSettings(db);
+  const target = githubTarget(settings);
+  const token = await githubToken.get();
+  if (settings.devMode || !target || !token) return null;
+  if ((await getActiveSession(db)) || (await getActiveCardioSession(db))) return null;
+  const sha = await getFileSha(target, token);
+  const kind = syncDecision(sha, await getBackupLink(db), await getDeclinedCopy(db), await hasLocalChanges(db));
+  if (kind === 'none' || sha === null) return null;
+  const text = await getRawFile(target, token);
+  const opened = await openBackup(text).catch((e) => {
+    if (e instanceof PasswordNeededError) return null;
+    throw e;
+  });
+  const tables = opened?.backup.tables;
+  return {
+    kind,
+    sha,
+    opened,
+    exportedAt: opened ? new Date(opened.backup.exportedAt).getTime() : null,
+    contents: tables ? copyContents(tables.workout_session?.length ?? 0, tables.cardio_session?.length ?? 0) : null,
+  };
+}
+
+/** «Ahora no»: that copy is not offered again; the next one will be. */
+export const declineNewerCopy = (db: Db, copy: NewerCopy) => setDeclinedCopy(db, copy.sha);
+
+/** «Traer»: the data of the other phone replaces this one's. */
+export async function bringNewerCopy(db: Db, copy: NewerCopy): Promise<void> {
+  if (!copy.opened) throw new Error('Esta copia está cifrada con otra contraseña: tráela desde Ajustes → Copia de seguridad.');
+  await restoreFrom(db, copy.opened, copy.sha);
 }

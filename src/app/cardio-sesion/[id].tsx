@@ -188,7 +188,7 @@ export default function CardioSessionScreen() {
       const record = await walkRecordText(db, session.id).catch(() => null);
       if (record) showSnackbar(record);
     }
-    maybeAutoBackup(db);
+    maybeAutoBackup(db, undefined, { force: true });
   };
 
   const confirmFinish = () =>

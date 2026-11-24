@@ -23,7 +23,21 @@ export function setTabBarHeight(height: number): void {
   notify();
 }
 
-export const getBottomInset = () => ([...bottomBars.values()].at(-1) ?? 0) + tabBarHeight;
+/**
+ * The native tab bar of iOS (1.5.6) cannot be measured: each tab says, while it is in front, how much
+ * of the bottom the bar takes (its safe area). Switching tabs, the new one may speak before the old
+ * one is quiet: they all say the same, so any of them will do.
+ */
+const nativeTabBars = new Map<object, number>();
+
+export function setNativeTabBarHeight(owner: object, height: number | null): void {
+  if (height === null) nativeTabBars.delete(owner);
+  else nativeTabBars.set(owner, height);
+  notify();
+}
+
+export const getBottomInset = () =>
+  ([...bottomBars.values()].at(-1) ?? 0) + Math.max(tabBarHeight, ...nativeTabBars.values());
 
 export function onBottomInset(listener: (height: number) => void): () => void {
   listeners.add(listener);

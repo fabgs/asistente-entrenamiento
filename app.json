@@ -2,14 +2,14 @@
   "expo": {
     "name": "Entreno",
     "slug": "entreno",
-    "version": "1.5.5",
+    "version": "1.5.6",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "entreno",
     "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "com.fabgs.entreno",
-      "buildNumber": "28",
+      "buildNumber": "29",
       "supportsTablet": false,
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Entreno guarda en tus fotos las imágenes para compartir y las fotos que haces con la cámara.",
@@ -18,7 +18,7 @@
     },
     "android": {
       "package": "com.fabgs.entreno",
-      "versionCode": 28,
+      "versionCode": 29,
       "adaptiveIcon": {
         "backgroundColor": "#0E1116",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

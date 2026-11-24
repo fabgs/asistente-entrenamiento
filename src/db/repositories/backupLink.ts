@@ -18,3 +18,14 @@ export async function getBackupLink(db: Db): Promise<BackupLink> {
 
 /** `sha` of the copy just uploaded or restored; null when the data comes from none (a new phone). */
 export const setBackupLink = (db: Db, sha: string | null) => setMeta(db, BACKUP_LINK_KEY, sha ?? '');
+
+/**
+ * The fingerprint (domain/sync) of the data as it was in that copy (1.5.6): when the data no longer
+ * matches it, the phone has changes of its own to upload. null before the first copy with 1.5.6.
+ */
+export const getSyncedFingerprint = (db: Db) => getMeta(db, 'backup-fingerprint');
+export const setSyncedFingerprint = (db: Db, fingerprint: string) => setMeta(db, 'backup-fingerprint', fingerprint);
+
+/** The copy of another phone the user said «Ahora no» to: it is not offered again (1.5.6). */
+export const getDeclinedCopy = (db: Db) => getMeta(db, 'backup-declined');
+export const setDeclinedCopy = (db: Db, sha: string) => setMeta(db, 'backup-declined', sha);

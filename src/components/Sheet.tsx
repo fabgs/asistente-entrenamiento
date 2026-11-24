@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAvoidingView, Modal, Platform, Pressable, StyleSheet, View } from 'react-native';
+import { initialWindowMetrics, SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, radius, spacing } from '@/theme';
 import { AppText } from './ui';
 
@@ -23,23 +23,32 @@ export function Sheet({
   action?: ReactNode;
   children: ReactNode;
 }) {
-  const insets = useSafeAreaInsets();
+  const body = <SheetBody title={title} onClose={onClose} action={action}>{children}</SheetBody>;
   return (
     <Modal transparent visible={visible} animationType="slide" statusBarTranslucent navigationBarTranslucent onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Cerrar">
-          <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
-            <View style={styles.head}>
-              <AppText variant="heading" style={{ flex: 1 }}>
-                {title}
-              </AppText>
-              {action}
-            </View>
-            {children}
-          </Pressable>
-        </Pressable>
-      </KeyboardAvoidingView>
+      {/* iOS (1.5.6): inside a native tab the safe area includes the tab bar, which the sheet covers;
+          the modal measures its own. */}
+      {Platform.OS === 'ios' ? <SafeAreaProvider initialMetrics={initialWindowMetrics}>{body}</SafeAreaProvider> : body}
     </Modal>
+  );
+}
+
+function SheetBody({ title, onClose, action, children }: { title: string; onClose: () => void; action?: ReactNode; children: ReactNode }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
+      <Pressable style={styles.backdrop} onPress={onClose} accessibilityLabel="Cerrar">
+        <Pressable style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
+          <View style={styles.head}>
+            <AppText variant="heading" style={{ flex: 1 }}>
+              {title}
+            </AppText>
+            {action}
+          </View>
+          {children}
+        </Pressable>
+      </Pressable>
+    </KeyboardAvoidingView>
   );
 }
 

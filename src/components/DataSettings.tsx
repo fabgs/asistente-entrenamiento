@@ -388,7 +388,7 @@ export function BackupSection({
           <ListRow
             left={<RowIcon name="cloud-upload-outline" />}
             title="Copia automática en GitHub"
-            subtitle="Una vez al día, en un repositorio privado tuyo"
+            subtitle="Cuando cambian tus datos, en un repositorio privado tuyo"
             right={toggleForm}
             onPress={() => setEditing(!editing)}
             chevron={false}

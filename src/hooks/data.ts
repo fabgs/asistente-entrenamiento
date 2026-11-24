@@ -8,6 +8,12 @@ export function useDb(): Db {
   return useSQLiteContext();
 }
 
+/** All the data was replaced under the screens (another phone's copy brought, 1.5.6): they load again. */
+const replacedListeners = new Set<() => void>();
+export function emitDataReplaced(): void {
+  replacedListeners.forEach((listener) => listener());
+}
+
 /**
  * Loads data every time the screen gains focus or the app returns to the foreground (e.g. after
  * granting a permission in Android settings). `reload` refreshes it after a write and resolves
@@ -31,7 +37,12 @@ export function useLoader<T>(load: (db: Db) => Promise<T>) {
       const sub = AppState.addEventListener('change', (state) => {
         if (state === 'active') reload();
       });
-      return () => sub.remove();
+      const listener = () => void reload();
+      replacedListeners.add(listener);
+      return () => {
+        sub.remove();
+        replacedListeners.delete(listener);
+      };
     }, [reload]),
   );
   return { data, reload };

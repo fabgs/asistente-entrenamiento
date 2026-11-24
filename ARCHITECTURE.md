@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.5.5** (`versionCode` 28, `buildNumber` 28 en iOS, [app.json](app.json)) |
+| Versión de la app | **1.5.6** (`versionCode` 29, `buildNumber` 29 en iOS, [app.json](app.json)) |
 | Esquema de la BD | **17** (`PRAGMA user_version`, 17 migraciones) |
-| Revisado | 2026-11-24, versión 1.5.5 (la app en iPhone sin Mac: `.ipa` sin firmar en GitHub Actions, `pbkdf2Sha256` en Swift, lo que solo tiene Android oculto en iOS) y 1.5.4 (el descanso ya no se corta al elegir en la lista un ejercicio terminado; «Una serie más» en el descanso con `workout_session.next_extra`, migración 17; en Dieta · Hoy, la cantidad de hoy de un alimento y lo comido fuera del plan; la duración de la imagen del entreno con sus unidades pequeñas) |
+| Revisado | 2026-11-24, versión 1.5.6 (iOS con la barra de pestañas nativa y una cabecera nativa por pestaña, `TabStack`; el botón Atrás solo con la flecha; los botones de la cabecera sin el margen de Android en iOS; fecha y hora con `pickDate`; dos móviles: la copia sube cuando cambian los datos y el otro ofrece traerla, `CopySync`), 1.5.5 (la app en iPhone sin Mac: `.ipa` sin firmar en GitHub Actions, `pbkdf2Sha256` en Swift, lo que solo tiene Android oculto en iOS) y 1.5.4 (el descanso ya no se corta al elegir en la lista un ejercicio terminado; «Una serie más» en el descanso con `workout_session.next_extra`, migración 17; en Dieta · Hoy, la cantidad de hoy de un alimento y lo comido fuera del plan; la duración de la imagen del entreno con sus unidades pequeñas) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -21,7 +21,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 | Pieza | Qué se usa |
 |---|---|
 | Framework | Expo SDK 58 · React Native 0.88 · React 19.3 · TypeScript estricto · React Compiler (`experiments.reactCompiler`) |
-| Navegación | `expo-router` (rutas en `src/app/`, `typedRoutes`): un `Stack` raíz con las pestañas JS (`expo-router/js-tabs`) dentro |
+| Navegación | `expo-router` (rutas en `src/app/`, `typedRoutes`): un `Stack` raíz con las pestañas dentro. En Android, las pestañas JS (`expo-router/js-tabs`) con su cabecera; en iOS (1.5.6), las nativas (`expo-router/native-tabs`, la píldora de cristal de iOS 26) y, en cada pestaña, un `Stack` de una pantalla para tener cabecera nativa ([TabStack.tsx](src/components/TabStack.tsx)) |
 | Datos | `expo-sqlite` con **SQLCipher** y SQL escrito a mano; migraciones con `PRAGMA user_version` |
 | Avisos | `expo-notifications` (solo locales: `DATE` con `alarmClock` y `WEEKLY`) + módulo nativo propio `modules/rest-timer` |
 | GPS | `expo-location` + `expo-task-manager` (servicio en primer plano); en los sprints, además, el GPS del chip con un oyente propio en `modules/rest-timer` (1.5.2) |
@@ -105,7 +105,7 @@ sequenceDiagram
   P->>P: PRAGMA key · migrate() · resetIfNewInstallInDevMode() · importSeed(SEED) y, si era el primer arranque, setBackupLink(null)
   P->>B: monta Bootstrap y el Stack
   B->>B: ensureChannels · si se reinició para aplicar un tema, navigate(/ajustes) · pedir permiso de notificaciones
-  B->>B: rescheduleDailyReminders · restoreWorkoutInProgress · restoreCardioInProgress · maybeAutoBackup
+  B->>B: rescheduleDailyReminders · restoreWorkoutInProgress · restoreCardioInProgress · maybeAutoBackup · offerNewerCopy
   B->>B: getLastNotificationResponseAsync → router.navigate(data.url)
 ```
 
@@ -234,6 +234,9 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | [Photos.tsx](src/components/Photos.tsx) | Fotos de una sesión: tira de miniaturas con «Añadir» (o la fila «Añadir foto»), menú «Hacer una foto» · «Elegir de la galería» |
 | [PhotoPager.tsx](src/components/PhotoPager.tsx) | Visor de fotos con páginas y zoom (pellizco, doble toque, arrastre) en un solo juego de gestos de `react-native-gesture-handler` 3 y Reanimated |
 | [Sprint.tsx](src/components/Sprint.tsx) · [SprintLive.tsx](src/components/SprintLive.tsx) | Sprints (1.5.2): las cifras (`SprintStats`: el mejor tiempo y, con recta, su velocidad media), la tabla (`SprintTable`: con recta, «# · Tiempo · Media · GPS»; el mejor tiempo en verde y lo del GPS en gris), la tarjeta de la recta (`StraightCard`: su mapa si se marcó y la fila que abre `/recta/:id`), las notas (`SprintNotes`) y el detalle de una sesión terminada (`SprintDetails`, con las trazas de cada sprint); la pantalla en directo: «Listo» (la secuencia dibujada, la tarjeta de la recta, la fila del plan con su hoja «Plan» y «Salida en N s»), cuenta, sprint, descanso y «Hechos» |
+| [TabStack.tsx](src/components/TabStack.tsx) | El layout de cada pestaña (1.5.6): en Android, `Slot` (la pantalla tal cual, bajo la cabecera de las pestañas JS); en iOS, un `Stack` de una pantalla con su título para tener cabecera nativa, y la altura de la barra nativa para el Snackbar (`setNativeTabBarHeight`: el área segura de la pestaña) |
+| [CopySync.tsx](src/components/CopySync.tsx) | Dos móviles (1.5.6): `offerNewerCopy` y el diálogo «Hay una copia más nueva»; montado en la raíz, sube lo cambiado al salir de la app y busca una copia más nueva al volver |
+| [DatePicker.tsx](src/components/DatePicker.tsx) · [datePick.ts](src/components/datePick.ts) | `pickDate` (1.5.6): el diálogo de fecha u hora de Android, o en iOS una hoja con la rueda del sistema y «Listo» (`DatePickerHost`, en la raíz). Lo usan `TimeField`, `DateField` y la fecha de nacimiento |
 | [Diet.tsx](src/components/Diet.tsx) | Piezas de la pestaña Dieta (1.5.1): rejillas `PlanTotals` (frente a objetivos) y `EatenTotals` (lo comido frente al plan), `FoodRow` (editar) y `TickRow` (marcar; mantenerla pulsada, la cantidad de hoy, 1.5.4), `ExtraRow` (lo comido fuera del plan, 1.5.4), `MealTickHeader`, `GramsEditor`, `CopyDays` |
 | [BodyMap.tsx](src/components/BodyMap.tsx) · [MuscleWeek.tsx](src/components/MuscleWeek.tsx) · [MusclePicker.tsx](src/components/MusclePicker.tsx) | Silueta (única que importa la librería); «Músculos» del Perfil en dos modos (Esta semana · Últimos días) y la silueta del resumen; leyenda (`HeatLegend`, también la del mapa de calor, con su rampa); hoja de músculos |
 | [WeightSheet.tsx](src/components/WeightSheet.tsx) | Hoja de un pesaje |
@@ -254,12 +257,12 @@ Mientras `prepareDatabase()` no responde se ve una vista vacía del color de fon
 | Fichero | URL y parámetros | Título | Para qué |
 |---|---|---|---|
 | [_layout.tsx](src/app/_layout.tsx) | — | — | Raíz: BD cifrada, `Bootstrap`, `Stack`, hosts de diálogos y Snackbar |
-| [(tabs)/_layout.tsx](src/app/(tabs)/_layout.tsx) | — | — | Barra de pestañas: Hoy · Rutinas · Historial · Dieta · Perfil |
-| [(tabs)/index.tsx](src/app/(tabs)/index.tsx) | `/` | Fecha larga («Martes, 3 de noviembre») | **Hoy**: lo que toca, lo hecho y «hacer otra cosa» |
-| [(tabs)/rutinas.tsx](src/app/(tabs)/rutinas.tsx) | `/rutinas` | Rutinas | Semana, rutinas con pesos y sugerencias, accesos a editores |
-| [(tabs)/historial.tsx](src/app/(tabs)/historial.tsx) | `/historial` | Historial | Entrenos · Ejercicios · Cardio, por meses; en Cardio, la fila «Mis rutas» |
-| [(tabs)/dieta.tsx](src/app/(tabs)/dieta.tsx) | `/dieta` | Dieta | «Hoy»: lo de hoy para marcarlo y cambiar su plan. «Planes»: los siete días y los planes de día, con totales frente a objetivos |
-| [(tabs)/perfil.tsx](src/app/(tabs)/perfil.tsx) | `/perfil` | Perfil | Músculos (esta semana o últimos días), Récords, peso, objetivos, mis datos |
+| [(tabs)/_layout.tsx](src/app/(tabs)/_layout.tsx) | — | — | Barra de pestañas: Hoy · Rutinas · Historial · Dieta · Perfil (JS en Android, nativa en iOS, 1.5.6). Cada pestaña es una carpeta con su `_layout.tsx` (`TabStack`: nada en Android, un `Stack` con cabecera nativa en iOS) |
+| [(tabs)/(hoy)/index.tsx](src/app/(tabs)/(hoy)/index.tsx) | `/` | Fecha larga («Martes, 3 de noviembre») | **Hoy**: lo que toca, lo hecho y «hacer otra cosa» |
+| [(tabs)/rutinas/index.tsx](src/app/(tabs)/rutinas/index.tsx) | `/rutinas` | Rutinas | Semana, rutinas con pesos y sugerencias, accesos a editores |
+| [(tabs)/historial/index.tsx](src/app/(tabs)/historial/index.tsx) | `/historial` | Historial | Entrenos · Ejercicios · Cardio, por meses; en Cardio, la fila «Mis rutas» |
+| [(tabs)/dieta/index.tsx](src/app/(tabs)/dieta/index.tsx) | `/dieta` | Dieta | «Hoy»: lo de hoy para marcarlo y cambiar su plan. «Planes»: los siete días y los planes de día, con totales frente a objetivos |
+| [(tabs)/perfil/index.tsx](src/app/(tabs)/perfil/index.tsx) | `/perfil` | Perfil | Músculos (esta semana o últimos días), Récords, peso, objetivos, mis datos |
 | [workout/[sessionId].tsx](src/app/workout/[sessionId].tsx) | `/workout/:sessionId` | Nombre de la rutina o «Ejercicio suelto» («Entrenando» mientras carga) | Modo entrenamiento: lista · serie · descanso |
 | [workout/resumen/[sessionId].tsx](src/app/workout/resumen/[sessionId].tsx) | `/workout/resumen/:sessionId` · `?nuevo=1` recién terminado | Vacío (título editable en la página) o «Corregir series» | Resumen, sugerencias, corregir o borrar |
 | [ejercicio-suelto.tsx](src/app/ejercicio-suelto.tsx) | `/ejercicio-suelto` · `?sesion=:id` para añadir a una sesión suelta | «Ejercicio suelto» o «Añadir otro ejercicio» | Elegir un ejercicio del catálogo |
@@ -1384,7 +1387,8 @@ Todas pasan por `queueWrite` (el plan de unos sprints, con `useSavedAtOnce`). Lo
 | Importar | Ajustes «Importar copia» | Selector de ficheros → `openBackup` (pide contraseña si hace falta) → «¿Restaurar la copia?», con la fecha de la copia y lo que trae (`copyContents`: «tiene 373 entrenos y 8 sesiones de cardio» o «no tiene ningún entreno ni cardio») → `restoreFrom` |
 | Configurar GitHub | Ajustes «Copia automática en GitHub» / «Cambiar configuración» | Usuario, repositorio y fichero en `settings`; token en el almacén seguro; «Olvidar el token». Al guardar, si en GitHub hay una copia que el móvil no sustituiría (`foreignCopyInGithub`: un móvil nuevo), el diálogo «Ya hay una copia en GitHub» ofrece restaurarla (1.5.3) |
 | Subir | «Subir ahora» o automática | `backupToGithub`: `GET` para el `sha` de la copia que hay; si no es la del móvil (`mayReplaceCopy`), `ForeignCopyError` sin construir ni subir nada (a mano, el diálogo «En GitHub hay otra copia» con «Subir encima», que repite la subida sin esa comprobación); si lo es o no hay fichero, `PUT` con el fichero en base64 (un commit por copia) y el `sha` nuevo pasa a ser la copia del móvil; guarda `last_backup_at` o `last_backup_error` |
-| Automática | Arranque, terminar un entreno (también desde Hoy), terminar un cardio | `maybeAutoBackup`: como mucho una cada 24 h, nunca en modo pruebas ni encima de una copia que no es la del móvil, en silencio si falla o no está configurada (el motivo queda en la fila «Última copia») |
+| Automática | Arranque, salir de la app (`CopySync`, al pasar a segundo plano), terminar un entreno (también desde Hoy) o un cardio | `maybeAutoBackup` (1.5.6): solo si los datos cambiaron desde la última copia del móvil (`hasLocalChanges`: su huella frente a `app_meta('backup-fingerprint')`), como mucho cada 10 min salvo al terminar un entreno o un cardio (`force`); nunca en modo pruebas ni encima de una copia que no es la del móvil, en silencio si falla o no está configurada (el motivo queda en la fila «Última copia»). Hasta la 1.5.5, una cada 24 h aunque nada cambiara |
+| Copia de otro móvil | Arranque (tras la automática) y cada vuelta a la app, como mucho cada minuto ([CopySync.tsx](src/components/CopySync.tsx)) | `checkNewerCopy` (1.5.6): sin modo pruebas, con GitHub configurado y sin entreno ni cardio en curso, `GET` del `sha`; si no es la copia del móvil ni una ya rechazada (`syncDecision`), la descarga y la abre con la clave guardada. Diálogo «Hay una copia más nueva» (`newerCopyMessage`: «La subió otro móvil hoy a las 20:15 y tiene 377 entrenos…»): sin cambios propios, «Ahora no» · «Traer»; con cambios propios, «Ahora no» · «Subir la de este» · «Traer la otra». «Traer» → `restoreFrom` con su `sha` y `emitDataReplaced` (las pantallas enfocadas recargan); «Subir la de este» → `backupToGithub(…, true)`; «Ahora no» → `app_meta('backup-declined')`, no vuelve a preguntar por esa copia. Cifrada con otra contraseña: lo dice y remite a «Restaurar…» |
 | Restaurar de GitHub | «Restaurar…» | `downloadFromGithub` (el `sha` y después el texto raw) → igual que importar; al restaurar, ese `sha` pasa a ser la copia del móvil |
 | Poner contraseña | `/cifrado` | `setBackupPassword` → PBKDF2-HMAC-SHA256 nativo (600 000 iteraciones, sal de 16 B, mínimo 10 caracteres) → guarda la **clave derivada** (no la contraseña); si GitHub está configurado y no hay modo pruebas, sube una copia cifrada, salvo que la de GitHub no sea la del móvil (un móvil nuevo): entonces no la toca y lo dice |
 | Dejar de cifrar | ⋮ de `/cifrado` | Borra la clave guardada |

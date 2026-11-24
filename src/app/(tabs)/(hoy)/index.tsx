@@ -112,7 +112,6 @@ export default function TodayScreen() {
             <Pressable
               onPress={() => router.push('/ajustes')}
               hitSlop={8}
-              style={{ marginRight: spacing.lg }}
               accessibilityRole="button"
               accessibilityLabel="Modo pruebas activo"
               accessibilityHint="Abre los ajustes">
@@ -263,7 +262,7 @@ export default function TodayScreen() {
             return;
           }
           router.push(`/workout/resumen/${active.id}`);
-          maybeAutoBackup(db);
+          maybeAutoBackup(db, undefined, { force: true });
         },
       },
     ]);

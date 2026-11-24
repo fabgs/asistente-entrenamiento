@@ -1,5 +1,4 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import * as Haptics from 'expo-haptics';
 import { HeaderHeightContext } from 'expo-router/react-navigation';
 import { Children, Fragment, useContext, useEffect, useRef, useState, type ComponentProps, type ReactNode } from 'react';
@@ -7,6 +6,7 @@ import {
   ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +28,13 @@ import { ISO_WEEKDAYS, isoWeekdayOf, localDateString, pickerStartDate, today, WE
 import type { IsoWeekday } from '@/domain/types';
 import { cardOutline, colors, maxFontScale, quietTypes, radius, spacing, switchThumb, type, unitSize, weight, type TypeName } from '@/theme';
 import { setBottomBarHeight } from './layers';
+import { pickDate } from './datePick';
+
+/**
+ * iOS (1.5.6): the header puts its buttons in a Liquid Glass pill of its own, so they go without the
+ * margins that line them up with the 16 dp edge on Android, and scroll views adjust their insets.
+ */
+const IOS = Platform.OS === 'ios';
 
 /** Names from before the type scale, still accepted: muted = secondary, small = caption, huge = display. */
 const ALIASES = { muted: 'secondary', small: 'caption', huge: 'display' } as const satisfies Record<string, TypeName>;
@@ -84,7 +91,12 @@ export function Screen({
   const headerHeight = useContext(HeaderHeightContext) ?? 0;
   const content = [styles.screen, { gap: tight ? spacing.lg : spacing.xl }, footer ? { paddingBottom: spacing.lg } : null];
   const body = scroll ? (
-    <ScrollView style={styles.scroll} contentContainerStyle={content} keyboardShouldPersistTaps="handled">
+    // iOS (1.5.6): the scroll keeps its content clear of the floating tab bar and the home indicator.
+    <ScrollView
+      style={styles.scroll}
+      contentContainerStyle={content}
+      keyboardShouldPersistTaps="handled"
+      contentInsetAdjustmentBehavior={IOS ? 'automatic' : undefined}>
       {children}
     </ScrollView>
   ) : (
@@ -225,17 +237,13 @@ export function IconButton({
 
 /** Header action (share, ⋮…): same button, aligned with the 16 dp margin. */
 export const HeaderButton = (props: { icon: IconName; label: string; onPress: () => void }) => (
-  <View style={{ marginRight: -12 }}>
+  <View style={{ marginRight: IOS ? 0 : -12 }}>
     <IconButton {...props} />
   </View>
 );
 
-/** The same in the header of a tab, which has no margin of its own on the right. */
-export const TabHeaderButton = (props: { icon: IconName; label: string; onPress: () => void }) => (
-  <View style={{ marginRight: spacing.xs }}>
-    <IconButton {...props} />
-  </View>
-);
+/** The same in the header of a tab: since 1.5.6 each tab has a native header like the other screens. */
+export const TabHeaderButton = HeaderButton;
 
 /** Up to two header icons (share-variant, dots-vertical), for <Stack.Screen options={{ headerRight }}>. */
 export function HeaderActions({ children }: { children: ReactNode }) {
@@ -611,13 +619,12 @@ export function DateField({
   yearsAgo?: number;
 }) {
   const open = () =>
-    DateTimePickerAndroid.open({
+    pickDate({
       value: pickerStartDate(value, yearsAgo),
       mode: 'date',
+      title: label,
       maximumDate: today(),
-      onChange: (event, date) => {
-        if (event.type === 'set' && date) onChange(localDateString(date));
-      },
+      onPick: (date) => onChange(localDateString(date)),
     });
 
   return (
@@ -1035,17 +1042,15 @@ export function CheckMark({ done, onPress, round = false }: { done: boolean; onP
 
 const pad2 = (n: number) => String(n).padStart(2, '0');
 
-/** A time of day in one row ("06:00"); tapping it opens Android's clock. Uses 'HH:mm'. */
+/** A time of day in one row ("06:00"); tapping it opens the system clock. Uses 'HH:mm'. */
 export function TimeField({ label, value, onChange }: { label: string; value: string; onChange: (hhmm: string) => void }) {
   const open = () => {
     const [hour, minute] = value.split(':').map(Number);
-    DateTimePickerAndroid.open({
+    pickDate({
       value: new Date(2000, 0, 1, hour, minute),
       mode: 'time',
-      is24Hour: true,
-      onChange: (event, date) => {
-        if (event.type === 'set' && date) onChange(`${pad2(date.getHours())}:${pad2(date.getMinutes())}`);
-      },
+      title: label,
+      onPick: (date) => onChange(`${pad2(date.getHours())}:${pad2(date.getMinutes())}`),
     });
   };
   return (
@@ -1287,7 +1292,7 @@ const styles = StyleSheet.create({
   buttonText: { ...type.rowValue, flexShrink: 1 },
   buttonTextXl: type.buttonXl,
   iconButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' },
-  headerActions: { flexDirection: 'row', marginRight: -12 },
+  headerActions: { flexDirection: 'row', marginRight: IOS ? 0 : -12 },
   floating: {
     minWidth: 44,
     height: 44,

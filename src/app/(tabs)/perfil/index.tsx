@@ -1,7 +1,7 @@
-import { DateTimePickerAndroid } from '@react-native-community/datetimepicker';
 import { router, useNavigation } from 'expo-router';
 import { useLayoutEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { pickDate } from '@/components/datePick';
 import { showSnackbar } from '@/components/Dialog';
 import { LineChart } from '@/components/LineChart';
 import { MuscleWeekSection } from '@/components/MuscleWeek';
@@ -244,13 +244,12 @@ const shortDateWithYear = (iso: string) => `${formatShortDate(iso)} ${iso.slice(
 
 /** The system calendar, as DateField opens it, but from a row. */
 function pickBirthDate(value: string | null, onChange: (iso: string) => void) {
-  DateTimePickerAndroid.open({
+  pickDate({
     value: pickerStartDate(value, 25),
     mode: 'date',
+    title: 'Fecha de nacimiento',
     maximumDate: todayDate(),
-    onChange: (event, date) => {
-      if (event.type === 'set' && date) onChange(localDateString(date));
-    },
+    onPick: (date) => onChange(localDateString(date)),
   });
 }
 

@@ -5,6 +5,8 @@ import { StatusBar } from 'expo-status-bar';
 import * as SystemUI from 'expo-system-ui';
 import { useEffect, useState } from 'react';
 import { Appearance, View } from 'react-native';
+import { CopySync, offerNewerCopy } from '@/components/CopySync';
+import { DatePickerHost } from '@/components/DatePicker';
 import { DialogHost, showSnackbar, SnackbarHost } from '@/components/Dialog';
 import { migrate } from '@/db/migrations';
 import { setBackupLink } from '@/db/repositories/backupLink';
@@ -70,6 +72,8 @@ function Bootstrap() {
         showSnackbar(recovered.added === 1 ? 'Foto añadida' : `${recovered.added} fotos añadidas`);
       }
       await maybeAutoBackup(db);
+      // Another phone may have uploaded a newer copy meanwhile (1.5.6).
+      await offerNewerCopy(db);
     })().catch((e) => console.warn('Start-up tasks failed', e));
   }, [db]);
 
@@ -101,8 +105,11 @@ export default function RootLayout() {
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <SQLiteProvider databaseName={DATABASE} onInit={(db) => initDatabase(db, key)}>
         <Bootstrap />
+        <CopySync />
         <Stack
-          screenOptions={{ ...headerOptions, contentStyle: { backgroundColor: colors.bg } }}>
+          // iOS (1.5.6): only the arrow on the back button, as in iOS 26, never the name of the
+          // screen before (the tabs had none and showed «(tabs)»).
+          screenOptions={{ ...headerOptions, contentStyle: { backgroundColor: colors.bg }, headerBackButtonDisplayMode: 'minimal' }}>
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="workout/[sessionId]" options={{ title: 'Entrenando' }} />
           <Stack.Screen name="workout/resumen/[sessionId]" options={{ title: 'Resumen' }} />
@@ -134,6 +141,7 @@ export default function RootLayout() {
         </Stack>
         <SnackbarHost />
         <DialogHost />
+        <DatePickerHost />
       </SQLiteProvider>
     </ThemeProvider>
   );

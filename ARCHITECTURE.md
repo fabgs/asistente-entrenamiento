@@ -4,9 +4,9 @@ Documentación técnica de la app: capas, pantallas y navegación, base de datos
 
 | | |
 |---|---|
-| Versión de la app | **1.5.4** (`versionCode` 27, [app.json](app.json)) |
+| Versión de la app | **1.5.5** (`versionCode` 28, `buildNumber` 28 en iOS, [app.json](app.json)) |
 | Esquema de la BD | **17** (`PRAGMA user_version`, 17 migraciones) |
-| Revisado | 2026-11-24, versión 1.5.4 (el descanso ya no se corta al elegir en la lista un ejercicio terminado; «Una serie más» en el descanso con `workout_session.next_extra`, migración 17; en Dieta · Hoy, la cantidad de hoy de un alimento y lo comido fuera del plan; la duración de la imagen del entreno con sus unidades pequeñas) |
+| Revisado | 2026-11-24, versión 1.5.5 (la app en iPhone sin Mac: `.ipa` sin firmar en GitHub Actions, `pbkdf2Sha256` en Swift, lo que solo tiene Android oculto en iOS) y 1.5.4 (el descanso ya no se corta al elegir en la lista un ejercicio terminado; «Una serie más» en el descanso con `workout_session.next_extra`, migración 17; en Dieta · Hoy, la cantidad de hoy de un alimento y lo comido fuera del plan; la duración de la imagen del entreno con sus unidades pequeñas) |
 
 **Índice**: [1. Capas](#1-resumen-y-capas) · [2. Pantallas](#2-pantallas) · [3. Mapa de navegación](#3-mapa-de-navegación) · [4. Base de datos](#4-base-de-datos) · [5. Flujos](#5-flujos-principales) · [6. Segundo plano y nativo](#6-segundo-plano-y-nativo) · [7. Mantener este documento](#7-cómo-mantener-este-documento)
 
@@ -28,6 +28,7 @@ App Android personal (un usuario, sin servidor) para entrenar fuerza con progres
 | Secretos | `expo-secure-store` (Keystore): clave de la BD, clave de las copias, token de GitHub |
 | Gráficas y mapas | `react-native-svg` (propias), `react-native-webview` + MapLibre GL JS (mapa 3D), teselas OSM/PNOA |
 | Fotos | `expo-image-picker` (cámara y selector de fotos del sistema), `expo-image-manipulator` (copia reducida a 2160 px), `expo-file-system` (carpeta `Documents/photos/`) |
+| iOS (1.5.5) | Sin Mac: `expo prebuild --platform ios` + CocoaPods + `xcodebuild` sin firmar en GitHub Actions ([ios.yml](.github/workflows/ios.yml), `macos-26`, Xcode 26.6); la firma la pone SideStore en el iPhone con un Apple ID gratuito (7 días, renovable desde el móvil). `ios.bundleIdentifier` `com.fabgs.entreno`, sin notificaciones remotas, ubicación en segundo plano (`UIBackgroundModes: location`) |
 | Builds y firma | `expo prebuild` + Gradle; release firmado con la clave propia ([withReleaseSigning.js](plugins/withReleaseSigning.js)) y la prueba de rotación desde la clave pública de la plantilla ([sign_release.py](scripts/sign_release.py), [entreno-rotation.lineage](signing/entreno-rotation.lineage)); ver AGENTS.md |
 | Otros | `react-native-body-highlighter` (silueta), `react-native-view-shot` + `expo-sharing` + `expo-media-library` (imagen para compartir), `expo-crypto` (AES-GCM), `date-fns` |
 
@@ -1134,7 +1135,7 @@ erDiagram
 4. Fichero cifrado sin su clave en el móvil → lo aparta como `entreno-ilegible-<ms>.db` y empieza vacía (hay que restaurar una copia).
 5. Se abre con `PRAGMA key = "x'…'"` (clave en bruto) como primera sentencia de `onInit`. La tarea GPS abre su propia conexión con la misma clave (`openDatabaseInBackground`).
 
-`android.allowBackup: false`: ni la BD ni el almacén seguro van a la copia de Google.
+`android.allowBackup: false`: ni la BD ni el almacén seguro van a la copia de Google. En iOS (1.5.5) la clave se guarda con `AFTER_FIRST_UNLOCK_THIS_DEVICE_ONLY`: la lee la tarea del GPS con el móvil bloqueado y no viaja en una copia de iCloud (una base restaurada desde iCloud en otro iPhone se aparta, como en el punto 4, y se restaura la copia de GitHub).
 
 ### 4.6 Almacén seguro (Keystore)
 
@@ -1465,7 +1466,9 @@ Los canales de Android son inmutables: cambiar sonido o importancia exige un id 
 
 ### 6.3 Módulo `rest-timer`
 
-API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptionalNativeModule`: en Jest o sin el módulo, las llamadas no hacen nada; las funciones nuevas son opcionales para JS más nuevo que el APK).
+API en [modules/rest-timer/index.ts](modules/rest-timer/index.ts) (`requireOptionalNativeModule`: en Jest o sin el módulo, las llamadas no hacen nada; **todas** las funciones son opcionales, para JS más nuevo que el APK y para iOS).
+
+**En iOS** (1.5.5, [RestTimerModule.swift](modules/rest-timer/ios/RestTimerModule.swift), `apple` en `expo-module.config.json`) el módulo solo tiene `pbkdf2Sha256` (CommonCrypto, `CCKeyDerivationPBKDF`, el mismo resultado que `Pbkdf2.kt` y Node): sin él no se abre una copia cifrada. El resto de la tabla es de Android: en iOS no hay cuenta atrás en bloqueo ni «Entreno en curso», burbuja, pitido de salida, GPS del chip ni botones de volumen; las llamadas no hacen nada y `ANDROID_ALARM_SETTINGS` ([notifications.ts](src/services/notifications.ts)) quita en Ajustes la burbuja, las alarmas exactas y la batería, y en el descanso el aviso de la burbuja.
 
 | Función JS | Kotlin | Qué hace | La llama |
 |---|---|---|---|

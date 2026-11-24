@@ -69,6 +69,28 @@ jobs:
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           ls -la dist
 
+      # Lo que no se ve sin abrir el .ipa, como anotaciones (el registro pide iniciar sesión; las
+      # anotaciones no): el módulo propio registrado, la clave de las copias en el binario, y el Info.plist.
+      - name: Comprobar el .ipa
+        run: |
+          APP=$(ls -d build/app.xcarchive/Products/Applications/*.app | head -1)
+          PLIST="$APP/Info.plist"
+          BIN="$APP/$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$PLIST")"
+          if grep -rqs "RestTimerModule" ios/Pods/Target\ Support\ Files/*/ExpoModulesProvider.swift; then
+            echo "::notice title=Módulo propio::RestTimerModule registrado en ExpoModulesProvider"
+          else
+            echo "::warning title=Módulo propio::RestTimerModule no aparece en ExpoModulesProvider"
+          fi
+          if strings "$BIN" | grep -q "pbkdf2Sha256"; then
+            echo "::notice title=Clave de las copias::pbkdf2Sha256 está en el binario"
+          else
+            echo "::warning title=Clave de las copias::pbkdf2Sha256 no está en el binario"
+          fi
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
+          MODES=$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$PLIST" 2>/dev/null | tr -s ' \n' ' ')
+          echo "::notice title=Info.plist::$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$PLIST") $VERSION ($BUILD), MinimumOSVersion $(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$PLIST"), UIBackgroundModes$MODES"
+
       - uses: actions/upload-artifact@v7
         with:
           name: Entreno-${{ env.VERSION }}-ios

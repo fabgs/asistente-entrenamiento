@@ -47,6 +47,16 @@ GitHub compila la app de iPhone sin firmar ([.github/workflows/ios.yml](.github/
 5. En el iPhone: Ajustes → General → VPN y gestión de dispositivos → tu Apple ID → Confiar («Permitir y reiniciar»); después Ajustes → Privacidad y seguridad → **Modo de desarrollador**, activado (se reinicia).
 6. Con LocalDevVPN conectada, abre SideStore, entra con el mismo Apple ID y, en «My Apps», toca el contador «7 DAYS» de SideStore para renovarla.
 
+**Si SideStore no te deja iniciar sesión** (errores «HTTP 401 … PTM/TK» o «ADI native error -45063»: desde el 20 de noviembre de 2026 Apple rechaza su inicio de sesión de siempre; incidencias [#1745](https://github.com/SideStore/SideStore/issues/1745) y [#1765](https://github.com/SideStore/SideStore/issues/1765)). Así entró el 24 de noviembre:
+
+1. «Close» en la pantalla de inicio de sesión. Settings → User Customizations → desactiva **On-Device Anisette** y cierra SideStore del todo.
+2. Settings → User Customizations → **Reset adi.pb**, sin «Keep headers» → Reset & Sign Out.
+3. Settings → Anisette Servers → **`https://mac-ani.jkcoxson.com`**, con «Enable Auto Rotation» desactivado.
+4. User Customizations → Anisette Client Configuration → Remote Server Sync → **Fetch** → **Save as Overrides**. En **Client Info** cambia la versión para que quede `<MacBookPro13,3> <Mac OS X;26.6;25F84> <com.apple.AuthKit/1 (com.apple.akd/1.0)>` (el User Agent, como venga) → **Save Overrides**. Nunca «Reset to Defaults» ahí.
+5. Cierra SideStore del todo, conecta LocalDevVPN, ábrela e inicia sesión.
+
+**Déjalo así:** el Modo de desarrollador activado (sin él no abren ni SideStore ni Entreno), LocalDevVPN conectada y la actualización en segundo plano de SideStore activada (Ajustes → General), para que renueve sola. No borres Entreno: se van sus datos del iPhone.
+
 **Cada versión de Entreno:**
 
 1. En GitHub: **Actions → iOS → Run workflow** (tarda unos 25 minutos).

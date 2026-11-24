@@ -81,10 +81,12 @@ jobs:
           else
             echo "::warning title=Módulo propio::RestTimerModule no aparece en ExpoModulesProvider"
           fi
-          if strings "$BIN" | grep -q "pbkdf2Sha256"; then
-            echo "::notice title=Clave de las copias::pbkdf2Sha256 está en el binario"
+          # Swift guarda dentro del código las cadenas de 15 bytes o menos («pbkdf2Sha256»): se busca
+          # el mensaje de error del módulo, que es más largo.
+          if strings "$BIN" | grep -q "No se pudo calcular la clave de las copias"; then
+            echo "::notice title=Clave de las copias::RestTimerModule.swift está en el binario"
           else
-            echo "::warning title=Clave de las copias::pbkdf2Sha256 no está en el binario"
+            echo "::warning title=Clave de las copias::RestTimerModule.swift no está en el binario"
           fi
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")

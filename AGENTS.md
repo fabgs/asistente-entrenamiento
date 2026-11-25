@@ -64,6 +64,8 @@ Lo que dependa de notificaciones, segundo plano o permisos **no está terminado 
 
 No subas nunca el Excel, copias de seguridad (`*.json` exportados), tokens, APKs ni datos personales (fecha de nacimiento, etc.). Revisa `git status` antes de cada commit.
 
+**Licencia**: el proyecto es AGPL-3.0-or-later ([LICENSE](LICENSE), [NOTICE](NOTICE)). No copies código ni recursos de otros proyectos sin comprobar que su licencia es compatible, y antes de añadir una dependencia mira la suya (MIT, Apache-2.0, BSD, ISC… sí; «no comercial» o propietaria, no).
+
 ## Commits
 
 Conventional commits, mensaje en español: `feat(entreno): descanso con notificación programada`, `fix(dieta): ...`, `docs(plan): ...`.

@@ -3,6 +3,7 @@
   "version": "1.5.7",
   "main": "expo-router/entry",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "expo start --dev-client",
     "android": "expo run:android",

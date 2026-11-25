@@ -10,6 +10,8 @@ App personal (Android, y en iPhone sin Mac: ver abajo) para entrenar con progres
 
 Stack: Expo SDK 58 (React Native) + TypeScript · expo-router · expo-sqlite · expo-notifications.
 
+**Licencia:** Copyright (C) 2026 Fabián Godoy Silvestre. Software libre bajo la [GNU Affero General Public License v3.0](LICENSE) o posterior (`AGPL-3.0-or-later`): puedes usarlo, estudiarlo, modificarlo y redistribuirlo, pero cualquier versión modificada que distribuyas (o que ofrezcas a otros a través de una red) tiene que publicarse con su código fuente y bajo la misma licencia. Sin ninguna garantía. Detalles en [NOTICE](NOTICE).
+
 ## Desarrollo
 
 Requisitos: Node 22, JDK 17 y el SDK de Android (`ANDROID_HOME`).

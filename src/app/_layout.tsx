@@ -15,6 +15,7 @@ import { SEED } from '@/db/seedData';
 import { useDb } from '@/hooks/data';
 import { maybeAutoBackup, resetIfNewInstallInDevMode } from '@/services/backup';
 import { restoreCardioInProgress } from '@/services/cardioSession';
+import { clearStaleLiveActivity } from '@/services/liveCardio';
 import { rescheduleDailyReminders } from '@/services/dailyReminder';
 // Defines the background GPS task as soon as the bundle loads (PLAN.md §6.8).
 import '@/services/gpsTracker';
@@ -64,6 +65,8 @@ function Bootstrap() {
       await rescheduleDailyReminders(db);
       await restoreWorkoutInProgress(db);
       await restoreCardioInProgress(db);
+      // iOS: a Live Activity left from a workout or a walk that is no longer in progress (1.5.7).
+      await clearStaleLiveActivity(db);
       // Android may have closed the app while the camera or the gallery was open.
       const recovered = await recoverPendingPhotos(db);
       if (recovered) {

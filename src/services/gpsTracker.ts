@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import * as TaskManager from 'expo-task-manager';
 import { storeTrackPoints } from '@/db/repositories/cardioSessions';
 import { startSprintGnss, stopSprintGnss, takeSprintGnss } from '../../modules/rest-timer';
+import { refreshLiveWalk } from './liveCardio';
 import { notifyFollow } from './routeAlert';
 import { openDatabaseInBackground } from './secureDatabase';
 import { colors } from '@/theme';
@@ -39,6 +40,8 @@ TaskManager.defineTask<{ locations: Location.LocationObject[] }>(GPS_TASK, async
     // also with the screen locked, and starts the listener again in a process Android restarted.
     if (sprint) await drainSprintGnss(db);
     if (follow) await notifyFollow(follow).catch((e) => console.warn('Could not alert about the route', e));
+    // iOS: the distance and the pace of the Live Activity, also with the phone locked (1.5.7).
+    if (!sprint) await refreshLiveWalk(db, receivedAt).catch(() => undefined);
   };
   queue = queue.then(batch).catch((e) => console.warn('Could not store GPS points', e));
   await queue;

@@ -1,6 +1,6 @@
 {
   "name": "entreno",
-  "version": "1.5.6",
+  "version": "1.5.7",
   "main": "expo-router/entry",
   "private": true,
   "scripts": {
@@ -54,6 +54,7 @@
     "react-native-worklets": "0.13.0"
   },
   "devDependencies": {
+    "@bacons/apple-targets": "^5.0.0",
     "@types/jest": "30.0.0",
     "@types/node": "~26.6",
     "@types/react": "~19.3.0",

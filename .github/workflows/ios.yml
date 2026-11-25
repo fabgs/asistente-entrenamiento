@@ -88,6 +88,12 @@ jobs:
           else
             echo "::warning title=Clave de las copias::RestTimerModule.swift no está en el binario"
           fi
+          # La Actividad en directo (1.5.7): su extensión dentro de la app y la clave que la permite.
+          if ls -d "$APP"/PlugIns/*.appex >/dev/null 2>&1; then
+            echo "::notice title=Extensiones::$(cd "$APP/PlugIns" && ls -d *.appex | tr '\n' ' ')· NSSupportsLiveActivities $(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$PLIST" 2>/dev/null || echo 'no')"
+          else
+            echo "::warning title=Extensiones::La app no lleva ninguna extensión (falta la de la Actividad en directo)"
+          fi
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$PLIST")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$PLIST")
           MODES=$(/usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' "$PLIST" 2>/dev/null | tr -s ' \n' ' ')

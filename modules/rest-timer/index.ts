@@ -1,4 +1,5 @@
 import { requireOptionalNativeModule } from 'expo';
+import type { LiveCardio } from '@/domain/liveActivity';
 
 /**
  * Every function is optional: the iOS module (1.5.5) only has `pbkdf2Sha256`, and an APK older than
@@ -28,6 +29,9 @@ interface RestTimerNative {
   startSprintGnss?: () => boolean;
   stopSprintGnss?: () => void;
   takeSprintGnss?: () => number[][] | null;
+  /** iOS only (1.5.7): the Live Activity of a walk, and ending whatever Live Activity there is. */
+  showCardioActivity?: (walk: LiveCardio) => void;
+  endLiveActivities?: () => void;
 }
 
 /** A sprint stopped without the screen: with a volume button or the notification's «Parar». */
@@ -153,6 +157,20 @@ export function takeSprintGnss(): GnssFix[] | null {
  */
 export async function pbkdf2Sha256(password: string, salt: string, iterations: number): Promise<string | null> {
   return native?.pbkdf2Sha256 ? native.pbkdf2Sha256(password, salt, iterations) : null;
+}
+
+/**
+ * iOS (1.5.7): a walk being recorded on the lock screen and in the Dynamic Island, its time counted
+ * by iOS from `activeStart`. Calling it again updates it. Nothing on Android, which has the
+ * notification of the GPS service.
+ */
+export function showCardioActivity(walk: LiveCardio): void {
+  native?.showCardioActivity?.(walk);
+}
+
+/** iOS (1.5.7): ends the Live Activity, whatever it shows. */
+export function endLiveActivities(): void {
+  native?.endLiveActivities?.();
 }
 
 export function canDrawOverlays(): boolean {

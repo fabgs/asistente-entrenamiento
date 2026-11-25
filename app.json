@@ -2,23 +2,24 @@
   "expo": {
     "name": "Entreno",
     "slug": "entreno",
-    "version": "1.5.6",
+    "version": "1.5.7",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "entreno",
     "userInterfaceStyle": "dark",
     "ios": {
       "bundleIdentifier": "com.fabgs.entreno",
-      "buildNumber": "29",
+      "buildNumber": "30",
       "supportsTablet": false,
       "infoPlist": {
         "NSPhotoLibraryAddUsageDescription": "Entreno guarda en tus fotos las imágenes para compartir y las fotos que haces con la cámara.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSupportsLiveActivities": true
       }
     },
     "android": {
       "package": "com.fabgs.entreno",
-      "versionCode": 29,
+      "versionCode": 30,
       "adaptiveIcon": {
         "backgroundColor": "#0E1116",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -86,7 +87,8 @@
           "locationWhenInUsePermission": "Entreno usa tu ubicación para grabar tus caminatas y sprints, también con la pantalla bloqueada.",
           "motionUsagePermission": false
         }
-      ]
+      ],
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": true,

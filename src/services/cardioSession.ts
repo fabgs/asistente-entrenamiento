@@ -19,13 +19,19 @@ import { cancelCardioTimer, scheduleCardioTimer } from './cardioTimer';
 import { SPRINT_GPS, startGpsTracking, stopGpsTracking, WALK_GPS, type GpsStart } from './gpsTracker';
 import { deletingPhotosOf } from './photos';
 import { dismissRouteAlert } from './routeAlert';
+import { endLiveWalk, showLiveWalk } from './liveCardio';
 import { applyButtonStop, finishSprints, stopSprintTracking, syncSprint } from './sprintSession';
 
 /** When the plan's clock would have started without the pauses so far. */
 const planStart = (session: CardioSession, now: number) => now - activeMs(session, now);
 
-async function startTracking(session: CardioSession, now: number, prompt = true): Promise<GpsStart> {
-  if (session.tracking === 'gps') return startGpsTracking(WALK_GPS);
+async function startTracking(db: Db, session: CardioSession, now: number, prompt = true): Promise<GpsStart> {
+  if (session.tracking === 'gps') {
+    const gps = await startGpsTracking(WALK_GPS);
+    // iOS: on the lock screen and in the Dynamic Island while it records (1.5.7).
+    if (gps === 'ok') await showLiveWalk(db, session, now).catch(() => undefined);
+    return gps;
+  }
   if (session.tracking === 'sprint') {
     const gps = await startGpsTracking(SPRINT_GPS, { prompt });
     await syncSprint(session, now);
@@ -53,7 +59,7 @@ export async function startCardio(
 ): Promise<{ sessionId: number; gpsError?: Exclude<GpsStart, 'ok'> } | { error: Exclude<GpsStart, 'ok'> }> {
   const sessionId = await startCardioSession(db, activity, now, followRouteId);
   const session = (await getCardioSession(db, sessionId))!;
-  const result = await startTracking(session, now).catch((): GpsStart => 'off');
+  const result = await startTracking(db, session, now).catch((): GpsStart => 'off');
   if (result === 'ok') return { sessionId };
   if (session.tracking === 'sprint') return { sessionId, gpsError: result };
   await discardCardioSession(db, sessionId);
@@ -64,6 +70,8 @@ export async function pauseCardio(db: Db, session: CardioSession, now = Date.now
   await stopTracking(session);
   await pauseCardioSession(db, session.id, now);
   await dismissRouteAlert(session.id);
+  // iOS: the Live Activity stops its time and says so (1.5.7).
+  await showLiveWalk(db, (await getCardioSession(db, session.id))!, now).catch(() => undefined);
 }
 
 /** Follows a route on the walk being recorded, stops following it (null), or puts it back with its state. */
@@ -80,14 +88,14 @@ export async function setRouteAlert(db: Db, on: boolean, session: CardioSession 
 
 export async function resumeCardio(db: Db, session: CardioSession, now = Date.now()): Promise<GpsStart> {
   await resumeCardioSession(db, session.id, now);
-  return startTracking((await getCardioSession(db, session.id))!, now);
+  return startTracking(db, (await getCardioSession(db, session.id))!, now);
 }
 
 /** After the app was closed, the recording may have stopped (e.g. a reboot): start it again. */
 export async function ensureCardioRunning(db: Db, session: CardioSession, now = Date.now()): Promise<void> {
   if (session.status !== 'in_progress' || session.pausedAt !== null) return;
   // Sprints resume quietly: no permission dialog and no switching the location on behind a screen.
-  await startTracking(session, now, session.tracking !== 'sprint');
+  await startTracking(db, session, now, session.tracking !== 'sprint');
 }
 
 /** At start-up: sprints left running get their GPS, their next beep and their countdown back. */
@@ -108,6 +116,7 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
   await stopTracking(session);
   await finishCardioSession(db, session.id, now);
   await dismissRouteAlert(session.id);
+  if (session.tracking === 'gps') endLiveWalk();
   if (session.tracking === 'gps') {
     // A walk that repeats a saved route is linked to it by itself; a failure here must not lose the walk.
     await linkToRepeatedRoute(db, session.id).catch((e) => console.warn('Could not match the walk with a route', e));
@@ -116,6 +125,7 @@ export async function finishCardio(db: Db, session: CardioSession, now = Date.no
 
 export async function discardCardio(db: Db, session: CardioSession): Promise<void> {
   await stopTracking(session);
+  if (session.tracking === 'gps') endLiveWalk();
   await dismissRouteAlert(session.id);
   await deletingPhotosOf(db, { kind: 'cardio', id: session.id }, () => discardCardioSession(db, session.id));
 }

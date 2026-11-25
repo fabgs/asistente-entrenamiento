@@ -1046,13 +1046,15 @@ Pedida por el usuario el 2026-11-25 tras salir a andar con la 1.5.6 («sí que e
 - [x] 35.3 **La caminata**: tiempo sin las pausas, distancia y ritmo medio (`src/domain/liveActivity.ts`, con tests); la pone el inicio de la grabación y la refresca la tarea del GPS cada 10 s, también con el móvil bloqueado; en pausa, el tiempo parado y «En pausa». Al arrancar la app sin nada en curso se quita la que hubiera quedado.
 - [x] 35.4 **GitHub**: el flujo comprueba que la extensión va dentro del `.ipa`. La primera compilación falló en `npm ci`: el lock, hecho con npm 11, no traía el TypeScript 5 que el plugin pide como dependencia par y el npm 10 de Node 22 exige; se regeneró con npm 10 (AGENTS.md lo dice para la próxima). La segunda, a la primera con el Swift nuevo.
 - [x] Emulador (Android, 2026-11-25): la caminata se inicia, se pausa, sigue y se descarta como antes (la notificación «Grabando la ruta» sale y se va); en Android las funciones nuevas no hacen nada.
-- [ ] iPhone: instalar eligiendo «Keep app extensions (register App ID…)»; ver el descanso en la isla y en el bloqueo (y «0:00» al acabar), «Entreno en curso» entre series, una caminata con el móvil bloqueado (distancia y ritmo cambiando), pausar, y que al terminar se quita. **Sin probar en un iPhone**.
+- [x] iPhone (2026-11-25, instalada con «Keep app extensions (register App ID…)»): el usuario probó un entreno y una caminata, que luego borró, y «parece que va todo bien». Salen en el bloqueo y en la isla compacta el descanso («Serie 2 de 3 · Fondos en paral…», contando hacia atrás), «Entreno en curso» en el calentamiento (contando hacia arriba) y la caminata («Grabando la ruta», tiempo y «0 m» a los 14 s).
+- [ ] Falta ver en el iPhone el «0:00» al acabar el descanso, la distancia y el ritmo cambiando en una caminata larga con el móvil bloqueado, la pausa y que la Actividad se quita al terminar.
 
 #### Por asignar (entran en la versión que toque)
 - **Constancia**: series hechas frente a las planificadas, semana a semana (8–12 semanas), en Músculos.
 - **Avisos del plan** en el editor de rutinas: un músculo trabajado un solo día a la semana; sprints a menos de 24 h de trabajo excéntrico de isquios.
 - **Hacer otra cosa**: un ejercicio «solo hoy» dentro de un entreno de rutina y un peso solo para esa sesión (uno del catálogo que no está en ninguna rutina ya se puede hacer suelto, 1.4.6).
 - Elegir el encuadre de la foto al compartir.
+- **iOS, Actividad en directo**: en la pantalla de bloqueo el título se corta pronto («Día 1: Torso (E…»). El reloj de iOS ocupa todo el ancho que se le deja y su columna tiene 150 pt. Calcular su ancho a partir de lo que vaya a enseñar, y en el descanso poner antes el ejercicio que la serie. Entra con el próximo cambio para el iPhone, para no pedir una instalación solo por esto.
 
 #### Después
 **Cuentas y servidor** (propuesta en §16), después de la 1.5.2. Más adelante: widget de Hoy y Health Connect (N: juntos, para recompilar una vez), registro de comidas y lista de la compra, agenda de estudio, iOS.

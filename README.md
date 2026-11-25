@@ -61,10 +61,12 @@ GitHub compila la app de iPhone sin firmar ([.github/workflows/ios.yml](.github/
 
 1. En GitHub: **Actions → iOS → Run workflow** (tarda unos 25 minutos).
 2. En el iPhone, con Safari y la sesión de GitHub iniciada: abre esa ejecución, baja a «Artifacts» y descarga `Entreno-<versión>-ios`. Es un `.zip`: tócalo en Archivos y sale `Entreno-<versión>.ipa`. Se borra de GitHub a los 2 días.
-3. En SideStore, con LocalDevVPN conectada: «My Apps» → «+» → elige el `.ipa`. Instalarlo encima de una versión anterior conserva los datos.
+3. En SideStore, con LocalDevVPN conectada: «My Apps» → «+» → elige el `.ipa`. Instalarlo encima de una versión anterior conserva los datos. Desde la 1.5.7 la app lleva una extensión (la Actividad en directo) y SideStore pregunta qué hacer con ella: elige **«Keep app extensions (register App ID for each extension)»** (gasta un App ID más de los 10 por semana de la cuenta gratuita, una vez). Si eliges quitarla, la app funciona igual pero sin la Actividad en directo.
 
 **Cada semana:** SideStore renueva solo en segundo plano si LocalDevVPN está conectada; si no, abre SideStore y toca el contador. Si se pasan los 7 días, Entreno no abre hasta renovar, pero no pierde nada.
 
 **Tus datos:** en la app, siete toques en la versión del pie de Ajustes muestran la copia en GitHub; pon el repositorio y el token, y al guardar ofrece restaurar la copia («Ya hay una copia en GitHub»), con la contraseña de las copias.
 
-**De momento, en iPhone no hay**: cuenta atrás en la pantalla de bloqueo, burbuja, pitido de salida ni GPS del chip en los sprints, ni parar un sprint con los botones de volumen. El fin del descanso es una notificación normal: con el iPhone en silencio, solo vibra. Durante una caminata no cierres la app deslizándola: iOS corta el GPS.
+**Actividad en directo** (1.5.7): la cuenta atrás del descanso, «Entreno en curso», las Fases, los sprints y la caminata (tiempo, distancia y ritmo) salen en la pantalla de bloqueo y en la Dynamic Island. Se activa en Ajustes del iPhone → Entreno → Actividades en directo (viene activada).
+
+**De momento, en iPhone no hay**: burbuja (iOS no la permite), pitido de salida ni GPS del chip en los sprints, ni parar un sprint con los botones de volumen. El fin del descanso es una notificación normal: con el iPhone en silencio, solo vibra. Durante una caminata no cierres la app deslizándola: iOS corta el GPS.
